@@ -170,6 +170,16 @@ ctest --test-dir build -L netlab --output-on-failure
 - `connectivity` – RoutePlan rule generation
 - `ai` – AI route plan validation and merge
 
+## Releases
+
+Tags matching `v*` trigger the release workflow. It builds and tests Linux, macOS, and Windows packages, then
+uploads the packaged binaries to the matching GitHub Release.
+
+```sh
+git tag v0.1.0-alpha
+git push origin v0.1.0-alpha
+```
+
 ## Stack
 
 | Layer | Choice |

@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: linux-x64
+            archive: tar.gz
+          - os: macos-latest
+            asset: macos
+            archive: tar.gz
+          - os: windows-latest
+            asset: windows-x64
+            archive: zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool pkg-config
+        if: runner.os == 'Linux'
+
+      - name: Install system dependencies (macOS)
+        run: brew install ninja autoconf autoconf-archive automake libtool pkg-config
+        if: runner.os == 'macOS'
+
+      - name: Setup MSVC (Windows)
+        uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - name: Install vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git .vcpkg
+          ./.vcpkg/bootstrap-vcpkg.sh
+        shell: bash
+        if: runner.os != 'Windows'
+
+      - name: Install vcpkg (Windows)
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git .vcpkg
+          .\.vcpkg\bootstrap-vcpkg.bat
+        if: runner.os == 'Windows'
+
+      - name: Configure
+        run: cmake --preset local-vcpkg
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+        if: runner.os != 'Windows'
+
+      - name: Configure (Windows)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}\.vcpkg\scripts\buildsystems\vcpkg.cmake"
+        if: runner.os == 'Windows'
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --preset local-vcpkg -C Release --output-on-failure
+        if: runner.os != 'Windows'
+
+      - name: Test (Windows)
+        run: ctest --test-dir build -C Release --output-on-failure
+        if: runner.os == 'Windows'
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          name="kiko-${GITHUB_REF_NAME}-${{ matrix.asset }}"
+          mkdir -p "dist/${name}"
+          cp build/kiko "dist/${name}/"
+          cp README.md LICENSE "dist/${name}/"
+          tar -czf "dist/${name}.tar.gz" -C dist "${name}"
+        shell: bash
+        if: runner.os != 'Windows'
+
+      - name: Package (Windows)
+        run: |
+          $name = "kiko-${env:GITHUB_REF_NAME}-${{ matrix.asset }}"
+          New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
+          Copy-Item "build/kiko.exe" "dist/$name/"
+          Copy-Item "README.md" "dist/$name/"
+          Copy-Item "LICENSE" "dist/$name/"
+          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip" -Force
+        if: runner.os == 'Windows'
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiko-${{ matrix.asset }}
+          path: dist/kiko-${{ github.ref_name }}-${{ matrix.asset }}.${{ matrix.archive }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
+          gh release upload "$TAG" dist/* --clobber
