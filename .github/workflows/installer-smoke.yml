@@ -1,0 +1,46 @@
+name: Installer Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"
+  push:
+    branches: [main, master]
+    paths:
+      - "README.md"
+      - "scripts/install.sh"
+      - "scripts/install.ps1"
+      - ".github/workflows/installer-smoke.yml"
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install from README command (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          KIKO_INSTALL_DIR: ${{ runner.temp }}/kiko-bin
+        run: |
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh | sh
+          "$KIKO_INSTALL_DIR/kiko" --help
+          "$KIKO_INSTALL_DIR/kiko" doctor --help
+
+      - name: Install from README command (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          KIKO_INSTALL_DIR: ${{ runner.temp }}\kiko-bin
+        run: |
+          irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
+          & "$env:KIKO_INSTALL_DIR\kiko.exe" --help
+          & "$env:KIKO_INSTALL_DIR\kiko.exe" doctor --help
