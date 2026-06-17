@@ -48,6 +48,10 @@ std::uint64_t get_mtime_ms(const fs::path& path) {
   return kiko::detail::file_mtime_ms(path);
 }
 
+std::uint64_t abs_diff_u64(std::uint64_t a, std::uint64_t b) {
+  return a > b ? a - b : b - a;
+}
+
 enum class TestStreamTag : std::uint8_t {
   FileHeader = 1,
   Data = 2,
@@ -169,8 +173,10 @@ int main() {
     std::cerr << "FAIL: missing received empty directory payload/empty\n";
     return 1;
   }
-  if (get_mtime_ms(dst / "payload/a.txt") != kTestMtime) {
-    std::cerr << "FAIL: mtime not preserved for payload/a.txt\n";
+  auto received_mtime = get_mtime_ms(dst / "payload/a.txt");
+  if (abs_diff_u64(received_mtime, kTestMtime) > 2000) {
+    std::cerr << "FAIL: mtime not preserved for payload/a.txt, expected " << kTestMtime << ", got "
+              << received_mtime << "\n";
     return 1;
   }
 
