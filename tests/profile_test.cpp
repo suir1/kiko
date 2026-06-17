@@ -12,7 +12,11 @@ int main() {
 
   const auto path = fs::temp_directory_path() / ("kiko_profile_test_" + std::to_string(process_id()) + ".json");
   fs::remove(path);
+#ifdef _WIN32
+  _putenv_s("KIKO_PROFILE_PATH", path.string().c_str());
+#else
   setenv("KIKO_PROFILE_PATH", path.string().c_str(), 1);
+#endif
 
   PunchStats stats;
   stats.attempted = true;

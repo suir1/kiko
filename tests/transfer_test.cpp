@@ -1,3 +1,4 @@
+#include "file_metadata.hpp"
 #include "transfer.hpp"
 #include "platform.hpp"
 #include "protocol.hpp"
@@ -40,16 +41,11 @@ std::string random_blob(std::size_t n) {
 }
 
 void set_mtime_ms(const fs::path& path, std::uint64_t ms) {
-  auto sys = std::chrono::system_clock::time_point{std::chrono::milliseconds{ms}};
-  auto ft = std::chrono::file_clock::from_sys(sys);
-  fs::last_write_time(path, ft);
+  kiko::detail::apply_mtime_ms(path, ms);
 }
 
 std::uint64_t get_mtime_ms(const fs::path& path) {
-  auto ft = fs::last_write_time(path);
-  auto sys = std::chrono::file_clock::to_sys(ft);
-  return static_cast<std::uint64_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(sys.time_since_epoch()).count());
+  return kiko::detail::file_mtime_ms(path);
 }
 
 enum class TestStreamTag : std::uint8_t {

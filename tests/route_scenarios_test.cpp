@@ -44,7 +44,11 @@ int main() {
   const auto profile_path =
       fs::temp_directory_path() / ("kiko_route_scenarios_" + std::to_string(process_id()) + ".json");
   fs::remove(profile_path);
+#ifdef _WIN32
+  _putenv_s("KIKO_PROFILE_PATH", profile_path.string().c_str());
+#else
   setenv("KIKO_PROFILE_PATH", profile_path.string().c_str(), 1);
+#endif
 
   RuleScheduler rules;
 
