@@ -43,8 +43,8 @@ std::optional<Endpoint> stun_binding(const std::string& host, std::uint16_t port
   for (int i = 8; i < 20; ++i) req[i] = static_cast<std::uint8_t>(i);
 
   const auto* req_buf = reinterpret_cast<const char*>(req);
-  ssize_t sent = sendto(fd, req_buf, sizeof(req), 0, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen));
-  if (sent != static_cast<ssize_t>(sizeof(req))) {
+  const auto sent = sendto(fd, req_buf, sizeof(req), 0, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen));
+  if (sent < 0 || static_cast<std::size_t>(sent) != sizeof(req)) {
     net_close(fd);
     freeaddrinfo(res);
     return std::nullopt;

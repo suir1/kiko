@@ -46,10 +46,10 @@ bool send_udp_packet(const Endpoint& target, const void* data, std::size_t size)
   }
 
   const auto* send_buf = reinterpret_cast<const char*>(data);
-  const ssize_t sent = sendto(fd, send_buf, size, 0, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen));
+  const auto sent = sendto(fd, send_buf, size, 0, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen));
   net_close(fd);
   freeaddrinfo(res);
-  return sent == static_cast<ssize_t>(size);
+  return sent >= 0 && static_cast<std::size_t>(sent) == size;
 }
 
 }  // namespace

@@ -6,13 +6,26 @@ namespace kiko::detail {
 namespace {
 
 std::chrono::system_clock::time_point file_time_to_system(std::filesystem::file_time_type file_time) {
+#ifdef _WIN32
+  const auto file_now = std::filesystem::file_time_type::clock::now();
+  const auto system_now = std::chrono::system_clock::now();
   return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-      file_time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+      file_time - file_now + system_now);
+#else
+  return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+      std::chrono::file_clock::to_sys(file_time));
+#endif
 }
 
 std::filesystem::file_time_type system_time_to_file(std::chrono::system_clock::time_point system_time) {
+#ifdef _WIN32
+  const auto file_now = std::filesystem::file_time_type::clock::now();
+  const auto system_now = std::chrono::system_clock::now();
   return std::chrono::time_point_cast<std::filesystem::file_time_type::duration>(
-      system_time - std::chrono::system_clock::now() + std::filesystem::file_time_type::clock::now());
+      system_time - system_now + file_now);
+#else
+  return std::chrono::file_clock::from_sys(system_time);
+#endif
 }
 
 }  // namespace
