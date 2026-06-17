@@ -53,6 +53,7 @@ try {
     $sourcePath = Join-Path $tmpDir "kiko-$Version-$asset/kiko.exe"
     $targetPath = Join-Path $InstallDir "kiko.exe"
     Copy-Item -Path $sourcePath -Destination $targetPath -Force
+    Copy-Item -Path (Join-Path $tmpDir "kiko-$Version-$asset/*.dll") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
 
     Write-Host "Installed kiko $Version to $targetPath"
     $pathEntries = $env:Path -split [System.IO.Path]::PathSeparator
