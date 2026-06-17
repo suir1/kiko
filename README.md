@@ -11,7 +11,7 @@
 - **Parallel connections** – relay path uses `--connections N` (default 4) with per-stream XChaCha20-Poly1305 subkeys.
 - **LAN discovery** – UDP multicast finds local relays; sender embeds a croc-style LAN relay (`--no-local` to disable). Receiver races LAN and external relays in parallel (`--local`, `--no-local`).
 - **Relay health check** – JSON `ping`/`pong` on each relay connection before rendezvous registration.
-- **ips? LAN upgrade** – after relay pipe is up, receiver can probe sender LAN addresses before E2E PAKE
+- **LAN upgrade** – after the relay pipe is up, the receiver can probe sender LAN addresses before E2E PAKE.
 - **`.gitignore` support** – directory sends respect `.gitignore` rules (`--no-gitignore` to disable).
 - **Proxy** – `--proxy http://host:port` or `socks5://host:port` for relay connections.
 - **NAT awareness** – LAN candidates first, then reflexive addresses; adaptive punch timing before relay fallback.
