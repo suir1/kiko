@@ -1,0 +1,28 @@
+#pragma once
+
+#include "adaptive.hpp"
+#include "common.hpp"
+#include "connectivity.hpp"
+#include "protocol.hpp"
+#include "socket.hpp"
+
+namespace kiko {
+
+struct UdpPunchParams {
+  Role role = Role::Sender;
+  Endpoint peer_wan{};
+  std::string token;
+  std::chrono::milliseconds window{400};
+};
+
+// Sends synchronized UDP probes to peer's WAN listen endpoint (NAT mapping assist only).
+void udp_punch_burst(const UdpPunchParams& params);
+
+// UDP poke window + existing TCP punch plan. Returns connected socket if TCP path wins.
+[[nodiscard]] std::optional<TcpSocket> try_udp_assisted_direct(Role role, TcpListener& listener,
+                                                               const Endpoint& peer_wan, const std::string& punch_token,
+                                                               PunchPlan plan, AdaptivePuncher& puncher,
+                                                               const std::string& room,
+                                                               const ConnectOptions& connect_options = ConnectOptions{});
+
+}  // namespace kiko

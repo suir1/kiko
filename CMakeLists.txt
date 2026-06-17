@@ -1,0 +1,222 @@
+cmake_minimum_required(VERSION 3.20)
+
+project(kiko VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg\\.cmake$")
+  set(KIKO_USE_VCPKG ON)
+else()
+  set(KIKO_USE_VCPKG OFF)
+endif()
+
+set(KIKO_DEFAULT_RELAY "106.53.170.243:9000" CACHE STRING "Default relay address when KIKO_RELAY env is unset")
+add_compile_definitions("KIKO_DEFAULT_RELAY=\"${KIKO_DEFAULT_RELAY}\"")
+option(KIKO_ENABLE_NETLAB_TESTS "Enable Docker-based network lab CTest targets" OFF)
+
+set(KIKO_CORE_SOURCES
+  src/adaptive.cpp
+  src/ai_advisor.cpp
+  src/ai_client.cpp
+  src/common.cpp
+  src/compression.cpp
+  src/connectivity.cpp
+  src/crypto.cpp
+  src/direct_session.cpp
+  src/discovery.cpp
+  src/doctor.cpp
+  src/file_manifest.cpp
+  src/file_metadata.cpp
+  src/gitignore.cpp
+  src/imohash.cpp
+  src/io.cpp
+  src/lan_upgrade.cpp
+  src/mux_transfer.cpp
+  src/network_probe.cpp
+  src/outbound_policy.cpp
+  src/pake.cpp
+  src/profile.cpp
+  src/progress.cpp
+  src/protocol.cpp
+  src/proxy.cpp
+  src/qrcode_print.cpp
+  src/relay.cpp
+  src/relay_race.cpp
+  src/relay_session.cpp
+  src/relay_server.cpp
+  src/rendezvous_session.cpp
+  src/route_planner.cpp
+  src/route_session.cpp
+  src/socket.cpp
+  src/transfer.cpp
+  src/transfer_heuristics.cpp
+  src/transfer_stream.cpp
+  src/udp_punch.cpp
+)
+
+add_library(kiko_core STATIC ${KIKO_CORE_SOURCES})
+target_include_directories(kiko_core PUBLIC src)
+
+if(KIKO_USE_VCPKG)
+  find_package(asio CONFIG REQUIRED)
+  find_package(unofficial-sodium CONFIG REQUIRED)
+  find_package(zstd CONFIG REQUIRED)
+  find_package(ftxui CONFIG REQUIRED)
+  find_package(nlohmann_json CONFIG REQUIRED)
+  find_package(CLI11 CONFIG REQUIRED)
+  find_package(unofficial-nayuki-qr-code-generator CONFIG REQUIRED)
+  if(TARGET zstd::libzstd)
+    set(KIKO_ZSTD_TARGET zstd::libzstd)
+  elseif(TARGET zstd::libzstd_shared)
+    set(KIKO_ZSTD_TARGET zstd::libzstd_shared)
+  else()
+    message(FATAL_ERROR "zstd CMake target not found")
+  endif()
+  target_link_libraries(kiko_core PUBLIC asio::asio unofficial-sodium::sodium ${KIKO_ZSTD_TARGET} nlohmann_json::nlohmann_json
+    unofficial::nayuki-qr-code-generator::nayuki-qr-code-generator)
+  target_compile_definitions(kiko_core PUBLIC ASIO_STANDALONE KIKO_HAVE_QRCODE)
+else()
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(SODIUM REQUIRED libsodium)
+  include(FetchContent)
+  FetchContent_Declare(
+    asio
+    GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
+    GIT_TAG asio-1-32-0
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_GetProperties(asio)
+  if(NOT asio_POPULATED)
+    FetchContent_Populate(asio)
+    add_library(asio_interface INTERFACE)
+    target_include_directories(asio_interface INTERFACE ${asio_SOURCE_DIR}/asio/include)
+    target_compile_definitions(asio_interface INTERFACE ASIO_STANDALONE)
+    add_library(asio::asio ALIAS asio_interface)
+  endif()
+  find_path(ZSTD_INCLUDE_DIR zstd.h)
+  find_library(ZSTD_LIBRARY NAMES zstd libzstd)
+  if(NOT ZSTD_INCLUDE_DIR OR NOT ZSTD_LIBRARY)
+    message(FATAL_ERROR "zstd not found. Install zstd or configure with vcpkg (see CMakePresets.json).")
+  endif()
+  target_include_directories(kiko_core PUBLIC ${ZSTD_INCLUDE_DIR} ${SODIUM_INCLUDE_DIRS})
+  target_link_libraries(kiko_core PUBLIC ${ZSTD_LIBRARY} ${SODIUM_LIBRARIES})
+
+  include(FetchContent)
+  FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.12.0
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_Declare(
+    CLI11
+    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+    GIT_TAG v2.6.2
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_Declare(
+    ftxui
+    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
+    GIT_TAG v5.0.0
+    GIT_SHALLOW TRUE
+  )
+  set(FTXUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(FTXUI_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+  set(FTXUI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(nlohmann_json CLI11 ftxui)
+  target_link_libraries(kiko_core PUBLIC asio::asio nlohmann_json::nlohmann_json)
+  target_compile_definitions(kiko_core PUBLIC ASIO_STANDALONE)
+endif()
+
+if(APPLE)
+  target_compile_definitions(kiko_core PUBLIC _DARWIN_C_SOURCE)
+endif()
+
+if(WIN32)
+  target_link_libraries(kiko_core PUBLIC ws2_32 iphlpapi)
+  target_compile_definitions(kiko_core PUBLIC _WIN32_WINNT=0x0601)
+endif()
+
+find_package(Threads REQUIRED)
+target_link_libraries(kiko_core PUBLIC Threads::Threads)
+
+target_compile_options(kiko_core PRIVATE
+  $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall -Wextra -Wpedantic>
+)
+
+add_executable(kiko src/main.cpp src/tui.cpp src/tui_browser.cpp)
+target_link_libraries(kiko PRIVATE kiko_core ftxui::component CLI11::CLI11)
+
+enable_testing()
+add_executable(kiko_common_test tests/common_test.cpp)
+target_link_libraries(kiko_common_test PRIVATE kiko_core)
+add_test(NAME common COMMAND kiko_common_test)
+
+add_executable(kiko_handshake_test tests/handshake_test.cpp)
+target_link_libraries(kiko_handshake_test PRIVATE kiko_core)
+add_test(NAME handshake COMMAND kiko_handshake_test)
+
+add_executable(kiko_transfer_test tests/transfer_test.cpp)
+target_link_libraries(kiko_transfer_test PRIVATE kiko_core)
+add_test(NAME transfer COMMAND kiko_transfer_test)
+
+add_executable(kiko_progress_test tests/progress_test.cpp)
+target_link_libraries(kiko_progress_test PRIVATE kiko_core)
+add_test(NAME progress COMMAND kiko_progress_test)
+
+add_executable(kiko_profile_test tests/profile_test.cpp)
+target_link_libraries(kiko_profile_test PRIVATE kiko_core)
+add_test(NAME profile COMMAND kiko_profile_test)
+
+add_executable(kiko_mux_test tests/mux_test.cpp)
+target_link_libraries(kiko_mux_test PRIVATE kiko_core)
+add_test(NAME mux COMMAND kiko_mux_test)
+
+add_executable(kiko_adaptive_test tests/adaptive_test.cpp)
+target_link_libraries(kiko_adaptive_test PRIVATE kiko_core)
+add_test(NAME adaptive COMMAND kiko_adaptive_test)
+
+add_executable(kiko_connectivity_test tests/connectivity_test.cpp)
+target_link_libraries(kiko_connectivity_test PRIVATE kiko_core)
+add_test(NAME connectivity COMMAND kiko_connectivity_test)
+
+add_executable(kiko_route_scenarios_test tests/route_scenarios_test.cpp)
+target_link_libraries(kiko_route_scenarios_test PRIVATE kiko_core)
+add_test(NAME route_scenarios COMMAND kiko_route_scenarios_test)
+
+add_executable(kiko_outbound_policy_test tests/outbound_policy_test.cpp)
+target_link_libraries(kiko_outbound_policy_test PRIVATE kiko_core)
+add_test(NAME outbound_policy COMMAND kiko_outbound_policy_test)
+
+add_executable(kiko_relay_test tests/relay_test.cpp)
+target_link_libraries(kiko_relay_test PRIVATE kiko_core)
+add_test(NAME relay COMMAND kiko_relay_test)
+
+add_executable(kiko_transfer_heuristics_test tests/transfer_heuristics_test.cpp)
+target_link_libraries(kiko_transfer_heuristics_test PRIVATE kiko_core)
+add_test(NAME transfer_heuristics COMMAND kiko_transfer_heuristics_test)
+
+add_executable(kiko_ai_test tests/ai_test.cpp)
+target_link_libraries(kiko_ai_test PRIVATE kiko_core)
+add_test(NAME ai COMMAND kiko_ai_test)
+
+add_executable(kiko_udp_punch_test tests/udp_punch_test.cpp)
+target_link_libraries(kiko_udp_punch_test PRIVATE kiko_core)
+add_test(NAME udp_punch COMMAND kiko_udp_punch_test)
+
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(NAME tui_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/tui_smoke.py $<TARGET_FILE:kiko>)
+set_tests_properties(tui_smoke PROPERTIES DEPENDS kiko)
+
+if(KIKO_ENABLE_NETLAB_TESTS)
+  find_program(BASH_EXECUTABLE bash REQUIRED)
+  add_test(NAME netlab_matrix COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/netlab_matrix.sh)
+  set_tests_properties(netlab_matrix PROPERTIES
+    LABELS "netlab;docker"
+    RUN_SERIAL TRUE
+    TIMEOUT 300
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  )
+endif()

@@ -1,0 +1,14 @@
+{
+  "name": "kiko",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "asio",
+    "cli11",
+    "nlohmann-json",
+    "zstd",
+    "libsodium",
+    "ftxui",
+    "spdlog",
+    "nayuki-qr-code-generator"
+  ]
+}

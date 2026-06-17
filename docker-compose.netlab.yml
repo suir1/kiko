@@ -1,0 +1,422 @@
+x-kiko-netlab: &kiko-netlab
+  build:
+    context: .
+    dockerfile: docker/netlab/Dockerfile
+  image: kiko-netlab:local
+
+services:
+  relay:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: relay
+    networks:
+      pub:
+        ipv4_address: 172.28.0.10
+
+  nat-a:
+    <<: *kiko-netlab
+    command: netlab-nat.sh
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      PUBLIC_PREFIX: 172.28.0.
+    networks:
+      net-a:
+        ipv4_address: 172.29.0.2
+      pub:
+        ipv4_address: 172.28.0.2
+
+  nat-b:
+    <<: *kiko-netlab
+    command: netlab-nat.sh
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      PUBLIC_PREFIX: 172.28.0.
+    networks:
+      net-b:
+        ipv4_address: 172.30.0.2
+      pub:
+        ipv4_address: 172.28.0.3
+
+  sender:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+    environment:
+      NETLAB_ROLE: sender
+      NETLAB_GATEWAY: 172.29.0.2
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-double-nat
+      NETLAB_TEXT: hello from kiko docker double nat
+      NETLAB_CONNECTIONS: 4
+    networks:
+      net-a:
+        ipv4_address: 172.29.0.10
+    volumes:
+      - netlab-data:/data
+
+  receiver:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+    environment:
+      NETLAB_ROLE: receiver
+      NETLAB_GATEWAY: 172.30.0.2
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-double-nat
+    networks:
+      net-b:
+        ipv4_address: 172.30.0.10
+    volumes:
+      - netlab-out:/out
+
+  sender-lan:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: sender
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-same-lan
+      NETLAB_TEXT: hello from kiko docker same lan
+      NETLAB_CONNECTIONS: 1
+    networks:
+      pub:
+        ipv4_address: 172.28.0.20
+    volumes:
+      - netlab-data-lan:/data
+
+  receiver-lan:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: receiver
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-same-lan
+    networks:
+      pub:
+        ipv4_address: 172.28.0.21
+    volumes:
+      - netlab-out-lan:/out
+
+  verifier-lan:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: verifier
+      NETLAB_TEXT: hello from kiko docker same lan
+    volumes:
+      - netlab-out-lan:/out
+
+  sender-lan-isolated:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+    environment:
+      NETLAB_ROLE: sender
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-same-lan-isolated
+      NETLAB_TEXT: hello from kiko docker same lan isolated
+      NETLAB_BLOCK_TCP_PEERS: 172.28.0.31
+      NETLAB_CONNECTIONS: 4
+    networks:
+      pub:
+        ipv4_address: 172.28.0.30
+    volumes:
+      - netlab-data-lan-isolated:/data
+
+  receiver-lan-isolated:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+    environment:
+      NETLAB_ROLE: receiver
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-same-lan-isolated
+      NETLAB_BLOCK_TCP_PEERS: 172.28.0.30
+    networks:
+      pub:
+        ipv4_address: 172.28.0.31
+    volumes:
+      - netlab-out-lan-isolated:/out
+
+  verifier-lan-isolated:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: verifier
+      NETLAB_TEXT: hello from kiko docker same lan isolated
+    volumes:
+      - netlab-out-lan-isolated:/out
+
+  sender-one-nat:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+    environment:
+      NETLAB_ROLE: sender
+      NETLAB_GATEWAY: 172.29.0.2
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-one-side-nat
+      NETLAB_TEXT: hello from kiko docker one side nat
+      NETLAB_CONNECTIONS: 1
+    networks:
+      net-a:
+        ipv4_address: 172.29.0.20
+    volumes:
+      - netlab-data-one-nat:/data
+
+  receiver-public:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: receiver
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-one-side-nat
+    networks:
+      pub:
+        ipv4_address: 172.28.0.41
+    volumes:
+      - netlab-out-one-nat:/out
+
+  doctor-outbound-physical:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      NETLAB_ROLE: doctor
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_FAKE_VPN: 1
+      NETLAB_ROUTE_RELAY_VIA_FAKE_VPN: 1
+    networks:
+      pub:
+        ipv4_address: 172.28.0.50
+
+  doctor-outbound-avoid-vpn:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      NETLAB_ROLE: doctor
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_FAKE_VPN: 1
+      NETLAB_ROUTE_RELAY_VIA_FAKE_VPN: 1
+      NETLAB_DOCTOR_FLAGS: --avoid-vpn
+    networks:
+      pub:
+        ipv4_address: 172.28.0.53
+
+  doctor-outbound-bind-eth0:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      NETLAB_ROLE: doctor
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_FAKE_VPN: 1
+      NETLAB_ROUTE_RELAY_VIA_FAKE_VPN: 1
+      NETLAB_DOCTOR_FLAGS: --bind-interface eth0
+    networks:
+      pub:
+        ipv4_address: 172.28.0.54
+
+  sender-outbound-physical:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      NETLAB_ROLE: sender
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-outbound-physical
+      NETLAB_TEXT: hello from kiko docker outbound physical
+      NETLAB_CONNECTIONS: 4
+      NETLAB_FAKE_VPN: 1
+      NETLAB_ROUTE_RELAY_VIA_FAKE_VPN: 1
+      NETLAB_COMMON_FLAGS: --no-direct --no-lan --no-local
+    networks:
+      pub:
+        ipv4_address: 172.28.0.51
+    volumes:
+      - netlab-data-outbound-physical:/data
+
+  receiver-outbound-physical:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      NETLAB_ROLE: receiver
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-outbound-physical
+      NETLAB_FAKE_VPN: 1
+      NETLAB_ROUTE_RELAY_VIA_FAKE_VPN: 1
+      NETLAB_COMMON_FLAGS: --no-direct --no-lan --no-local
+    networks:
+      pub:
+        ipv4_address: 172.28.0.52
+    volumes:
+      - netlab-out-outbound-physical:/out
+
+  sender-outbound-physical-sender-only:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      NETLAB_ROLE: sender
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-outbound-sender-only
+      NETLAB_TEXT: hello from kiko docker outbound sender only
+      NETLAB_CONNECTIONS: 4
+      NETLAB_FAKE_VPN: 1
+      NETLAB_ROUTE_RELAY_VIA_FAKE_VPN: 1
+      NETLAB_COMMON_FLAGS: --no-direct --no-lan --no-local
+    networks:
+      pub:
+        ipv4_address: 172.28.0.55
+    volumes:
+      - netlab-data-outbound-sender-only:/data
+
+  receiver-outbound-physical-sender-only:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: receiver
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-outbound-sender-only
+      NETLAB_COMMON_FLAGS: --no-direct --no-lan --no-local
+    networks:
+      pub:
+        ipv4_address: 172.28.0.56
+    volumes:
+      - netlab-out-outbound-sender-only:/out
+
+  verifier-outbound-sender-only:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: verifier
+      NETLAB_TEXT: hello from kiko docker outbound sender only
+    volumes:
+      - netlab-out-outbound-sender-only:/out
+
+  sender-outbound-physical-receiver-only:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: sender
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-outbound-receiver-only
+      NETLAB_TEXT: hello from kiko docker outbound receiver only
+      NETLAB_CONNECTIONS: 4
+      NETLAB_COMMON_FLAGS: --no-direct --no-lan --no-local
+    networks:
+      pub:
+        ipv4_address: 172.28.0.57
+    volumes:
+      - netlab-data-outbound-receiver-only:/data
+
+  receiver-outbound-physical-receiver-only:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      NETLAB_ROLE: receiver
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-outbound-receiver-only
+      NETLAB_FAKE_VPN: 1
+      NETLAB_ROUTE_RELAY_VIA_FAKE_VPN: 1
+      NETLAB_COMMON_FLAGS: --no-direct --no-lan --no-local
+    networks:
+      pub:
+        ipv4_address: 172.28.0.58
+    volumes:
+      - netlab-out-outbound-receiver-only:/out
+
+  verifier-outbound-receiver-only:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: verifier
+      NETLAB_TEXT: hello from kiko docker outbound receiver only
+    volumes:
+      - netlab-out-outbound-receiver-only:/out
+
+  verifier-outbound-physical:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: verifier
+      NETLAB_TEXT: hello from kiko docker outbound physical
+    volumes:
+      - netlab-out-outbound-physical:/out
+
+  verifier-one-nat:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: verifier
+      NETLAB_TEXT: hello from kiko docker one side nat
+    volumes:
+      - netlab-out-one-nat:/out
+
+  verifier:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: verifier
+      NETLAB_TEXT: hello from kiko docker double nat
+    volumes:
+      - netlab-out:/out
+
+networks:
+  pub:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+  net-a:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+  net-b:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  netlab-data:
+  netlab-out:
+  netlab-data-lan:
+  netlab-out-lan:
+  netlab-data-lan-isolated:
+  netlab-out-lan-isolated:
+  netlab-data-one-nat:
+  netlab-out-one-nat:
+  netlab-data-outbound-physical:
+  netlab-out-outbound-physical:
+  netlab-data-outbound-sender-only:
+  netlab-out-outbound-sender-only:
+  netlab-data-outbound-receiver-only:
+  netlab-out-outbound-receiver-only:

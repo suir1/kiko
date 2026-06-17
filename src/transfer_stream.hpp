@@ -1,0 +1,74 @@
+#pragma once
+
+#include "common.hpp"
+#include "crypto.hpp"
+#include "file_metadata.hpp"
+#include "protocol.hpp"
+#include "socket.hpp"
+#include "transfer.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <iosfwd>
+#include <optional>
+#include <span>
+
+namespace kiko::detail {
+
+constexpr std::size_t kPlainChunk = 128 * 1024;
+constexpr std::size_t kMuxChunk = 256 * 1024;
+constexpr int kMaxMuxConnections = 32;
+inline constexpr const char* kEmptySha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+enum class StreamTag : std::uint8_t {
+  FileHeader = 1,
+  Data = 2,
+  FileEnd = 3,
+  Done = 4,
+  Resume = 5,
+  ChunkEnd = 6,
+};
+
+struct TaggedFrame {
+  StreamTag tag;
+  Bytes payload;
+};
+
+void ensure_declared_space(std::uint64_t current_total, std::uint64_t declared_size, std::uint64_t next_size,
+                           const std::string& relative);
+[[nodiscard]] std::size_t declared_remaining_limit(std::uint64_t current_total, std::uint64_t declared_size,
+                                                   const std::string& relative);
+
+[[nodiscard]] bool is_dir_entry(const FileEntry& entry);
+[[nodiscard]] bool is_dir_header(const std::string& path, std::uint64_t size);
+void append_mtime_field(Message& header, const FileEntry& entry);
+[[nodiscard]] bool should_compress_entry(const FileEntry& entry);
+[[nodiscard]] Message make_file_header(const FileEntry& entry);
+void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset);
+[[nodiscard]] std::uint64_t recv_resume_offset(TcpSocket& socket, StreamCipher& cipher, const FileEntry& entry);
+[[nodiscard]] std::uint64_t hash_stream_prefix(std::istream& input, Bytes& buffer, Sha256Hasher& hasher,
+                                               std::uint64_t offset, const std::string& relative);
+[[nodiscard]] bool try_skip_existing_duplicate(TcpSocket& socket, StreamCipher& cipher, const Message& header,
+                                               const std::filesystem::path& current_path,
+                                               const std::string& current_relative, std::uint64_t declared_size,
+                                               ProgressReporter& reporter);
+[[nodiscard]] std::filesystem::path part_path_for(const std::filesystem::path& current_path);
+[[nodiscard]] std::uint64_t resumable_part_size(const std::filesystem::path& part_path, std::uint64_t declared_size);
+[[nodiscard]] bool hash_existing_part_prefix(const std::filesystem::path& part_path, std::uint64_t have, Bytes& buffer,
+                                             Sha256Hasher& hasher);
+void verify_received_digest(const std::filesystem::path& part_path, const std::string& relative,
+                            std::uint64_t received_size, std::uint64_t declared_size, const std::string& expected_sha256,
+                            const std::string& actual_sha256);
+void verify_part_file_digest(const std::filesystem::path& part_path, const std::string& relative,
+                             std::uint64_t declared_size, const std::string& expected_sha256, Bytes& buffer);
+void finalize_part_file(const std::filesystem::path& part_path, const std::filesystem::path& current_path,
+                        const std::string& relative);
+
+void send_tagged(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, std::span<const std::uint8_t> payload);
+void send_tagged_text(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, const std::string& text);
+[[nodiscard]] std::optional<TaggedFrame> recv_tagged(TcpSocket& socket, StreamCipher& cipher);
+
+[[nodiscard]] std::filesystem::path safe_join(const std::filesystem::path& base, const std::string& relative);
+
+}  // namespace kiko::detail

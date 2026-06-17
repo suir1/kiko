@@ -1,0 +1,11 @@
+*
+!CMakeLists.txt
+!src/
+!src/**
+!tests/
+!tests/**
+!scripts/
+!scripts/tui_smoke.py
+!docker/
+!docker/netlab/
+!docker/netlab/**

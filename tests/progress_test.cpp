@@ -1,0 +1,100 @@
+#include "progress.hpp"
+#include "platform.hpp"
+#include "transfer.hpp"
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace fs = std::filesystem;
+using namespace kiko;
+
+namespace {
+
+void write_file(const fs::path& path, const std::string& contents) {
+  fs::create_directories(path.parent_path());
+  std::ofstream out(path, std::ios::binary);
+  out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+}
+
+// Records the sequence of reporter events for assertions.
+struct RecordingReporter : ProgressReporter {
+  std::vector<std::string> started;
+  std::vector<std::string> completed;
+  std::uint64_t advanced = 0;
+  std::size_t done_files = 0;
+  std::uint64_t done_bytes = 0;
+  bool finished = false;
+  bool all_verified = true;
+
+  void file_start(const std::string& path, std::uint64_t) override { started.push_back(path); }
+  void file_advance(std::uint64_t delta) override { advanced += delta; }
+  void file_complete(const std::string& path, std::uint64_t, bool verified) override {
+    completed.push_back(path);
+    if (!verified) all_verified = false;
+  }
+  void transfer_complete(std::size_t files, std::uint64_t bytes) override {
+    finished = true;
+    done_files = files;
+    done_bytes = bytes;
+  }
+};
+
+}  // namespace
+
+int main() {
+  auto root = fs::temp_directory_path() / ("kiko_progress_test_" + std::to_string(process_id()));
+  auto src = root / "data";
+  auto dst = root / "out";
+  fs::remove_all(root);
+
+  write_file(src / "one.txt", std::string(1000, 'a'));
+  write_file(src / "two.txt", std::string(2500, 'b'));
+
+  auto files = collect_files(src);
+  const std::uint64_t expected_bytes = 1000 + 2500;
+
+  SessionKey key{};
+  for (std::size_t i = 0; i < key.size(); ++i) key[i] = static_cast<std::uint8_t>(i + 1);
+
+  auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+  auto endpoint = listener.local_endpoint();
+
+  ProgressReporter sender_sink;
+  std::thread sender([&] {
+    auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+    if (socket.valid()) send_files(socket, key, files, sender_sink);
+  });
+
+  RecordingReporter rec;
+  auto accepted = listener.accept(std::chrono::seconds(2));
+  receive_files(accepted, key, dst, rec);
+  sender.join();
+
+  if (rec.started.size() != 2) {
+    std::cerr << "FAIL: expected 2 file_start, got " << rec.started.size() << "\n";
+    return 1;
+  }
+  if (rec.completed.size() != 2 || !rec.all_verified) {
+    std::cerr << "FAIL: expected 2 verified file_complete, got " << rec.completed.size()
+              << " verified=" << rec.all_verified << "\n";
+    return 1;
+  }
+  if (!rec.finished || rec.done_files != 2 || rec.done_bytes != expected_bytes) {
+    std::cerr << "FAIL: transfer_complete files=" << rec.done_files << " bytes=" << rec.done_bytes
+              << " (expected 2 / " << expected_bytes << ")\n";
+    return 1;
+  }
+  if (rec.advanced != expected_bytes) {
+    std::cerr << "FAIL: file_advance sum=" << rec.advanced << " (expected " << expected_bytes << ")\n";
+    return 1;
+  }
+
+  fs::remove_all(root);
+  std::cout << "PASS: reporter emits file_start/advance/complete and transfer_complete with correct totals\n";
+  return 0;
+}

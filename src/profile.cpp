@@ -1,0 +1,137 @@
+#include "profile.hpp"
+
+#include "socket.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <utility>
+
+namespace kiko {
+namespace {
+
+std::filesystem::path profile_path() {
+  if (const char* path = std::getenv("KIKO_PROFILE_PATH")) {
+    if (path[0] != '\0') return std::filesystem::path(path);
+  }
+  if (const char* home = std::getenv("HOME")) {
+    return std::filesystem::path(home) / ".config" / "kiko" / "profile.json";
+  }
+  return std::filesystem::path(".kiko_profile.json");
+}
+
+std::map<std::string, int> parse_failures_by_kind(const nlohmann::json& object) {
+  std::map<std::string, int> out;
+  if (!object.is_object()) return out;
+  for (auto it = object.begin(); it != object.end(); ++it) {
+    if (it.key().empty() || !it.value().is_number_integer()) continue;
+    const auto count = it.value().get<int>();
+    if (count > 0) out[it.key()] = count;
+  }
+  return out;
+}
+
+nlohmann::json failures_by_kind_json(const std::map<std::string, int>& failures) {
+  nlohmann::json out = nlohmann::json::object();
+  for (const auto& [kind, count] : failures) {
+    if (!kind.empty() && count > 0) out[kind] = count;
+  }
+  return out;
+}
+
+void save_profile_success_impl(const std::string& fingerprint, const std::string& path, const PunchStats* stats) {
+  nlohmann::json root;
+  std::ifstream in(profile_path());
+  if (in) {
+    try {
+      in >> root;
+    } catch (...) {
+      root = nlohmann::json::object();
+    }
+  }
+  const int prev = root.contains(fingerprint) ? root[fingerprint].value("success_count", 0) : 0;
+  auto entry = root.contains(fingerprint) && root[fingerprint].is_object() ? root[fingerprint] : nlohmann::json::object();
+  entry["last_path"] = path;
+  entry["success_count"] = prev + 1;
+
+  if (stats) {
+    if (path == "direct" && !stats->successful_candidate_kind.empty() && stats->successful_candidate_kind != "accept") {
+      entry["last_direct_candidate_kind"] = stats->successful_candidate_kind;
+      if (stats->successful_elapsed_ms >= 0) entry["last_direct_rtt_ms"] = stats->successful_elapsed_ms;
+    }
+    if (!stats->candidate_failures_by_kind.empty()) {
+      entry["candidate_failures_by_kind"] = failures_by_kind_json(stats->candidate_failures_by_kind);
+    }
+  }
+
+  root[fingerprint] = std::move(entry);
+  std::error_code ec;
+  std::filesystem::create_directories(profile_path().parent_path(), ec);
+  std::ofstream out(profile_path());
+  if (out) out << root.dump(2);
+}
+
+}  // namespace
+
+std::string network_fingerprint() {
+  const auto addrs = local_lan_candidate_addresses();
+  if (addrs.empty()) return "unknown";
+  return addrs.front();
+}
+
+std::optional<NetworkProfileEntry> load_profile(const std::string& fingerprint) {
+  std::ifstream in(profile_path());
+  if (!in) return std::nullopt;
+  nlohmann::json root;
+  try {
+    in >> root;
+  } catch (...) {
+    return std::nullopt;
+  }
+  if (!root.contains(fingerprint)) return std::nullopt;
+  NetworkProfileEntry entry;
+  entry.fingerprint = fingerprint;
+  entry.last_path = root[fingerprint].value("last_path", "");
+  entry.success_count = root[fingerprint].value("success_count", 0);
+  entry.last_direct_candidate_kind = root[fingerprint].value("last_direct_candidate_kind", "");
+  entry.last_direct_rtt_ms = root[fingerprint].value("last_direct_rtt_ms", -1);
+  if (root[fingerprint].contains("candidate_failures_by_kind")) {
+    entry.candidate_failures_by_kind = parse_failures_by_kind(root[fingerprint]["candidate_failures_by_kind"]);
+  }
+  return entry;
+}
+
+void save_profile_success(const std::string& fingerprint, const std::string& path) {
+  save_profile_success_impl(fingerprint, path, nullptr);
+}
+
+void save_profile_success(const std::string& fingerprint, const std::string& path, const PunchStats& stats) {
+  save_profile_success_impl(fingerprint, path, &stats);
+}
+
+void apply_profile_to_snapshot(const NetworkProfileEntry& profile, ConnectivitySnapshot& snapshot) {
+  snapshot.profile_last_path = profile.last_path;
+  snapshot.profile_success_count = profile.success_count;
+  snapshot.profile_direct_candidate_kind = profile.last_direct_candidate_kind;
+  snapshot.profile_direct_rtt_ms = profile.last_direct_rtt_ms;
+  snapshot.profile_candidate_failures_by_kind = profile.candidate_failures_by_kind;
+}
+
+void apply_profile_candidate_bias(const NetworkProfileEntry& profile, std::vector<DirectCandidate>& candidates) {
+  if (candidates.empty()) return;
+  for (auto& candidate : candidates) {
+    if (!profile.last_direct_candidate_kind.empty() && profile.last_path == "direct" &&
+        candidate.kind == profile.last_direct_candidate_kind) {
+      candidate.priority += 25;
+    }
+    const auto failure = profile.candidate_failures_by_kind.find(candidate.kind);
+    if (failure != profile.candidate_failures_by_kind.end()) {
+      candidate.priority -= std::min(30, failure->second * 5);
+    }
+  }
+}
+
+}  // namespace kiko

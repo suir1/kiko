@@ -1,0 +1,191 @@
+#include "platform.hpp"
+#include "transfer.hpp"
+
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <random>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace fs = std::filesystem;
+using namespace kiko;
+
+namespace {
+
+void write_file(const fs::path& path, const std::string& contents) {
+  fs::create_directories(path.parent_path());
+  std::ofstream out(path, std::ios::binary);
+  out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+}
+
+std::string read_file(const fs::path& path) {
+  std::ifstream in(path, std::ios::binary);
+  return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+std::string random_blob(std::size_t n, unsigned seed) {
+  std::mt19937 rng(seed);
+  std::uniform_int_distribution<int> dist(0, 255);
+  std::string s;
+  s.reserve(n);
+  for (std::size_t i = 0; i < n; ++i) s.push_back(static_cast<char>(dist(rng)));
+  return s;
+}
+
+struct RecordingReporter : ProgressReporter {
+  std::vector<std::string> statuses;
+
+  void status(const std::string& message) override { statuses.push_back(message); }
+};
+
+// Builds N paired, index-ordered loopback connections.
+void make_channels(TcpListener& listener, const Endpoint& endpoint, int n,
+                   std::vector<TcpSocket>& sender, std::vector<TcpSocket>& receiver) {
+  sender.clear();
+  receiver.clear();
+  sender.resize(static_cast<std::size_t>(n));
+  receiver.resize(static_cast<std::size_t>(n));
+  std::thread connector([&] {
+    for (int k = 0; k < n; ++k) {
+      auto s = connect_tcp(endpoint, std::chrono::seconds(2));
+      if (!s.valid()) throw std::runtime_error("connect failed");
+      auto idx = static_cast<std::uint8_t>(k);
+      s.send_all(&idx, 1);
+      sender[static_cast<std::size_t>(k)] = std::move(s);
+    }
+  });
+  for (int i = 0; i < n; ++i) {
+    auto a = listener.accept(std::chrono::seconds(2));
+    if (!a.valid()) throw std::runtime_error("accept failed");
+    std::uint8_t idx = 0;
+    if (!a.recv_exact(&idx, 1)) throw std::runtime_error("index read failed");
+    receiver[idx] = std::move(a);
+  }
+  connector.join();
+}
+
+bool run_round(TcpListener& listener, const Endpoint& endpoint, int n, const SessionKey& key,
+               const std::vector<FileEntry>& files, const fs::path& dst, ProgressReporter* receiver_reporter = nullptr) {
+  std::vector<TcpSocket> sc, rc;
+  make_channels(listener, endpoint, n, sc, rc);
+  ProgressReporter sender_reporter;
+  ProgressReporter default_receiver_reporter;
+  auto& recv_reporter = receiver_reporter ? *receiver_reporter : default_receiver_reporter;
+  bool sender_failed = false;
+  std::thread sender([&] {
+    try {
+      send_files_mux(sc, key, files, sender_reporter);
+    } catch (const std::exception& e) {
+      std::cerr << "sender error: " << e.what() << "\n";
+      sender_failed = true;
+    }
+  });
+  bool receiver_failed = false;
+  try {
+    receive_files_mux(rc, key, dst, recv_reporter);
+  } catch (const std::exception& e) {
+    std::cerr << "receiver error: " << e.what() << "\n";
+    receiver_failed = true;
+  }
+  sender.join();
+  return !sender_failed && !receiver_failed;
+}
+
+}  // namespace
+
+int main() {
+  auto root = fs::temp_directory_path() / ("kiko_mux_test_" + std::to_string(process_id()));
+  auto src = root / "src" / "payload";
+  auto dst = root / "out";
+  fs::remove_all(root);
+
+  write_file(src / "small.txt", "tiny\n");
+  write_file(src / "empty.bin", "");
+  std::string blob = random_blob(2 * 1024 * 1024 + 1234, 99);  // spans many chunks/channels
+  write_file(src / "nested" / "blob.bin", blob);
+
+  auto files = collect_files(src);
+
+  SessionKey key{};
+  for (std::size_t i = 0; i < key.size(); ++i) key[i] = static_cast<std::uint8_t>(i * 5 + 3);
+
+  auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+  auto endpoint = listener.local_endpoint();
+  const int N = 4;
+
+  if (!run_round(listener, endpoint, N, key, files, dst)) {
+    std::cerr << "FAIL: mux transfer raised an error\n";
+    return 1;
+  }
+
+  struct Check {
+    std::string rel;
+    std::string expected;
+  };
+  std::vector<Check> checks{
+      {"payload/small.txt", "tiny\n"},
+      {"payload/empty.bin", ""},
+      {"payload/nested/blob.bin", blob},
+  };
+  for (const auto& c : checks) {
+    auto path = dst / c.rel;
+    if (!fs::exists(path)) {
+      std::cerr << "FAIL: missing received file " << c.rel << "\n";
+      return 1;
+    }
+    if (read_file(path) != c.expected) {
+      std::cerr << "FAIL: content mismatch for " << c.rel << "\n";
+      return 1;
+    }
+  }
+
+  // Resume across the multiplexed path: stage a correct partial for the blob.
+  {
+    auto blob_rel = fs::path("payload/nested/blob.bin");
+    auto final_blob = dst / blob_rel;
+    auto part_blob = dst;
+    part_blob /= blob_rel;
+    part_blob += ".kikopart";
+    fs::remove(final_blob);
+    write_file(part_blob, blob.substr(0, blob.size() / 3));
+
+    if (!run_round(listener, endpoint, N, key, files, dst)) {
+      std::cerr << "FAIL: mux resume transfer raised an error\n";
+      return 1;
+    }
+    if (read_file(final_blob) != blob) {
+      std::cerr << "FAIL: resumed mux file content mismatch\n";
+      return 1;
+    }
+    if (fs::exists(part_blob)) {
+      std::cerr << "FAIL: partial not finalized after mux resume\n";
+      return 1;
+    }
+  }
+
+  // Existing complete files should be skipped on the mux path, matching the
+  // single-channel imohash fast path.
+  {
+    RecordingReporter reporter;
+    if (!run_round(listener, endpoint, N, key, files, dst, &reporter)) {
+      std::cerr << "FAIL: mux duplicate-skip transfer raised an error\n";
+      return 1;
+    }
+    bool saw_blob_skip = false;
+    for (const auto& status : reporter.statuses) {
+      if (status == "skipped duplicate payload/nested/blob.bin") saw_blob_skip = true;
+    }
+    if (!saw_blob_skip) {
+      std::cerr << "FAIL: mux duplicate file was not skipped\n";
+      return 1;
+    }
+  }
+
+  fs::remove_all(root);
+  std::cout << "PASS: multiplexed multi-connection transfer + resume\n";
+  return 0;
+}

@@ -1,0 +1,179 @@
+#include "common.hpp"
+
+#include "wordlist.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <iomanip>
+#include <limits>
+#include <random>
+#include <sstream>
+
+namespace kiko {
+namespace {
+
+int hex_value(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  throw KikoError("invalid hex character");
+}
+
+std::uint16_t checked_endpoint_port(std::uint64_t port, const std::string& value, bool allow_zero) {
+  const std::uint64_t min_port = allow_zero ? 0 : 1;
+  if (port < min_port || port > 65535) throw KikoError("endpoint port out of range: " + value);
+  return static_cast<std::uint16_t>(port);
+}
+
+std::uint64_t parse_port_number(const std::string& text, const std::string& value) {
+  auto port = parse_u64_strict(text);
+  if (!port) throw KikoError("endpoint port is invalid: " + value);
+  return *port;
+}
+
+Endpoint parse_endpoint_impl(const std::string& value, std::uint16_t default_port, bool allow_zero_port,
+                             bool require_port_when_default_zero) {
+  // Bracketed IPv6 form: [host]:port or [host].
+  if (!value.empty() && value.front() == '[') {
+    auto close = value.find(']');
+    if (close == std::string::npos) throw KikoError("endpoint missing closing ']': " + value);
+    auto host = value.substr(1, close - 1);
+    auto rest = value.substr(close + 1);
+    if (rest.empty()) {
+      if (default_port == 0 && require_port_when_default_zero) throw KikoError("endpoint must be [host]:port: " + value);
+      return Endpoint{host, default_port};
+    }
+    if (rest.front() != ':' || rest.size() < 2) throw KikoError("endpoint malformed after ']': " + value);
+    auto port = parse_port_number(rest.substr(1), value);
+    return Endpoint{host, checked_endpoint_port(port, value, allow_zero_port)};
+  }
+
+  // Bare IPv6 (more than one colon, no brackets): treat whole value as host.
+  if (std::count(value.begin(), value.end(), ':') > 1) {
+    if (default_port == 0 && require_port_when_default_zero) {
+      throw KikoError("endpoint must be [host]:port for IPv6: " + value);
+    }
+    return Endpoint{value, default_port};
+  }
+
+  auto colon = value.rfind(':');
+  if (colon == std::string::npos) {
+    if (default_port == 0 && require_port_when_default_zero) {
+      throw KikoError("endpoint must be host:port: " + value);
+    }
+    return Endpoint{value, default_port};
+  }
+
+  auto host = value.substr(0, colon);
+  auto port_text = value.substr(colon + 1);
+  if (host.empty()) host = "::";
+  if (port_text.empty()) throw KikoError("endpoint port is empty: " + value);
+
+  auto port = parse_port_number(port_text, value);
+  return Endpoint{host, checked_endpoint_port(port, value, allow_zero_port)};
+}
+
+}  // namespace
+
+Endpoint parse_endpoint(const std::string& value, std::uint16_t default_port) {
+  return parse_endpoint_impl(value, default_port, false, true);
+}
+
+Endpoint parse_bind_endpoint(const std::string& value, std::uint16_t default_port) {
+  return parse_endpoint_impl(value, default_port, true, false);
+}
+
+std::string random_code(std::size_t bytes) {
+  static constexpr char alphabet[] = "23456789abcdefghijkmnpqrstuvwxyz";
+  std::random_device rd;
+  std::mt19937_64 rng(rd());
+  std::uniform_int_distribution<std::size_t> dist(0, sizeof(alphabet) - 2);
+
+  std::string out;
+  out.reserve(bytes * 2);
+  for (std::size_t i = 0; i < bytes * 2; ++i) {
+    out.push_back(alphabet[dist(rng)]);
+  }
+  return out;
+}
+
+std::string random_mnemonic_code(std::size_t words) {
+  std::random_device rd;
+  std::mt19937_64 rng(rd());
+  std::uniform_int_distribution<int> room_dist(1000, 9999);
+  std::uniform_int_distribution<std::size_t> word_dist(0, kWordList.size() - 1);
+
+  std::string out = std::to_string(room_dist(rng));
+  if (words == 0) words = 1;
+  for (std::size_t i = 0; i < words; ++i) {
+    out.push_back('-');
+    out.append(kWordList[word_dist(rng)]);
+  }
+  return out;
+}
+
+std::optional<std::uint64_t> parse_u64_strict(const std::string& value) {
+  if (value.empty()) return std::nullopt;
+  std::uint64_t out = 0;
+  for (unsigned char c : value) {
+    if (!std::isdigit(c)) return std::nullopt;
+    const auto digit = static_cast<std::uint64_t>(c - '0');
+    if (out > (std::numeric_limits<std::uint64_t>::max() - digit) / 10) return std::nullopt;
+    out = out * 10 + digit;
+  }
+  return out;
+}
+
+std::vector<std::string> split_csv(const std::string& value) {
+  std::vector<std::string> out;
+  std::size_t start = 0;
+  while (start <= value.size()) {
+    auto comma = value.find(',', start);
+    auto token = value.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+    if (!token.empty()) out.push_back(token);
+    if (comma == std::string::npos) break;
+    start = comma + 1;
+  }
+  return out;
+}
+
+std::string join_csv(const std::vector<std::string>& values) {
+  std::string out;
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (i) out.push_back(',');
+    out += values[i];
+  }
+  return out;
+}
+
+std::string hex_encode(const Bytes& bytes) {
+  std::ostringstream oss;
+  oss << std::hex << std::setfill('0');
+  for (auto b : bytes) oss << std::setw(2) << static_cast<int>(b);
+  return oss.str();
+}
+
+Bytes hex_decode(const std::string& hex) {
+  if (hex.size() % 2 != 0) throw KikoError("hex string has odd length");
+  Bytes out;
+  out.reserve(hex.size() / 2);
+  for (std::size_t i = 0; i < hex.size(); i += 2) {
+    out.push_back(static_cast<std::uint8_t>((hex_value(hex[i]) << 4) | hex_value(hex[i + 1])));
+  }
+  return out;
+}
+
+std::string trim(const std::string& value) {
+  auto begin = std::find_if_not(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c); });
+  auto end = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char c) { return std::isspace(c); }).base();
+  if (begin >= end) return {};
+  return std::string(begin, end);
+}
+
+std::uint64_t now_ms() {
+  auto now = std::chrono::steady_clock::now().time_since_epoch();
+  return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+}
+
+}  // namespace kiko
