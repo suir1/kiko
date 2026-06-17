@@ -81,6 +81,22 @@ std::string shell_escape_single(const std::string& value) {
   return out;
 }
 
+FILE* open_pipe(const char* command, const char* mode) {
+#ifdef _WIN32
+  return _popen(command, mode);
+#else
+  return popen(command, mode);
+#endif
+}
+
+int close_pipe(FILE* pipe) {
+#ifdef _WIN32
+  return _pclose(pipe);
+#else
+  return pclose(pipe);
+#endif
+}
+
 AiChatResult curl_https_post(const ParsedUrl& url, const std::string& api_key, const std::string& body,
                              std::chrono::milliseconds timeout) {
   AiChatResult result;
@@ -92,7 +108,7 @@ AiChatResult curl_https_post(const ParsedUrl& url, const std::string& api_key, c
 
   std::array<char, 4096> buf{};
   std::string output;
-  const std::unique_ptr<FILE, int (*)(FILE*)> pipe(popen(cmd.c_str(), "r"), pclose);
+  const std::unique_ptr<FILE, int (*)(FILE*)> pipe(open_pipe(cmd.c_str(), "r"), close_pipe);
   if (!pipe) {
     result.error = "failed to invoke curl for HTTPS AI request";
     return result;
