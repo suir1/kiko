@@ -2,6 +2,33 @@
 
 `kiko` is a C++20 croc-like file transfer tool: rendezvous relay, mnemonic pairing codes, PAKE end-to-end encryption (libsodium CPace / Ristretto255 + XChaCha20-Poly1305), zstd stream compression, resumable multi-file transfers, multiplexed relay connections, IPv6-first dual-stack networking, NAT-aware adaptive TCP punching with relay fallback, and CLI or FTXUI front-ends.
 
+## Install
+
+Download prebuilt binaries from [Releases](https://github.com/suir1/kiko/releases), or install the latest release:
+
+macOS / Linux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
+```
+
+The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
+`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.0-alpha` to install a specific release.
+
+Quick check:
+
+```sh
+kiko doctor
+kiko send ./file-or-folder
+kiko recv <code> --out ./downloads
+```
+
 ## Features
 
 - **Short pairing codes** – auto-generated 6-character codes (e.g. `x7k9m2`). Pass any custom code with `--code` (short alphanumeric, or croc-style `4827-stone-iris-lake-ruby` with `-` splitting room label and PAKE secret).
