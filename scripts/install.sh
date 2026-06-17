@@ -45,6 +45,7 @@ case "$(uname -s)" in
   Linux)
     case "$(uname -m)" in
       x86_64 | amd64) asset="linux-x64" ;;
+      aarch64 | arm64) asset="linux-arm64" ;;
       *)
         echo "error: unsupported Linux architecture: $(uname -m)" >&2
         exit 1
