@@ -17,6 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies (Linux)
+        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool pkg-config
+        if: runner.os == 'Linux'
+
+      - name: Install system dependencies (macOS)
+        run: brew install ninja autoconf autoconf-archive automake libtool pkg-config
+        if: runner.os == 'macOS'
+
       - name: Install vcpkg
         run: |
           git clone https://github.com/microsoft/vcpkg.git .vcpkg
@@ -46,6 +54,8 @@ jobs:
     if: vars.KIKO_RELAY_SMOKE != ''
     steps:
       - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool pkg-config
       - name: Install vcpkg
         run: |
           git clone https://github.com/microsoft/vcpkg.git .vcpkg

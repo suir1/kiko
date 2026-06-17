@@ -157,7 +157,8 @@ AiChatResult http_post(const ParsedUrl& url, const std::string& api_key, const s
     auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(read_deadline - std::chrono::steady_clock::now());
     if (remaining.count() <= 0) break;
     if (net_poll(fd, true, false, static_cast<int>(std::min<std::int64_t>(remaining.count(), 50))) <= 0) continue;
-    const auto n = ::recv(fd, buf.data(), buf.size(), 0);
+    auto* recv_buf = reinterpret_cast<char*>(buf.data());
+    const auto n = ::recv(fd, recv_buf, static_cast<int>(buf.size()), 0);
     if (n == 0) break;
     if (n < 0) continue;
     response_body.append(reinterpret_cast<const char*>(buf.data()), static_cast<std::size_t>(n));
