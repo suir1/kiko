@@ -42,7 +42,8 @@ std::optional<Endpoint> stun_binding(const std::string& host, std::uint16_t port
   req[7] = 0x42;
   for (int i = 8; i < 20; ++i) req[i] = static_cast<std::uint8_t>(i);
 
-  ssize_t sent = sendto(fd, req, sizeof(req), 0, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen));
+  const auto* req_buf = reinterpret_cast<const char*>(req);
+  ssize_t sent = sendto(fd, req_buf, sizeof(req), 0, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen));
   if (sent != static_cast<ssize_t>(sizeof(req))) {
     net_close(fd);
     freeaddrinfo(res);
@@ -57,7 +58,8 @@ std::optional<Endpoint> stun_binding(const std::string& host, std::uint16_t port
     if (net_poll(fd, true, false, static_cast<int>(std::min<std::int64_t>(remaining.count(), 50))) <= 0) continue;
 
     socklen_t from_len = 0;
-    auto n = recvfrom(fd, buf, sizeof(buf), 0, nullptr, &from_len);
+    auto* recv_buf = reinterpret_cast<char*>(buf);
+    auto n = recvfrom(fd, recv_buf, sizeof(buf), 0, nullptr, &from_len);
     if (n < 20) continue;
 
     const std::uint16_t msg_type = static_cast<std::uint16_t>((buf[0] << 8) | buf[1]);
