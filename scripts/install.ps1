@@ -7,11 +7,33 @@ param(
 $ErrorActionPreference = "Stop"
 
 if (-not $Version) {
-    $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases"
-    if (-not $releases -or -not $releases[0].tag_name) {
-        throw "Could not determine latest kiko release. Set KIKO_VERSION=v0.1.0-alpha and retry."
+    try {
+        $headers = @{
+            Accept = "application/vnd.github+json"
+            "User-Agent" = "kiko-install"
+        }
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases" -Headers $headers
+        if ($releases -and $releases[0].tag_name) {
+            $Version = $releases[0].tag_name
+        }
     }
-    $Version = $releases[0].tag_name
+    catch {
+        $Version = ""
+    }
+}
+
+if (-not $Version) {
+    try {
+        [xml]$feed = (Invoke-WebRequest -Uri "https://github.com/$Repo/releases.atom").Content
+        $Version = @($feed.feed.entry | Where-Object { $_.title -like "v*" } | Select-Object -First 1).title
+    }
+    catch {
+        $Version = ""
+    }
+}
+
+if (-not $Version) {
+    throw "Could not determine latest kiko release. Set KIKO_VERSION=v0.1.1-alpha and retry."
 }
 
 $asset = "windows-x64"

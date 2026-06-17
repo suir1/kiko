@@ -17,15 +17,26 @@ need tar
 
 if [ -z "$version" ]; then
   version="$(
-    curl -fsSL "https://api.github.com/repos/$repo/releases" |
+    curl -fsSL \
+      -H "Accept: application/vnd.github+json" \
+      -H "User-Agent: kiko-install" \
+      "https://api.github.com/repos/$repo/releases" |
       sed -n 's/^[[:space:]]*"tag_name": "\(v[^"]*\)".*/\1/p' |
       head -n 1
-  )"
+  )" || version=""
+fi
+
+if [ -z "$version" ]; then
+  version="$(
+    curl -fsSL "https://github.com/$repo/releases.atom" |
+      sed -n 's:.*<title>\(v[^<]*\)</title>.*:\1:p' |
+      head -n 1
+  )" || version=""
 fi
 
 if [ -z "$version" ]; then
   echo "error: could not determine latest kiko release" >&2
-  echo "hint: set KIKO_VERSION=v0.1.0-alpha and retry" >&2
+  echo "hint: set KIKO_VERSION=v0.1.1-alpha and retry" >&2
   exit 1
 fi
 

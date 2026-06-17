@@ -4,13 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "23 3 * * *"
-  push:
-    branches: [main, master]
-    paths:
-      - "README.md"
-      - "scripts/install.sh"
-      - "scripts/install.ps1"
-      - ".github/workflows/installer-smoke.yml"
 
 jobs:
   install:

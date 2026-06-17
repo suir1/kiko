@@ -19,7 +19,7 @@ irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
 ```
 
 The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
-`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.0-alpha` to install a specific release.
+`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.1-alpha` to install a specific release.
 
 Quick check:
 
