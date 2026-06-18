@@ -22,7 +22,7 @@
 |----|------|-----------|
 | 默认 relay | 公网 `croc.schollz.com:9009` | 公网 `106.53.170.243:9000` |
 | relay 密码 | `--pass` / `CROC_PASS` | ✅ `--relay-pass` / `KIKO_RELAY_PASS` |
-| 配置记忆 | `--remember` | ❌ |
+| 配置记忆 | `--remember` | ✅ `~/.config/kiko/config.json`（CLI/TUI 共用） |
 | room TTL / keepalive | ✅ | ✅ TTL + waiting keepalive |
 | pre-pipe TCP punch | ❌ | ✅ `try_direct`（需变聪明，少拖 relay） |
 | UDP STUN / 打洞 | ❌ | ✅ STUN 探测（U-A，`--udp-probe`） |

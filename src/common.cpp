@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstring>
 #include <iomanip>
 #include <limits>
 #include <random>
@@ -111,6 +112,55 @@ std::string random_mnemonic_code(std::size_t words) {
     out.append(kWordList[word_dist(rng)]);
   }
   return out;
+}
+
+namespace {
+
+bool short_pairing_char(char c) {
+  static constexpr char alphabet[] = "23456789abcdefghijkmnpqrstuvwxyz";
+  return std::strchr(alphabet, c) != nullptr;
+}
+
+bool mnemonic_pairing_char(char c) {
+  return short_pairing_char(c) || c == '-' || (c >= 'A' && c <= 'Z');
+}
+
+}  // namespace
+
+std::optional<std::string> validate_pairing_code_format(const std::string& code, bool required) {
+  if (code.empty()) {
+    return required ? std::optional<std::string>("pairing code is required") : std::nullopt;
+  }
+  if (code.size() > 200) return "pairing code is too long (max 200)";
+  for (const char c : code) {
+    if (c == '\n' || c == '\r' || c == '\t') return "pairing code contains invalid whitespace";
+  }
+
+  const bool mnemonic = code.find('-') != std::string::npos;
+  for (const char c : code) {
+    if (mnemonic) {
+      if (!mnemonic_pairing_char(c)) {
+        return "pairing code has invalid character (use a-z, 0-9, and - for mnemonic codes)";
+      }
+    } else if (!short_pairing_char(c)) {
+      return "pairing code has invalid character (use 23456789abcdefghijkmnpqrstuvwxyz)";
+    }
+  }
+
+  if (mnemonic) {
+    if (code.front() == '-' || code.back() == '-') return "pairing code has empty mnemonic segment";
+    std::size_t start = 0;
+    while (start < code.size()) {
+      const auto end = code.find('-', start);
+      const auto len = (end == std::string::npos ? code.size() : end) - start;
+      if (len == 0) return "pairing code has empty mnemonic segment";
+      start = end == std::string::npos ? code.size() : end + 1;
+    }
+  } else if (code.size() < 2) {
+    return "pairing code is too short";
+  }
+
+  return std::nullopt;
 }
 
 std::optional<std::uint64_t> parse_u64_strict(const std::string& value) {

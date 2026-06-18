@@ -38,6 +38,8 @@ set(KIKO_CORE_SOURCES
   src/outbound_policy.cpp
   src/pake.cpp
   src/profile.cpp
+  src/user_config.cpp
+  src/tui_advanced.cpp
   src/progress.cpp
   src/protocol.cpp
   src/proxy.cpp
@@ -146,65 +148,48 @@ target_compile_options(kiko_core PRIVATE
   $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall -Wextra -Wpedantic>
 )
 
-add_executable(kiko src/main.cpp src/tui.cpp src/tui_browser.cpp)
+set(KIKO_APP_SOURCES
+  src/main.cpp
+  src/tui.cpp
+  src/tui_browser.cpp
+  src/tui_doctor_modal.cpp
+  src/tui_menu_state.cpp
+  src/tui_menu_view.cpp
+  src/tui_session.cpp
+  src/tui_transfer_actions.cpp
+  src/tui_transfer_view.cpp
+  src/clipboard.cpp
+)
+
+add_executable(kiko ${KIKO_APP_SOURCES})
 target_link_libraries(kiko PRIVATE kiko_core ftxui::component CLI11::CLI11)
 
 enable_testing()
-add_executable(kiko_common_test tests/common_test.cpp)
-target_link_libraries(kiko_common_test PRIVATE kiko_core)
-add_test(NAME common COMMAND kiko_common_test)
+function(kiko_add_core_test name source)
+  add_executable(kiko_${name}_test ${source})
+  target_link_libraries(kiko_${name}_test PRIVATE kiko_core)
+  add_test(NAME ${name} COMMAND kiko_${name}_test)
+endfunction()
 
-add_executable(kiko_handshake_test tests/handshake_test.cpp)
-target_link_libraries(kiko_handshake_test PRIVATE kiko_core)
-add_test(NAME handshake COMMAND kiko_handshake_test)
-
-add_executable(kiko_transfer_test tests/transfer_test.cpp)
-target_link_libraries(kiko_transfer_test PRIVATE kiko_core)
-add_test(NAME transfer COMMAND kiko_transfer_test)
-
-add_executable(kiko_progress_test tests/progress_test.cpp)
-target_link_libraries(kiko_progress_test PRIVATE kiko_core)
-add_test(NAME progress COMMAND kiko_progress_test)
-
-add_executable(kiko_profile_test tests/profile_test.cpp)
-target_link_libraries(kiko_profile_test PRIVATE kiko_core)
-add_test(NAME profile COMMAND kiko_profile_test)
-
-add_executable(kiko_mux_test tests/mux_test.cpp)
-target_link_libraries(kiko_mux_test PRIVATE kiko_core)
-add_test(NAME mux COMMAND kiko_mux_test)
-
-add_executable(kiko_adaptive_test tests/adaptive_test.cpp)
-target_link_libraries(kiko_adaptive_test PRIVATE kiko_core)
-add_test(NAME adaptive COMMAND kiko_adaptive_test)
-
-add_executable(kiko_connectivity_test tests/connectivity_test.cpp)
-target_link_libraries(kiko_connectivity_test PRIVATE kiko_core)
-add_test(NAME connectivity COMMAND kiko_connectivity_test)
-
-add_executable(kiko_route_scenarios_test tests/route_scenarios_test.cpp)
-target_link_libraries(kiko_route_scenarios_test PRIVATE kiko_core)
-add_test(NAME route_scenarios COMMAND kiko_route_scenarios_test)
-
-add_executable(kiko_outbound_policy_test tests/outbound_policy_test.cpp)
-target_link_libraries(kiko_outbound_policy_test PRIVATE kiko_core)
-add_test(NAME outbound_policy COMMAND kiko_outbound_policy_test)
-
-add_executable(kiko_relay_test tests/relay_test.cpp)
-target_link_libraries(kiko_relay_test PRIVATE kiko_core)
-add_test(NAME relay COMMAND kiko_relay_test)
-
-add_executable(kiko_transfer_heuristics_test tests/transfer_heuristics_test.cpp)
-target_link_libraries(kiko_transfer_heuristics_test PRIVATE kiko_core)
-add_test(NAME transfer_heuristics COMMAND kiko_transfer_heuristics_test)
-
-add_executable(kiko_ai_test tests/ai_test.cpp)
-target_link_libraries(kiko_ai_test PRIVATE kiko_core)
-add_test(NAME ai COMMAND kiko_ai_test)
-
-add_executable(kiko_udp_punch_test tests/udp_punch_test.cpp)
-target_link_libraries(kiko_udp_punch_test PRIVATE kiko_core)
-add_test(NAME udp_punch COMMAND kiko_udp_punch_test)
+kiko_add_core_test(common tests/common_test.cpp)
+kiko_add_core_test(handshake tests/handshake_test.cpp)
+kiko_add_core_test(transfer tests/transfer_test.cpp)
+kiko_add_core_test(progress tests/progress_test.cpp)
+kiko_add_core_test(profile tests/profile_test.cpp)
+kiko_add_core_test(user_config tests/user_config_test.cpp)
+kiko_add_core_test(tui_advanced tests/tui_advanced_test.cpp)
+add_executable(kiko_tui_menu_state_test tests/tui_menu_state_test.cpp src/tui_menu_state.cpp src/tui_transfer_view.cpp)
+target_link_libraries(kiko_tui_menu_state_test PRIVATE kiko_core ftxui::component)
+add_test(NAME tui_menu_state COMMAND kiko_tui_menu_state_test)
+kiko_add_core_test(mux tests/mux_test.cpp)
+kiko_add_core_test(adaptive tests/adaptive_test.cpp)
+kiko_add_core_test(connectivity tests/connectivity_test.cpp)
+kiko_add_core_test(route_scenarios tests/route_scenarios_test.cpp)
+kiko_add_core_test(outbound_policy tests/outbound_policy_test.cpp)
+kiko_add_core_test(relay tests/relay_test.cpp)
+kiko_add_core_test(transfer_heuristics tests/transfer_heuristics_test.cpp)
+kiko_add_core_test(ai tests/ai_test.cpp)
+kiko_add_core_test(udp_punch tests/udp_punch_test.cpp)
 
 if(NOT WIN32)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)

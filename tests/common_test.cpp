@@ -244,6 +244,33 @@ int main() {
     }
   }
 
+  {
+    auto expect_valid_code = [](const std::string& code, bool required) {
+      if (auto error = validate_pairing_code_format(code, required)) {
+        std::cerr << "FAIL: expected valid pairing code '" << code << "': " << *error << "\n";
+        return false;
+      }
+      return true;
+    };
+    auto expect_invalid_code = [](const std::string& code, bool required) {
+      if (!validate_pairing_code_format(code, required)) {
+        std::cerr << "FAIL: expected invalid pairing code '" << code << "'\n";
+        return false;
+      }
+      return true;
+    };
+
+    if (!expect_valid_code("", false)) return 1;
+    if (!expect_invalid_code("", true)) return 1;
+    if (!expect_valid_code("abc234", false)) return 1;
+    if (!expect_invalid_code("abc123", false)) return 1;
+    if (!expect_invalid_code("abc12o", false)) return 1;
+    if (!expect_valid_code("4827-stne-iris", false)) return 1;
+    if (!expect_invalid_code("4827-stone-iris", false)) return 1;
+    if (!expect_invalid_code("bad-chars!", false)) return 1;
+    if (!expect_invalid_code("-abc", false)) return 1;
+  }
+
   std::cout << "common_test ok\n";
   return 0;
 }

@@ -8,6 +8,7 @@
 #include "relay_server.hpp"
 #include "transfer.hpp"
 #include "tui.hpp"
+#include "user_config.hpp"
 
 #include <CLI/CLI.hpp>
 
@@ -25,23 +26,14 @@ kiko::Endpoint parse_bind_endpoint_option(const std::string& value, std::uint16_
   return kiko::parse_bind_endpoint(value, default_port);
 }
 
-std::string default_relay() {
-  if (const char* env = std::getenv("KIKO_RELAY")) {
-    if (env[0] != '\0') return env;
-  }
-  return kiko::kDefaultRelay;
+std::optional<std::string> default_relay_pass(const kiko::UserConfig& user_config) {
+  return kiko::resolve_relay_pass_default(user_config);
 }
 
-std::optional<std::string> default_relay_pass() {
-  if (const char* env = std::getenv("KIKO_RELAY_PASS")) {
-    if (env[0] != '\0') return std::string(env);
-  }
-  return std::nullopt;
-}
-
-void apply_relay_pass_cli(std::optional<std::string>& pass, const std::string& cli_value) {
+void apply_relay_pass_cli(std::optional<std::string>& pass, const std::string& cli_value,
+                          const kiko::UserConfig& user_config) {
   if (!cli_value.empty()) pass = cli_value;
-  else if (!pass) pass = default_relay_pass();
+  else if (!pass) pass = default_relay_pass(user_config);
 }
 
 }  // namespace
@@ -50,7 +42,8 @@ int main(int argc, char** argv) {
   CLI::App app{"croc-like encrypted file transfer", "kiko"};
   app.require_subcommand(1);
 
-  const std::string relay_default = default_relay();
+  const kiko::UserConfig user_config = kiko::load_user_config();
+  const std::string relay_default = kiko::resolve_relay_default(user_config);
 
   std::string tui_relay = relay_default;
   auto* tui_cmd = app.add_subcommand("tui", "Interactive terminal UI");
@@ -102,6 +95,7 @@ int main(int argc, char** argv) {
   bool send_ai_route_connectivity_only = false;
   bool send_auto_connections = false;
   bool send_avoid_vpn = false;
+  bool send_remember = false;
   std::string send_proxy;
   std::string send_ip;
   std::string send_bind_interface;
@@ -131,6 +125,7 @@ int main(int argc, char** argv) {
   send_cmd->add_flag("--avoid-vpn", send_avoid_vpn, "Bind outbound TCP sockets to a non-VPN physical interface when possible");
   send_cmd->add_option("--connections", send_connections, "Parallel relay connections")->check(CLI::PositiveNumber);
   send_cmd->add_flag("--auto-connections", send_auto_connections, "Pick connection count from relay RTT and file size");
+  send_cmd->add_flag("--remember", send_remember, "Save relay and path to ~/.config/kiko/config.json");
   send_cmd->add_flag("--tui", send_tui, "Show live progress UI");
 
   std::string recv_code;
@@ -146,6 +141,7 @@ int main(int argc, char** argv) {
   bool recv_ai_route = false;
   bool recv_ai_route_plan_only = false;
   bool recv_avoid_vpn = false;
+  bool recv_remember = false;
   std::string recv_proxy;
   std::string recv_ip;
   std::string recv_bind_interface;
@@ -168,6 +164,7 @@ int main(int argc, char** argv) {
   recv_cmd->add_option("--bind-interface", recv_bind_interface,
                        "Bind outbound TCP sockets to an interface (for example en0)");
   recv_cmd->add_flag("--avoid-vpn", recv_avoid_vpn, "Bind outbound TCP sockets to a non-VPN physical interface when possible");
+  recv_cmd->add_flag("--remember", recv_remember, "Save relay and output directory to ~/.config/kiko/config.json");
   recv_cmd->add_flag("--tui", recv_tui, "Show live progress UI");
 
   try {
@@ -192,7 +189,7 @@ int main(int argc, char** argv) {
     if (app.got_subcommand(doctor_cmd)) {
       kiko::DoctorOptions opts;
       opts.relay = parse_endpoint_option(doctor_relay, 9000);
-      apply_relay_pass_cli(opts.relay_pass, doctor_relay_pass);
+      apply_relay_pass_cli(opts.relay_pass, doctor_relay_pass, user_config);
       opts.udp_probe = doctor_udp_probe;
       opts.json_output = doctor_json;
       opts.ai_explain = doctor_ai_explain;
@@ -218,16 +215,24 @@ int main(int argc, char** argv) {
       if (!send_ip.empty()) config.manual_ip = send_ip;
       config.bind_interface = send_bind_interface;
       config.avoid_vpn = send_avoid_vpn;
-      apply_relay_pass_cli(config.relay_pass, send_relay_pass);
+      apply_relay_pass_cli(config.relay_pass, send_relay_pass, user_config);
       config.udp_probe = send_udp_probe;
       config.ai_route = send_ai_route;
       config.ai_route_plan_only = send_ai_route_plan_only;
       config.ai_route_connectivity_only = send_ai_route_connectivity_only;
       config.connections = send_connections;
       config.auto_connections = send_auto_connections;
-      if (send_tui) return kiko::run_tui_send(config);
-      kiko::CliReporter reporter;
-      return kiko::run_send(config, reporter);
+      int rc = 0;
+      if (send_tui) {
+        rc = kiko::run_tui_send(config);
+      } else {
+        kiko::CliReporter reporter;
+        rc = kiko::run_send(config, reporter);
+      }
+      if (rc == 0 && send_remember) {
+        kiko::remember_send_settings(config.relay.to_string(), config.relay_pass, send_path);
+      }
+      return rc;
     }
 
     if (app.got_subcommand(recv_cmd)) {
@@ -244,13 +249,21 @@ int main(int argc, char** argv) {
       if (!recv_ip.empty()) config.manual_ip = recv_ip;
       config.bind_interface = recv_bind_interface;
       config.avoid_vpn = recv_avoid_vpn;
-      apply_relay_pass_cli(config.relay_pass, recv_relay_pass);
+      apply_relay_pass_cli(config.relay_pass, recv_relay_pass, user_config);
       config.udp_probe = recv_udp_probe;
       config.ai_route = recv_ai_route;
       config.ai_route_plan_only = recv_ai_route_plan_only;
-      if (recv_tui) return kiko::run_tui_recv(config);
-      kiko::CliReporter reporter;
-      return kiko::run_recv(config, reporter);
+      int rc = 0;
+      if (recv_tui) {
+        rc = kiko::run_tui_recv(config);
+      } else {
+        kiko::CliReporter reporter;
+        rc = kiko::run_recv(config, reporter);
+      }
+      if (rc == 0 && recv_remember) {
+        kiko::remember_recv_settings(config.relay.to_string(), config.relay_pass, recv_out);
+      }
+      return rc;
     }
 
     return 2;

@@ -36,6 +36,8 @@ std::string random_code(std::size_t bytes = 3);
 // Optional croc-style mnemonic code for --code: numeric prefix + words, e.g.
 // "4827-stone-iris-lake-ruby" (prefix = rendezvous label; words = PAKE secret).
 std::string random_mnemonic_code(std::size_t words = 4);
+// Returns an error message when the pairing code format is invalid.
+[[nodiscard]] std::optional<std::string> validate_pairing_code_format(const std::string& code, bool required);
 std::optional<std::uint64_t> parse_u64_strict(const std::string& value);
 std::vector<std::string> split_csv(const std::string& value);
 std::string join_csv(const std::vector<std::string>& values);

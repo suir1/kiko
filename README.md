@@ -100,6 +100,8 @@ Run a relay (LAN-announced via multicast):
 Clients use `--relay-pass` or `KIKO_RELAY_PASS` when the relay requires a password.
 
 `kiko` uses `106.53.170.243:9000` as the built-in public relay when `KIKO_RELAY` is unset.
+Saved settings in `~/.config/kiko/config.json` (override with `KIKO_CONFIG_PATH`) are used when env vars are unset.
+`kiko tui` updates that file automatically; CLI uses `--remember` on `send` / `recv` after a successful transfer.
 Override it for private/self-hosted relays:
 
 ```sh
@@ -165,7 +167,7 @@ export KIKO_AI_BASE_URL=https://api.openai.com/v1   # or http://localhost:11434/
 export KIKO_AI_MODEL=gpt-4o-mini
 ```
 
-Flags: `--relay-pass`, `--auto-connections`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
+Flags: `--relay-pass`, `--remember`, `--auto-connections`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
 
 `--ip` overrides the relay target (port from `--relay`) and the addresses advertised to the peer for direct/punch paths. When set, LAN relay discovery is skipped.
 
