@@ -53,8 +53,8 @@ int normalize_connection_count(int connections) {
 
 OutboundSelection select_outbound_and_report(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,
                                              const std::string& bind_interface, bool avoid_vpn,
-                                             ProgressReporter& reporter) {
-  const auto selection = select_outbound_for_relay(relay, proxy, bind_interface, avoid_vpn);
+                                             const std::optional<OutboundHistory>& history, ProgressReporter& reporter) {
+  const auto selection = select_outbound_for_relay(relay, proxy, bind_interface, avoid_vpn, history);
   if (!selection.probes.empty()) {
     std::string line = "outbound probe:";
     for (const auto& probe : selection.probes) {
@@ -132,8 +132,10 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
 
   int connections = normalize_connection_count(config.connections);
   const auto external_relay = relay_with_manual_ip(config.relay, config.manual_ip);
+  const auto saved_profile = load_profile(network_fingerprint());
   const auto outbound_selection =
-      select_outbound_and_report(external_relay, config.proxy, config.bind_interface, config.avoid_vpn, reporter);
+      select_outbound_and_report(external_relay, config.proxy, config.bind_interface, config.avoid_vpn,
+                                 saved_profile ? outbound_history_from_profile(*saved_profile) : std::nullopt, reporter);
   const auto connect_options = outbound_selection.connect_options;
   const auto profile_relay_path = profile_relay_path_from(outbound_selection);
   if (config.auto_connections) {
@@ -176,7 +178,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   if (config.ai_route || config.ai_route_plan_only) {
     ConnectivitySnapshot pre_snapshot =
         build_pre_rendezvous_snapshot(config.no_direct, config.only_local, 0, total_size);
-    if (auto profile = load_profile(network_fingerprint())) apply_profile_to_snapshot(*profile, pre_snapshot);
+    if (saved_profile) apply_profile_to_snapshot(*saved_profile, pre_snapshot);
     fill_transfer_snapshot(pre_snapshot, files, connections_hint);
     pre_snapshot.relays = relay_probes;
     if (stun_early && stun_early->ok) pre_snapshot.stun_nat = stun_early->nat_class;
@@ -230,7 +232,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   }
 
   ConnectivitySnapshot snapshot = build_pre_rendezvous_snapshot(config.no_direct, config.only_local, 0, total_size);
-  if (auto profile = load_profile(network_fingerprint())) apply_profile_to_snapshot(*profile, snapshot);
+  if (saved_profile) apply_profile_to_snapshot(*saved_profile, snapshot);
   fill_transfer_snapshot(snapshot, files, connections_hint);
   snapshot.self_nat = self_nat.type;
   snapshot.peer_nat = peer_nat.type;
@@ -309,8 +311,10 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
     emit_debug_route(external_relay, config.proxy, config.relay_pass, config.bind_interface, config.avoid_vpn,
                      config.udp_probe, config.no_direct, config.only_local, reporter);
   }
+  const auto saved_profile = load_profile(network_fingerprint());
   const auto outbound_selection =
-      select_outbound_and_report(external_relay, config.proxy, config.bind_interface, config.avoid_vpn, reporter);
+      select_outbound_and_report(external_relay, config.proxy, config.bind_interface, config.avoid_vpn,
+                                 saved_profile ? outbound_history_from_profile(*saved_profile) : std::nullopt, reporter);
   const auto connect_options = outbound_selection.connect_options;
   const auto profile_relay_path = profile_relay_path_from(outbound_selection);
   std::vector<Endpoint> relay_targets;
@@ -384,7 +388,7 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
 
   ConnectivitySnapshot snapshot =
       build_pre_rendezvous_snapshot(config.no_direct, config.only_local, lan_extra.size(), 0);
-  if (auto profile = load_profile(network_fingerprint())) apply_profile_to_snapshot(*profile, snapshot);
+  if (saved_profile) apply_profile_to_snapshot(*saved_profile, snapshot);
   snapshot.file_count = static_cast<std::size_t>(peer.get_u64("file_count", 0));
   snapshot.total_bytes = peer.get_u64("total_size", 0);
   snapshot.self_nat = self_nat.type;

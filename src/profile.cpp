@@ -158,6 +158,19 @@ void save_profile_success(const std::string& fingerprint, const std::string& pat
   save_profile_success_impl(fingerprint, path, &stats, &relay);
 }
 
+std::optional<OutboundHistory> outbound_history_from_profile(const NetworkProfileEntry& profile) {
+  if (profile.last_relay_path.empty() && profile.last_relay_interface.empty() && profile.last_relay_reason.empty() &&
+      profile.relay_rtt_by_path.empty()) {
+    return std::nullopt;
+  }
+  OutboundHistory history;
+  history.path = profile.last_relay_path;
+  history.bind_interface = profile.last_relay_interface;
+  history.reason = profile.last_relay_reason;
+  history.rtt_by_path = profile.relay_rtt_by_path;
+  return history;
+}
+
 void apply_profile_to_snapshot(const NetworkProfileEntry& profile, ConnectivitySnapshot& snapshot) {
   snapshot.profile_last_path = profile.last_path;
   snapshot.profile_success_count = profile.success_count;

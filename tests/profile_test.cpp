@@ -46,6 +46,13 @@ int main() {
   assert(loaded->last_direct_candidate_kind == "lan");
   assert(loaded->last_direct_rtt_ms == 7);
   assert(loaded->candidate_failures_by_kind["public"] == 2);
+  auto outbound_history = outbound_history_from_profile(*loaded);
+  assert(outbound_history);
+  assert(outbound_history->path == "physical");
+  assert(outbound_history->bind_interface == "en0");
+  assert(outbound_history->reason == "physical_lower_rtt");
+  assert(outbound_history->rtt_by_path["default"] == 90);
+  assert(outbound_history->rtt_by_path["physical"] == 42);
 
   std::vector<DirectCandidate> candidates{
       make_direct_candidate(Endpoint{"203.0.113.7", 5000}, "public", 20),

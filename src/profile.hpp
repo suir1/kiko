@@ -1,6 +1,7 @@
 #pragma once
 
 #include "connectivity.hpp"
+#include "outbound_policy.hpp"
 
 #include <cstdint>
 #include <map>
@@ -36,6 +37,7 @@ void save_profile_success(const std::string& fingerprint, const std::string& pat
 void save_profile_success(const std::string& fingerprint, const std::string& path, const ProfileRelayPath& relay);
 void save_profile_success(const std::string& fingerprint, const std::string& path, const PunchStats& stats,
                           const ProfileRelayPath& relay);
+[[nodiscard]] std::optional<OutboundHistory> outbound_history_from_profile(const NetworkProfileEntry& profile);
 void apply_profile_to_snapshot(const NetworkProfileEntry& profile, ConnectivitySnapshot& snapshot);
 void apply_profile_candidate_bias(const NetworkProfileEntry& profile, std::vector<DirectCandidate>& candidates);
 [[nodiscard]] std::string network_fingerprint();

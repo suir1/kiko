@@ -24,6 +24,18 @@ bool materially_faster(std::int64_t candidate_ms, std::int64_t current_ms) {
   return candidate_ms >= 0 && current_ms >= 0 && candidate_ms + kRttWinMarginMs < current_ms;
 }
 
+bool history_prefers_physical(const std::optional<OutboundHistory>& history) {
+  if (!history || history->path != "physical" || history->bind_interface.empty()) return false;
+  if (history->reason == "physical_lower_rtt" || history->reason == "default_failed_physical_ok" ||
+      history->reason == "avoid_vpn" || history->reason == "profile_physical_history") {
+    return true;
+  }
+  const auto default_rtt = history->rtt_by_path.find("default");
+  const auto physical_rtt = history->rtt_by_path.find("physical");
+  return default_rtt != history->rtt_by_path.end() && physical_rtt != history->rtt_by_path.end() &&
+         materially_faster(physical_rtt->second, default_rtt->second);
+}
+
 }  // namespace
 
 bool relay_target_is_local(const Endpoint& relay) {
@@ -31,7 +43,8 @@ bool relay_target_is_local(const Endpoint& relay) {
 }
 
 OutboundSelection select_outbound_for_relay(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,
-                                            const std::string& bind_interface, bool avoid_vpn) {
+                                            const std::string& bind_interface, bool avoid_vpn,
+                                            const std::optional<OutboundHistory>& history) {
   OutboundSelection selection;
   selection.connect_options.proxy = proxy;
 
@@ -44,6 +57,11 @@ OutboundSelection select_outbound_for_relay(const Endpoint& relay, const std::op
 
   if (relay_target_is_local(relay)) {
     selection.reason = "local_relay";
+    return selection;
+  }
+
+  if (proxy) {
+    selection.reason = "proxy_default";
     return selection;
   }
 
@@ -60,8 +78,15 @@ OutboundSelection select_outbound_for_relay(const Endpoint& relay, const std::op
     return selection;
   }
 
-  if (proxy || !detect_vpn_interfaces() || !physical) {
-    selection.reason = proxy ? "proxy_default" : "default";
+  if (history_prefers_physical(history)) {
+    selection.connect_options.bind_interface = history->bind_interface;
+    selection.chosen_path = "physical";
+    selection.reason = "profile_physical_history";
+    return selection;
+  }
+
+  if (!detect_vpn_interfaces() || !physical) {
+    selection.reason = "default";
     return selection;
   }
 

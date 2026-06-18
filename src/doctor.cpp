@@ -200,14 +200,17 @@ DoctorReport run_doctor(const DoctorOptions& options) {
   report.snapshot = build_pre_rendezvous_snapshot(options.no_direct, options.only_local, discovered.size(), 0);
   report.interfaces = collect_interface_addresses();
   report.relay_route = route_to_host(options.relay.host);
-  const auto outbound = select_outbound_for_relay(options.relay, options.proxy, options.bind_interface, options.avoid_vpn);
+  const auto profile = load_profile(network_fingerprint());
+  const auto outbound =
+      select_outbound_for_relay(options.relay, options.proxy, options.bind_interface, options.avoid_vpn,
+                                profile ? outbound_history_from_profile(*profile) : std::nullopt);
   const auto connect_options = outbound.connect_options;
   report.bound_interface = connect_options.bind_interface;
   report.outbound_path = outbound.chosen_path;
   report.outbound_reason = outbound.reason;
   report.outbound_probes = outbound.probes;
   if (!report.bound_interface.empty()) report.bound_route = route_to_host(options.relay.host, report.bound_interface);
-  if (auto profile = load_profile(network_fingerprint())) apply_profile_to_snapshot(*profile, report.snapshot);
+  if (profile) apply_profile_to_snapshot(*profile, report.snapshot);
   report.snapshot.lan_discovered_count = discovered.size();
 
   RelayProbeEntry entry;
@@ -225,9 +228,8 @@ DoctorReport run_doctor(const DoctorOptions& options) {
   RuleScheduler scheduler;
   report.plan = scheduler.plan(report.snapshot, report.stun, options.no_direct, 4);
 
-  const auto fp = network_fingerprint();
-  if (auto prior = load_profile(fp)) {
-    if (prior->last_path == "relay" && report.plan.reason == "default") {
+  if (profile) {
+    if (profile->last_path == "relay" && report.plan.reason == "default") {
       report.plan.direct_timeout = std::chrono::milliseconds(600);
       report.plan.direct_connect = std::chrono::milliseconds(220);
       report.plan.reason = "profile_relay_history_short_direct";
