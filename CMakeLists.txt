@@ -172,6 +172,7 @@ function(kiko_add_core_test name source)
 endfunction()
 
 kiko_add_core_test(common tests/common_test.cpp)
+kiko_add_core_test(doctor tests/doctor_test.cpp)
 kiko_add_core_test(handshake tests/handshake_test.cpp)
 kiko_add_core_test(transfer tests/transfer_test.cpp)
 kiko_add_core_test(progress tests/progress_test.cpp)

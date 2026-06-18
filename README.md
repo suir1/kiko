@@ -144,6 +144,8 @@ interface instead of going out through the physical LAN/Wi-Fi route.
 When VPN/TUN interfaces are detected and no proxy or manual bind is set, `send`, `recv`, and `doctor` probe both
 the default relay path and a likely physical interface path, then use the reachable path with lower relay RTT.
 The `doctor --json` output includes `outbound_path`, `outbound_reason`, and `outbound_probes` for this decision.
+It also includes `relay_reachable`, `recommendation`, `direct_probe`, and `route_result_hint`; the hint separates
+the rendezvous relay from whether file data is expected to require relay forwarding.
 
 To test a physical-interface route while VPN/TUN is active:
 

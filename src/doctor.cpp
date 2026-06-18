@@ -153,6 +153,45 @@ std::string diagnose(const DoctorReport& report) {
   return "Network looks compatible with direct-preferred transfer. Relay remains the fallback path.";
 }
 
+bool relay_reachable(const DoctorReport& report) {
+  return !report.snapshot.relays.empty() && report.snapshot.relays.front().pong_ok;
+}
+
+std::string recommendation_for(const DoctorReport& report) {
+  if (!relay_reachable(report)) return "fix_relay";
+  if (report.relay_route.routed_via_vpn && report.bound_interface.empty()) return "add_vpn_direct_rule_or_avoid_vpn";
+  if (report.relay_route.routed_via_vpn && !report.bound_interface.empty()) return "use_bound_physical_interface";
+  if (report.plan.skip_direct) return "relay_only";
+  if (report.plan.reason == "stun_symmetric_short_direct" ||
+      report.plan.reason == "profile_relay_history_short_direct" ||
+      report.plan.reason == "double_nat_short_punch") {
+    return "short_direct_then_relay";
+  }
+  return "direct_preferred_with_relay_fallback";
+}
+
+nlohmann::json route_result_hint_json(const DoctorReport& report) {
+  if (!relay_reachable(report)) {
+    return {{"path", "none"},
+            {"reason", "relay_unreachable"},
+            {"direct_attempted", false},
+            {"data_relay_required", true},
+            {"rendezvous_relay_required", true}};
+  }
+  if (report.plan.skip_direct) {
+    return {{"path", "relay"},
+            {"reason", "direct_skipped"},
+            {"direct_attempted", false},
+            {"data_relay_required", true},
+            {"rendezvous_relay_required", true}};
+  }
+  return {{"path", "direct_or_relay"},
+          {"reason", "direct_probe_then_relay_fallback"},
+          {"direct_attempted", true},
+          {"data_relay_required", false},
+          {"rendezvous_relay_required", true}};
+}
+
 }  // namespace
 
 DoctorReport run_doctor(const DoctorOptions& options) {
@@ -216,6 +255,9 @@ std::string doctor_report_to_json(const DoctorReport& report) {
   j["vpn_detected"] = report.snapshot.vpn_detected;
   j["lan_discovered_count"] = report.snapshot.lan_discovered_count;
   j["stun_nat"] = stun_nat_class_name(report.snapshot.stun_nat);
+  j["relay_reachable"] = relay_reachable(report);
+  j["recommendation"] = recommendation_for(report);
+  j["route_result_hint"] = route_result_hint_json(report);
   j["interfaces"] = nlohmann::json::array();
   for (const auto& iface : report.interfaces) {
     if (iface.loopback) continue;
@@ -249,7 +291,14 @@ std::string doctor_report_to_json(const DoctorReport& report) {
   j["plan"] = {{"skip_direct", report.plan.skip_direct},
                {"reason", report.plan.reason},
                {"direct_timeout_ms", report.plan.direct_timeout.count()},
+               {"direct_connect_ms", report.plan.direct_connect.count()},
+               {"udp_punch_enabled", report.plan.udp_punch_enabled},
                {"connections", report.plan.connections}};
+  j["direct_probe"] = {{"will_attempt", !report.plan.skip_direct},
+                       {"timeout_ms", report.plan.direct_timeout.count()},
+                       {"connect_timeout_ms", report.plan.direct_connect.count()},
+                       {"udp_assist", report.plan.udp_punch_enabled},
+                       {"candidate_order", report.plan.direct_candidate_order}};
   if (!report.plan.direct_candidate_order.empty()) {
     j["plan"]["direct_candidate_order"] = report.plan.direct_candidate_order;
   }
@@ -309,6 +358,16 @@ int run_doctor_cli(const DoctorOptions& options) {
     }
     std::cout << "  plan: skip_direct=" << (report.plan.skip_direct ? "true" : "false") << " reason=" << report.plan.reason
               << "\n";
+    std::cout << "  direct probe: will_attempt=" << (report.plan.skip_direct ? "false" : "true")
+              << " timeout=" << report.plan.direct_timeout.count() << "ms"
+              << " connect=" << report.plan.direct_connect.count() << "ms"
+              << " udp_assist=" << (report.plan.udp_punch_enabled ? "true" : "false") << "\n";
+    const auto route_hint = route_result_hint_json(report);
+    std::cout << "  route hint: path=" << route_hint.value("path", std::string{})
+              << " reason=" << route_hint.value("reason", std::string{})
+              << " data_relay_required=" << (route_hint.value("data_relay_required", false) ? "true" : "false")
+              << "\n";
+    std::cout << "  recommendation: " << recommendation_for(report) << "\n";
     std::cout << "\n" << report.diagnosis << "\n";
   }
   return report.snapshot.relays.empty() || !report.snapshot.relays.front().pong_ok ? 1 : 0;
