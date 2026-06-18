@@ -226,6 +226,8 @@ void TuiReporter::update_network_summary(const std::string& message) {
     state_.outbound_summary = text_after_prefix(message, "outbound path:");
   } else if (starts_with(message, "route plan:")) {
     state_.route_plan_summary = text_after_prefix(message, "route plan:");
+  } else if (starts_with(message, "route result:")) {
+    state_.transfer_path_summary = text_after_prefix(message, "route result:");
   } else if (message == "direct skipped, using relay" || message == "direct failed, using relay" ||
              message == "peer selected relay; using relay path") {
     state_.transfer_path_summary = "relay (" + message + ")";

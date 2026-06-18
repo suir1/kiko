@@ -3,6 +3,16 @@
 #include "protocol.hpp"
 
 namespace kiko {
+namespace {
+
+void report_route_result(ProgressReporter& reporter, const std::string& path, const std::string& reason,
+                         bool direct_attempted, bool allow_lan_upgrade = false) {
+  reporter.status("route result: path=" + path + " reason=" + reason +
+                  " direct_attempted=" + (direct_attempted ? "true" : "false") +
+                  " lan_upgrade=" + (allow_lan_upgrade ? "true" : "false"));
+}
+
+}  // namespace
 
 RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> direct,
                                      const AdaptivePuncher& puncher, const RoutePlan& route_plan,
@@ -23,6 +33,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
       selection.path = RoutePath::Relay;
       selection.allow_lan_upgrade = false;
       selection.punch_stats = punch_stats_from(puncher, false, true);
+      report_route_result(reporter, "relay", "peer_selected_relay", true, selection.allow_lan_upgrade);
       return selection;
     }
     if (direct_choice->type != "direct_start") {
@@ -32,6 +43,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
     selection.path = RoutePath::Direct;
     selection.direct = std::move(direct);
     selection.punch_stats = punch_stats_from(puncher, true, true);
+    report_route_result(reporter, "direct", "confirmed", true, false);
     return selection;
   }
 
@@ -43,6 +55,8 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
   if (!start || start->type != "relay_start") throw KikoError("relay did not start stream");
   selection.path = RoutePath::Relay;
   selection.allow_lan_upgrade = start->get("reason") != "mismatch";
+  report_route_result(reporter, "relay", route_plan.skip_direct ? "direct_skipped" : "direct_failed",
+                      !route_plan.skip_direct, selection.allow_lan_upgrade);
   return selection;
 }
 
