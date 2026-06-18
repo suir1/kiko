@@ -29,6 +29,37 @@ ConnectOptions connect_options_for_entry(const RelayRaceEntry& entry, const Conn
   return options;
 }
 
+std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const Message& hello,
+                                            const ConnectOptions& connect_options,
+                                            const std::optional<std::string>& relay_pass,
+                                            std::chrono::milliseconds timeout) {
+  if (connect_options.proxy || timeout.count() <= 0) return std::nullopt;
+
+  const auto listen_port = hello.get_u64("listen_port", 0);
+  if (listen_port == 0 || listen_port > 65535) return std::nullopt;
+
+  ConnectOptions probe_options = connect_options;
+  probe_options.local_bind = Endpoint{"", static_cast<std::uint16_t>(listen_port)};
+
+  auto socket = connect_tcp(relay, timeout, probe_options);
+  if (!socket.valid()) return std::nullopt;
+
+  Message probe{"punch_probe", {{"room", hello.get("room")}, {"role", hello.get("role")}}};
+  if (relay_pass && !relay_pass->empty()) probe.fields["relay_pass"] = *relay_pass;
+
+  try {
+    send_message(socket, probe);
+    const auto observed = recv_message_timeout(socket, std::min(timeout, kControlFrameReadTimeout));
+    if (!observed || observed->type != "punch_observed") return std::nullopt;
+    const auto public_host = observed->get("public_host");
+    const auto public_port = observed->get_u64("public_port", 0);
+    if (public_host.empty() || public_port == 0 || public_port > 65535) return std::nullopt;
+    return Endpoint{public_host, static_cast<std::uint16_t>(public_port)};
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+}
+
 }  // namespace
 
 std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const Message& hello,
@@ -40,6 +71,12 @@ std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, c
 
   if (timeout.count() <= 0) timeout = std::chrono::milliseconds(1);
   const auto deadline = std::chrono::steady_clock::now() + timeout;
+
+  const auto probe_budget = std::min<std::chrono::milliseconds>(timeout, std::chrono::milliseconds(600));
+  if (auto punch_mapping = probe_punch_mapping(relay, hello, connect_options, relay_pass, probe_budget)) {
+    registration.fields["punch_public_host"] = punch_mapping->host;
+    registration.fields["punch_public_port"] = std::to_string(punch_mapping->port);
+  }
 
   auto socket = connect_tcp(relay, timeout, connect_options);
   if (!socket.valid()) return std::nullopt;

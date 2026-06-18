@@ -169,6 +169,60 @@ int main() {
     const auto endpoint = relay.local_endpoint();
     const std::vector<RelayRaceEntry> entries{{endpoint, false}};
 
+    std::uint16_t sender_port = 0;
+    std::uint16_t receiver_port = 0;
+    {
+      auto sender_reservation = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+      sender_port = sender_reservation.local_endpoint().port;
+    }
+    {
+      auto receiver_reservation = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+      receiver_port = receiver_reservation.local_endpoint().port;
+    }
+
+    Message sender_hello{
+        "hello", {{"room", "room-punch-map"}, {"role", "sender"}, {"listen_port", std::to_string(sender_port)}}};
+    Message receiver_hello{
+        "hello", {{"room", "room-punch-map"}, {"role", "receiver"}, {"listen_port", std::to_string(receiver_port)}}};
+
+    auto sender_future = std::async(std::launch::async, [&] {
+      return race_until_peer(entries, sender_hello, std::chrono::seconds(2), ConnectOptions{});
+    });
+    auto receiver_future = std::async(std::launch::async, [&] {
+      return race_until_peer(entries, receiver_hello, std::chrono::seconds(2), ConnectOptions{});
+    });
+
+    auto sender_peer = sender_future.get();
+    auto receiver_peer = receiver_future.get();
+    if (!sender_peer || !receiver_peer || sender_peer->peer.type != "peer" || receiver_peer->peer.type != "peer") {
+      std::cerr << "FAIL: punch mapping peers did not rendezvous\n";
+      return 1;
+    }
+    if (sender_peer->peer.get_u64("peer_public_port", 0) != receiver_port ||
+        receiver_peer->peer.get_u64("peer_public_port", 0) != sender_port) {
+      std::cerr << "FAIL: relay did not exchange punch-observed public ports\n";
+      return 1;
+    }
+    if (sender_peer->peer.get_u64("your_public_port", 0) != sender_port ||
+        receiver_peer->peer.get_u64("your_public_port", 0) != receiver_port) {
+      std::cerr << "FAIL: relay did not return punch-observed self ports\n";
+      return 1;
+    }
+
+    send_message(sender_peer->socket, Message{"direct_ok", {}});
+    send_message(receiver_peer->socket, Message{"direct_ok", {}});
+    (void)recv_message(sender_peer->socket);
+    (void)recv_message(receiver_peer->socket);
+
+    relay.stop();
+  }
+
+  {
+    BackgroundRelay relay;
+    relay.start(Endpoint{"127.0.0.1", 0});
+    const auto endpoint = relay.local_endpoint();
+    const std::vector<RelayRaceEntry> entries{{endpoint, false}};
+
     Message sender_hello{"hello", {{"room", "room-c"}, {"role", "sender"}, {"no_direct", "1"}}};
     Message receiver_hello{"hello", {{"room", "room-c"}, {"role", "receiver"}}};
 

@@ -194,6 +194,16 @@ void send_peer_messages(WaitingPeer& a, WaitingPeer& b) {
                         {"conn_count", std::to_string(a.conn_count)}}});
 }
 
+void handle_punch_probe(TcpSocket& socket, const Message& probe, const std::shared_ptr<RelayStateImpl>& state) {
+  if (!state->check_password(probe)) {
+    send_message(socket, Message{"error", {{"code", "bad_password"}}});
+    return;
+  }
+  const auto peer_addr = socket.peer_endpoint();
+  send_message(socket, Message{"punch_observed",
+                               {{"public_host", peer_addr.host}, {"public_port", std::to_string(peer_addr.port)}}});
+}
+
 void pipe_frames_sync(TcpSocket& from, TcpSocket& to, std::atomic<bool>& done) {
   try {
     while (!done.load()) {
@@ -229,6 +239,10 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
       first = recv_message_timeout(socket, kControlReadTimeout);
       if (!first) return;
     }
+    if (first && first->type == "punch_probe") {
+      handle_punch_probe(socket, *first, state);
+      return;
+    }
     if (!first || first->type != "hello") throw KikoError("expected hello");
     const auto& hello = *first;
 
@@ -249,10 +263,12 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
     std::uint64_t file_count = 0;
     std::uint64_t total_size = 0;
     std::uint64_t conn_count = 1;
+    std::uint16_t punch_port = 0;
     try {
       role = parse_role(hello.get("role"));
       conn_index = hello.get_u64("conn_index", 0);
       listen_port = checked_control_port(hello, "listen_port", 0, true);
+      punch_port = checked_control_port(hello, "punch_public_port", 0, true);
       file_count = hello.get_u64("file_count", 0);
       total_size = hello.get_u64("total_size", 0);
       conn_count = hello.get_u64("conn_count", 1);
@@ -267,7 +283,12 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
     WaitingPeer self;
     self.role = role;
     self.socket = std::move(socket);
-    self.public_endpoint = Endpoint{peer_addr.host, listen_port == 0 ? peer_addr.port : listen_port};
+    const auto punch_host = hello.get("punch_public_host");
+    if (!punch_host.empty() && punch_port > 0) {
+      self.public_endpoint = Endpoint{punch_host, punch_port};
+    } else {
+      self.public_endpoint = Endpoint{peer_addr.host, listen_port == 0 ? peer_addr.port : listen_port};
+    }
     self.listen_endpoint = Endpoint{hello.get("listen_host", peer_addr.host), listen_port};
     self.file_count = file_count;
     self.total_size = total_size;
