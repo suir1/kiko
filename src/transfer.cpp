@@ -227,7 +227,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   AdaptivePuncher puncher;
   auto direct =
       attempt_direct(Role::Sender, listener, peer, {}, puncher, self_nat, peer_nat, route_plan, room_token(code),
-                     connect_options);
+                     connect_options, &reporter);
   emit_punch_report(puncher, reporter);
   auto selected_route =
       select_transfer_route(std::move(relay), std::move(direct), puncher, route_plan, reporter, kRelayRouteConfirmTimeout);
@@ -387,7 +387,7 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
   AdaptivePuncher puncher;
   auto direct =
       attempt_direct(Role::Receiver, listener, peer, lan_extra, puncher, self_nat, peer_nat, route_plan,
-                     room_token(config.code), connect_options);
+                     room_token(config.code), connect_options, &reporter);
   emit_punch_report(puncher, reporter);
   auto selected_route =
       select_transfer_route(std::move(relay), std::move(direct), puncher, route_plan, reporter, kRelayRouteConfirmTimeout);

@@ -1,9 +1,11 @@
 #include "direct_session.hpp"
 
 #include "profile.hpp"
+#include "progress.hpp"
 #include "udp_punch.hpp"
 
 #include <algorithm>
+#include <sstream>
 
 namespace kiko {
 namespace {
@@ -38,6 +40,25 @@ std::vector<DirectCandidate> peer_candidates(const Message& peer, const std::vec
     push_unique(Endpoint{peer.get("peer_public_host"), *public_port}, "public", 20);
   }
   return out;
+}
+
+std::string describe_direct_plan(const RoutePlan& route_plan, const PunchPlan& punch) {
+  std::ostringstream oss;
+  oss << "direct plan: timeout=" << punch.total_timeout.count() << "ms connect=" << punch.connect_timeout.count()
+      << "ms";
+  if (route_plan.udp_punch_enabled) oss << " udp-assist";
+  if (punch.candidates.empty()) {
+    oss << " candidates=none";
+    return oss.str();
+  }
+
+  oss << " candidates=";
+  for (std::size_t i = 0; i < punch.candidates.size(); ++i) {
+    const auto& candidate = punch.candidates[i];
+    if (i > 0) oss << ",";
+    oss << candidate.kind << "@" << candidate.endpoint.to_string() << "#" << candidate.priority;
+  }
+  return oss.str();
 }
 
 std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& listener, const Message& peer,
@@ -105,12 +126,13 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
                                         const std::vector<Endpoint>& lan_extra, AdaptivePuncher& puncher,
                                         const NatProfile& self, const NatProfile& peer_nat,
                                         const RoutePlan& route_plan, const std::string& room,
-                                        const ConnectOptions& connect_options) {
+                                        const ConnectOptions& connect_options, ProgressReporter* reporter) {
   if (route_plan.skip_direct) return std::nullopt;
   PunchPlan punch;
   auto candidates = peer_candidates(peer, lan_extra);
   if (auto profile = load_profile(network_fingerprint())) apply_profile_candidate_bias(*profile, candidates);
   apply_route_plan_to_adaptive(route_plan, role, puncher, candidates, self, peer_nat, punch);
+  if (reporter) reporter->status(describe_direct_plan(route_plan, punch));
   if (route_plan.udp_punch_enabled) {
     Endpoint peer_wan{peer.get("peer_public_host"), message_port_or(peer, "peer_public_port", 0, true)};
     return try_udp_assisted_direct(role, listener, peer_wan, peer.get("punch_token"), punch, puncher, room,

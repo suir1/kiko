@@ -1,12 +1,14 @@
 #include "platform.hpp"
 #include "direct_session.hpp"
 #include "profile.hpp"
+#include "progress.hpp"
 #include "route_planner.hpp"
 
 #include <cassert>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <vector>
 
 namespace {
 
@@ -35,6 +37,12 @@ void assert_reason(const RoutePlan& plan, const std::string& expected) {
     std::abort();
   }
 }
+
+struct RecordingReporter : ProgressReporter {
+  std::vector<std::string> statuses;
+
+  void status(const std::string& message) override { statuses.push_back(message); }
+};
 
 }  // namespace
 
@@ -192,6 +200,36 @@ int main() {
     assert_ms(punch.connect_timeout, 180, "planned connect timeout");
     if (punch.candidates.empty() || punch.candidates.front().kind != "public") {
       std::cerr << "FAIL: planned direct candidate order was not applied\n";
+      return 1;
+    }
+  }
+
+  {
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    Message peer{"peer",
+                 {{"peer_listen_host", "127.0.0.1"},
+                  {"peer_listen_port", "1"},
+                  {"peer_public_host", "203.0.113.7"},
+                  {"peer_public_port", "5000"}}};
+    RoutePlan plan;
+    plan.direct_timeout = std::chrono::milliseconds(20);
+    plan.direct_connect = std::chrono::milliseconds(5);
+
+    AdaptivePuncher puncher;
+    RecordingReporter reporter;
+    const auto direct = attempt_direct(Role::Receiver, listener, peer, {}, puncher, NatProfile{}, NatProfile{}, plan,
+                                       "observable-direct-room", ConnectOptions{}, &reporter);
+    assert(!direct);
+    bool saw_plan = false;
+    for (const auto& status : reporter.statuses) {
+      if (status.find("direct plan: timeout=20ms connect=5ms") != std::string::npos &&
+          status.find("listen@127.0.0.1:1") != std::string::npos &&
+          status.find("public@203.0.113.7:5000") != std::string::npos) {
+        saw_plan = true;
+      }
+    }
+    if (!saw_plan) {
+      std::cerr << "FAIL: direct attempt did not emit observable candidate plan\n";
       return 1;
     }
   }

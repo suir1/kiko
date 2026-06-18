@@ -13,6 +13,8 @@
 
 namespace kiko {
 
+class ProgressReporter;
+
 struct DirectMuxResult {
   std::vector<TcpSocket> channels;
   bool mux_enabled = false;
@@ -24,7 +26,8 @@ struct DirectMuxResult {
                                                       AdaptivePuncher& puncher, const NatProfile& self,
                                                       const NatProfile& peer_nat, const RoutePlan& route_plan,
                                                       const std::string& room,
-                                                      const ConnectOptions& connect_options = ConnectOptions{});
+                                                      const ConnectOptions& connect_options = ConnectOptions{},
+                                                      ProgressReporter* reporter = nullptr);
 
 // Opens auxiliary direct channels and confirms both peers are ready before
 // switching to mux. If auxiliary setup fails on either peer, keeps channel 0
