@@ -115,6 +115,8 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
 
   send_tagged(channels[0], ciphers[0], StreamTag::Done, std::span<const std::uint8_t>());
   reporter.transfer_complete(files.size(), grand_total);
+  auto ack = recv_tagged(channels[0], ciphers[0]);
+  if (!ack || ack->tag != StreamTag::Ack) throw KikoError("expected transfer ack");
 }
 
 void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, const std::filesystem::path& output_dir,
@@ -133,6 +135,7 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     if (!frame) throw KikoError("transfer stream ended unexpectedly");
     if (frame->tag == StreamTag::Done) {
       reporter.transfer_complete(file_count, grand_total);
+      send_tagged(channels[0], ciphers[0], StreamTag::Ack, std::span<const std::uint8_t>());
       return;
     }
     if (frame->tag != StreamTag::FileHeader) throw KikoError("expected file header on control channel");

@@ -28,6 +28,7 @@ enum class StreamTag : std::uint8_t {
   Done = 4,
   Resume = 5,
   ChunkEnd = 6,
+  Ack = 7,
 };
 
 struct TaggedFrame {
