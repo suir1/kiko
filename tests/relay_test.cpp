@@ -202,6 +202,8 @@ int main() {
       std::cerr << "FAIL: relay fallback did not report mismatch reason\n";
       return 1;
     }
+    sender_peer->socket.close();
+    receiver_peer->socket.close();
 
     relay.stop();
   }
