@@ -82,6 +82,7 @@ std::string AdaptivePuncher::report() const {
   if (observations_.empty()) return "no punch observations\n";
   std::ostringstream oss;
   for (const auto& observation : observations_) {
+    if (!observation.phase.empty()) oss << "phase=" << observation.phase << " ";
     oss << observation.candidate;
     if (!observation.kind.empty()) oss << " kind=" << observation.kind;
     if (observation.priority != 0) oss << " priority=" << observation.priority;

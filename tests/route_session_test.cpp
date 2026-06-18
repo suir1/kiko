@@ -58,6 +58,7 @@ int main() {
 
     RecordingReporter reporter;
     AdaptivePuncher puncher;
+    puncher.observe(PunchObservation{"receiver-active", "127.0.0.1:1234", "lan", 90, true, 7, ""});
     RoutePlan plan;
     auto selection = select_transfer_route(std::move(relay_pair.first), std::move(direct), puncher, plan, reporter,
                                            std::chrono::seconds(2));
@@ -66,6 +67,7 @@ int main() {
     assert(selection.path == RoutePath::Direct);
     assert(selection.direct);
     assert(saw_status(reporter, "route result: path=direct reason=confirmed direct_attempted=true lan_upgrade=false"));
+    assert(saw_status(reporter, "route detail: direct_success kind=lan priority=90 elapsed_ms=7"));
   }
 
   {
@@ -79,6 +81,10 @@ int main() {
 
     RecordingReporter reporter;
     AdaptivePuncher puncher;
+    puncher.observe(PunchObservation{"sync-same-port", "203.0.113.10:5000", "public-same-port", 20, false, 80,
+                                     "connect_failed"});
+    puncher.observe(PunchObservation{"receiver-active", "192.168.1.8:5000", "lan", 90, false, 100,
+                                     "direct_ack_failed"});
     RoutePlan plan;
     auto selection = select_transfer_route(std::move(relay_pair.first), std::nullopt, puncher, plan, reporter,
                                            std::chrono::seconds(2));
@@ -88,6 +94,9 @@ int main() {
     assert(selection.allow_lan_upgrade);
     assert(saw_status(reporter,
                       "route result: path=relay reason=direct_failed direct_attempted=true lan_upgrade=true"));
+    assert(saw_status(reporter, "route detail: direct_failed"));
+    assert(saw_status(reporter, "failures=connect_failed=1,direct_ack_failed=1"));
+    assert(saw_status(reporter, "candidate_kinds=lan=1,public-same-port=1"));
   }
 
   {
@@ -111,6 +120,7 @@ int main() {
     assert(!selection.allow_lan_upgrade);
     assert(saw_status(reporter,
                       "route result: path=relay reason=direct_skipped direct_attempted=false lan_upgrade=false"));
+    assert(saw_status(reporter, "route detail: direct_not_attempted"));
   }
 
   std::cout << "PASS: route session reports final route decisions\n";

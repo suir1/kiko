@@ -162,6 +162,14 @@ int main() {
       std::cerr << "FAIL: receiver-active direct sockets were not paired\n";
       return 1;
     }
+    const auto sender_report = sender_puncher.report();
+    const auto receiver_report = receiver_puncher.report();
+    if (sender_report.find("phase=receiver-active-accept") == std::string::npos ||
+        receiver_report.find("phase=receiver-active") == std::string::npos ||
+        receiver_report.find("kind=lan") == std::string::npos) {
+      std::cerr << "FAIL: direct punch report did not include phase and candidate details\n";
+      return 1;
+    }
   }
 
   {
@@ -196,6 +204,12 @@ int main() {
     auto probe = recv_message_timeout(*sender_socket, std::chrono::milliseconds(500));
     if (!probe || probe->type != "probe" || probe->get("ok") != "1") {
       std::cerr << "FAIL: sender-active direct sockets were not paired\n";
+      return 1;
+    }
+    const auto sender_report = sender_puncher.report();
+    if (sender_report.find("phase=sender-active") == std::string::npos ||
+        sender_report.find("kind=listen") == std::string::npos) {
+      std::cerr << "FAIL: sender-active punch report did not include phase and candidate details\n";
       return 1;
     }
   }

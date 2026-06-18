@@ -2,6 +2,8 @@
 
 #include "protocol.hpp"
 
+#include <sstream>
+
 namespace kiko {
 namespace {
 
@@ -10,6 +12,42 @@ void report_route_result(ProgressReporter& reporter, const std::string& path, co
   reporter.status("route result: path=" + path + " reason=" + reason +
                   " direct_attempted=" + (direct_attempted ? "true" : "false") +
                   " lan_upgrade=" + (allow_lan_upgrade ? "true" : "false"));
+}
+
+std::string count_map_summary(const std::map<std::string, int>& values) {
+  std::ostringstream oss;
+  bool first = true;
+  for (const auto& [key, count] : values) {
+    if (!first) oss << ",";
+    first = false;
+    oss << key << "=" << count;
+  }
+  return oss.str();
+}
+
+void report_route_detail(ProgressReporter& reporter, const PunchStats& stats) {
+  if (!stats.attempted) {
+    reporter.status("route detail: direct_not_attempted");
+    return;
+  }
+
+  if (stats.direct_ok) {
+    std::string line = "route detail: direct_success";
+    if (!stats.successful_candidate_kind.empty()) {
+      line += " kind=" + stats.successful_candidate_kind;
+      line += " priority=" + std::to_string(stats.successful_candidate_priority);
+      if (stats.successful_elapsed_ms >= 0) line += " elapsed_ms=" + std::to_string(stats.successful_elapsed_ms);
+    }
+    reporter.status(line);
+    return;
+  }
+
+  std::string line = "route detail: direct_failed";
+  if (!stats.failures.empty()) line += " failures=" + count_map_summary(stats.failures);
+  if (!stats.candidate_failures_by_kind.empty()) {
+    line += " candidate_kinds=" + count_map_summary(stats.candidate_failures_by_kind);
+  }
+  reporter.status(line);
 }
 
 }  // namespace
@@ -34,6 +72,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
       selection.allow_lan_upgrade = false;
       selection.punch_stats = punch_stats_from(puncher, false, true);
       report_route_result(reporter, "relay", "peer_selected_relay", true, selection.allow_lan_upgrade);
+      report_route_detail(reporter, selection.punch_stats);
       return selection;
     }
     if (direct_choice->type != "direct_start") {
@@ -44,6 +83,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
     selection.direct = std::move(direct);
     selection.punch_stats = punch_stats_from(puncher, true, true);
     report_route_result(reporter, "direct", "confirmed", true, false);
+    report_route_detail(reporter, selection.punch_stats);
     return selection;
   }
 
@@ -57,6 +97,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
   selection.allow_lan_upgrade = start->get("reason") != "mismatch";
   report_route_result(reporter, "relay", route_plan.skip_direct ? "direct_skipped" : "direct_failed",
                       !route_plan.skip_direct, selection.allow_lan_upgrade);
+  report_route_detail(reporter, selection.punch_stats);
   return selection;
 }
 

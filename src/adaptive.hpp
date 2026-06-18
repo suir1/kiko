@@ -25,6 +25,7 @@ struct NatProfile {
 [[nodiscard]] std::string nat_type_name(NatType type);
 
 struct PunchObservation {
+  std::string phase;
   std::string candidate;
   std::string kind;
   int priority = 0;
