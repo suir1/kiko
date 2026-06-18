@@ -1,4 +1,5 @@
 #include "platform.hpp"
+#include "direct_session.hpp"
 #include "profile.hpp"
 #include "route_planner.hpp"
 
@@ -71,6 +72,24 @@ int main() {
     assert_ms(plan.direct_timeout, 0, "peer-no-direct timeout");
     assert_ms(plan.direct_connect, 0, "peer-no-direct connect timeout");
     assert_reason(plan, "peer_no_direct");
+  }
+
+  {
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    Message peer{"peer",
+                 {{"peer_local_candidates", "127.0.0.1"},
+                  {"peer_listen_host", "127.0.0.1"},
+                  {"peer_listen_port", std::to_string(listener.local_endpoint().port)}}};
+    RoutePlan plan;
+    plan.skip_direct = true;
+    plan.direct_timeout = std::chrono::milliseconds(0);
+    plan.direct_connect = std::chrono::milliseconds(0);
+
+    AdaptivePuncher puncher;
+    const auto direct = attempt_direct(Role::Receiver, listener, peer, {}, puncher, NatProfile{}, NatProfile{}, plan,
+                                       "skip-direct-room");
+    assert(!direct);
+    assert(puncher.observations().empty());
   }
 
   {
@@ -152,6 +171,29 @@ int main() {
     assert_ms(plan.direct_timeout, 600, "relay history direct window");
     assert_ms(plan.direct_connect, 220, "relay history connect timeout");
     assert_reason(plan, "profile_relay_history_short_direct");
+  }
+
+  {
+    RoutePlan plan;
+    plan.direct_timeout = std::chrono::milliseconds(600);
+    plan.direct_connect = std::chrono::milliseconds(180);
+    plan.direct_candidate_order = {"public", "lan"};
+
+    std::vector<DirectCandidate> candidates{
+        make_direct_candidate(Endpoint{"192.168.1.10", 5000}, "lan", 90),
+        make_direct_candidate(Endpoint{"203.0.113.7", 5000}, "public", 20),
+    };
+    NatProfile open;
+    open.type = NatType::Open;
+    AdaptivePuncher puncher;
+    PunchPlan punch;
+    apply_route_plan_to_adaptive(plan, Role::Receiver, puncher, candidates, open, NatProfile{}, punch);
+    assert_ms(punch.total_timeout, 600, "planned direct window");
+    assert_ms(punch.connect_timeout, 180, "planned connect timeout");
+    if (punch.candidates.empty() || punch.candidates.front().kind != "public") {
+      std::cerr << "FAIL: planned direct candidate order was not applied\n";
+      return 1;
+    }
   }
 
   fs::remove(profile_path);
