@@ -36,12 +36,21 @@ fi
 
 if [ -z "$version" ]; then
   echo "error: could not determine latest kiko release" >&2
-  echo "hint: set KIKO_VERSION=v0.1.1-alpha and retry" >&2
+  echo "hint: set KIKO_VERSION=v0.1.3-alpha and retry" >&2
   exit 1
 fi
 
 case "$(uname -s)" in
-  Darwin) asset="macos" ;;
+  Darwin)
+    case "$(uname -m)" in
+      arm64) asset="macos-arm64" ;;
+      x86_64) asset="macos-x64" ;;
+      *)
+        echo "error: unsupported macOS architecture: $(uname -m)" >&2
+        exit 1
+        ;;
+    esac
+    ;;
   Linux)
     case "$(uname -m)" in
       x86_64 | amd64) asset="linux-x64" ;;

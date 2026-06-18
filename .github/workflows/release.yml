@@ -21,7 +21,10 @@ jobs:
             asset: linux-arm64
             archive: tar.gz
           - os: macos-latest
-            asset: macos
+            asset: macos-arm64
+            archive: tar.gz
+          - os: macos-15-intel
+            asset: macos-x64
             archive: tar.gz
           - os: windows-latest
             asset: windows-x64

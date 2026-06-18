@@ -5,7 +5,7 @@
 ## Install
 
 Download prebuilt binaries from [Releases](https://github.com/suir1/kiko/releases), or install the latest release.
-Current packages cover Linux x64, Linux ARM64, macOS, and Windows x64.
+Current packages cover Linux x64, Linux ARM64, macOS ARM64, macOS x64, and Windows x64.
 
 macOS / Linux:
 
@@ -20,7 +20,14 @@ irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
 ```
 
 The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
-`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.2-alpha` to install a specific release.
+`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.3-alpha` to install a specific release.
+
+macOS binaries are not signed yet. If Gatekeeper blocks the downloaded binary, open **System Settings** →
+**Privacy & Security** and allow `kiko`, or remove the quarantine flag:
+
+```sh
+xattr -d com.apple.quarantine ~/.local/bin/kiko
+```
 
 Quick check:
 
@@ -204,8 +211,8 @@ Tags matching `v*` trigger the release workflow. It builds and tests Linux, macO
 uploads the packaged binaries to the matching GitHub Release.
 
 ```sh
-git tag v0.1.0-alpha
-git push origin v0.1.0-alpha
+git tag v0.1.3-alpha
+git push origin v0.1.3-alpha
 ```
 
 ## Stack
