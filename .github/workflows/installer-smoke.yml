@@ -2,6 +2,13 @@ name: Installer Smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to install, for example v0.1.4-alpha. Defaults to latest release."
+        required: false
+        type: string
+  release:
+    types: [published]
   schedule:
     - cron: "23 3 * * *"
 
@@ -22,6 +29,7 @@ jobs:
         shell: bash
         env:
           KIKO_INSTALL_DIR: ${{ runner.temp }}/kiko-bin
+          KIKO_VERSION: ${{ github.event.release.tag_name || inputs.version || '' }}
         run: |
           set -euo pipefail
           curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh | sh
@@ -33,6 +41,7 @@ jobs:
         shell: pwsh
         env:
           KIKO_INSTALL_DIR: ${{ runner.temp }}\kiko-bin
+          KIKO_VERSION: ${{ github.event.release.tag_name || inputs.version || '' }}
         run: |
           irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
           & "$env:KIKO_INSTALL_DIR\kiko.exe" --help

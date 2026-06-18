@@ -33,7 +33,7 @@ if (-not $Version) {
 }
 
 if (-not $Version) {
-    throw "Could not determine latest kiko release. Set KIKO_VERSION=v0.1.3-alpha and retry."
+    throw "Could not determine latest kiko release. Set KIKO_VERSION=v0.1.4-alpha and retry."
 }
 
 $asset = "windows-x64"
