@@ -94,6 +94,18 @@ class RelayStateImpl {
     active_rooms_.erase(room);
   }
 
+  void close_waiting() {
+    std::vector<TcpSocket> to_close;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (auto& [_, peer] : waiting_) {
+        if (peer.socket.valid()) to_close.push_back(std::move(peer.socket));
+      }
+      waiting_.clear();
+    }
+    for (auto& socket : to_close) socket.close();
+  }
+
   RelayServerConfig config_;
   std::mutex mutex_;
   std::map<std::string, WaitingPeer> waiting_;
@@ -334,11 +346,14 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
   }
 }
 
-void accept_loop(TcpListener& listener, const std::shared_ptr<RelayStateImpl>& state, std::atomic<bool>& stop) {
+void accept_loop(TcpListener& listener, const std::shared_ptr<RelayStateImpl>& state, std::atomic<bool>& stop,
+                 std::mutex& client_mutex, std::vector<std::thread>& client_threads) {
   while (!stop.load()) {
     auto socket = listener.accept(std::chrono::milliseconds(200));
     if (!socket.valid()) continue;
-    std::thread([socket = std::move(socket), state]() mutable { handle_client(std::move(socket), state); }).detach();
+    std::thread client([socket = std::move(socket), state]() mutable { handle_client(std::move(socket), state); });
+    std::lock_guard<std::mutex> lock(client_mutex);
+    client_threads.push_back(std::move(client));
   }
 }
 
@@ -349,6 +364,8 @@ struct BackgroundRelay::Impl {
   std::shared_ptr<RelayStateImpl> state;
   std::unique_ptr<TcpListener> listener;
   std::thread accept_thread;
+  std::mutex client_mutex;
+  std::vector<std::thread> client_threads;
   std::atomic<bool> stop{false};
 };
 
@@ -365,7 +382,9 @@ void BackgroundRelay::start(const Endpoint& bind_addr, const RelayServerConfig& 
   impl_->state = std::make_shared<RelayStateImpl>(config);
   impl_->listener = std::make_unique<TcpListener>(std::move(listener));
   impl_->stop.store(false);
-  impl_->accept_thread = std::thread([this]() { accept_loop(*impl_->listener, impl_->state, impl_->stop); });
+  impl_->accept_thread = std::thread([this]() {
+    accept_loop(*impl_->listener, impl_->state, impl_->stop, impl_->client_mutex, impl_->client_threads);
+  });
   running_.store(true);
 }
 
@@ -374,6 +393,15 @@ void BackgroundRelay::stop() {
   if (impl_) {
     impl_->stop.store(true);
     if (impl_->accept_thread.joinable()) impl_->accept_thread.join();
+    if (impl_->state) impl_->state->close_waiting();
+    std::vector<std::thread> client_threads;
+    {
+      std::lock_guard<std::mutex> lock(impl_->client_mutex);
+      client_threads.swap(impl_->client_threads);
+    }
+    for (auto& thread : client_threads) {
+      if (thread.joinable()) thread.join();
+    }
   }
   impl_.reset();
 }
