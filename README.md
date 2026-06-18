@@ -121,6 +121,7 @@ Send:
 ./build/kiko send ./file.bin
 ./build/kiko send ./my-folder --relay [::1]:9000 --connections 8
 ./build/kiko send ./repo --proxy socks5://127.0.0.1:1080
+./build/kiko send ./file.bin --debug-route
 ```
 
 Receive:
@@ -161,6 +162,9 @@ rendezvous, relay mux connections, and active direct TCP dials. If the scoped ph
 ping still fails, the physical network or relay port may be blocked; use a VPN DIRECT rule or a reachable relay
 port.
 
+Use `send --debug-route` or `recv --debug-route` to print a short doctor-style route summary before transfer,
+including relay reachability, outbound interface choice, direct probe budget, route hint, and recommendation.
+
 Optional AI configuration (BYOK):
 
 ```sh
@@ -169,7 +173,7 @@ export KIKO_AI_BASE_URL=https://api.openai.com/v1   # or http://localhost:11434/
 export KIKO_AI_MODEL=gpt-4o-mini
 ```
 
-Flags: `--relay-pass`, `--remember`, `--auto-connections`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
+Flags: `--relay-pass`, `--remember`, `--auto-connections`, `--debug-route`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
 
 `--ip` overrides the relay target (port from `--relay`) and the addresses advertised to the peer for direct/punch paths. When set, LAN relay discovery is skipped.
 

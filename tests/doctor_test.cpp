@@ -58,6 +58,28 @@ int main() {
     assert(j["recommendation"] == "add_vpn_direct_rule_or_avoid_vpn");
   }
 
+  {
+    DoctorReport report;
+    report.snapshot.relays.push_back(RelayProbeEntry{"external", "relay.example:9000", 18, true});
+    report.outbound_path = "physical";
+    report.bound_interface = "en0";
+    report.outbound_reason = "physical_lower_rtt";
+    report.plan.skip_direct = true;
+    report.plan.reason = "no_direct";
+    report.diagnosis = "synthetic";
+
+    const auto j = nlohmann::json::parse(doctor_report_to_json(report));
+    assert(j["recommendation"] == "relay_only");
+    assert(j["route_result_hint"]["path"] == "relay");
+    assert(j["route_result_hint"]["direct_attempted"] == false);
+    const auto lines = doctor_debug_lines(report);
+    assert(lines.size() == 4);
+    assert(lines[0].find("relay_reachable=true outbound=physical/en0 reason=physical_lower_rtt") != std::string::npos);
+    assert(lines[1].find("direct_probe will_attempt=false") != std::string::npos);
+    assert(lines[2].find("hint path=relay reason=direct_skipped") != std::string::npos);
+    assert(lines[3].find("recommendation=relay_only") != std::string::npos);
+  }
+
   std::cout << "PASS: doctor JSON exposes route hints and recommendations\n";
   return 0;
 }

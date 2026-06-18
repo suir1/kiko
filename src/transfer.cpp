@@ -5,6 +5,7 @@
 #include "crypto.hpp"
 #include "direct_session.hpp"
 #include "discovery.hpp"
+#include "doctor.hpp"
 #include "lan_upgrade.hpp"
 #include "outbound_policy.hpp"
 #include "pake.hpp"
@@ -70,6 +71,22 @@ ConnectOptions make_connect_options(const Endpoint& relay, const std::optional<P
   return selection.connect_options;
 }
 
+void emit_debug_route(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,
+                      const std::optional<std::string>& relay_pass, const std::string& bind_interface, bool avoid_vpn,
+                      bool udp_probe, bool no_direct, bool only_local, ProgressReporter& reporter) {
+  DoctorOptions options;
+  options.relay = relay;
+  options.proxy = proxy;
+  options.relay_pass = relay_pass;
+  options.bind_interface = bind_interface;
+  options.avoid_vpn = avoid_vpn;
+  options.udp_probe = udp_probe;
+  options.no_direct = no_direct;
+  options.only_local = only_local;
+  const auto report = run_doctor(options);
+  for (const auto& line : doctor_debug_lines(report)) reporter.status(line);
+}
+
 }  // namespace
 
 int run_send(const SendConfig& config, ProgressReporter& reporter) {
@@ -116,6 +133,10 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   }
 
   const int connections_hint = connections;
+  if (config.debug_route) {
+    emit_debug_route(external_relay, config.proxy, config.relay_pass, config.bind_interface, config.avoid_vpn,
+                     config.udp_probe, config.no_direct, config.only_local, reporter);
+  }
 
   std::optional<StunProbeResult> stun_early;
   std::future<StunProbeResult> stun_future;
@@ -270,6 +291,10 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
   reporter.status("listening for direct peer on " + local_listen.to_string());
 
   const auto external_relay = relay_with_manual_ip(config.relay, config.manual_ip);
+  if (config.debug_route) {
+    emit_debug_route(external_relay, config.proxy, config.relay_pass, config.bind_interface, config.avoid_vpn,
+                     config.udp_probe, config.no_direct, config.only_local, reporter);
+  }
   const auto connect_options =
       make_connect_options(external_relay, config.proxy, config.bind_interface, config.avoid_vpn, reporter);
   std::vector<Endpoint> relay_targets;

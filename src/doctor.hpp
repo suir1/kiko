@@ -19,6 +19,8 @@ struct DoctorOptions {
   std::optional<std::string> relay_pass;
   std::string bind_interface;
   bool avoid_vpn = false;
+  bool no_direct = false;
+  bool only_local = false;
 };
 
 struct RouteProbe {
@@ -46,6 +48,7 @@ struct DoctorReport {
 
 [[nodiscard]] DoctorReport run_doctor(const DoctorOptions& options);
 [[nodiscard]] std::string doctor_report_to_json(const DoctorReport& report);
+[[nodiscard]] std::vector<std::string> doctor_debug_lines(const DoctorReport& report);
 
 int run_doctor_cli(const DoctorOptions& options);
 

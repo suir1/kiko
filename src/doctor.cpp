@@ -197,7 +197,7 @@ nlohmann::json route_result_hint_json(const DoctorReport& report) {
 DoctorReport run_doctor(const DoctorOptions& options) {
   DoctorReport report;
   const auto discovered = lan_discover(std::chrono::milliseconds(300));
-  report.snapshot = build_pre_rendezvous_snapshot(false, false, discovered.size(), 0);
+  report.snapshot = build_pre_rendezvous_snapshot(options.no_direct, options.only_local, discovered.size(), 0);
   report.interfaces = collect_interface_addresses();
   report.relay_route = route_to_host(options.relay.host);
   const auto outbound = select_outbound_for_relay(options.relay, options.proxy, options.bind_interface, options.avoid_vpn);
@@ -223,7 +223,7 @@ DoctorReport run_doctor(const DoctorOptions& options) {
   }
 
   RuleScheduler scheduler;
-  report.plan = scheduler.plan(report.snapshot, report.stun, false, 4);
+  report.plan = scheduler.plan(report.snapshot, report.stun, options.no_direct, 4);
 
   const auto fp = network_fingerprint();
   if (auto prior = load_profile(fp)) {
@@ -312,6 +312,24 @@ std::string doctor_report_to_json(const DoctorReport& report) {
   }
   j["diagnosis"] = report.diagnosis;
   return j.dump(2);
+}
+
+std::vector<std::string> doctor_debug_lines(const DoctorReport& report) {
+  const auto hint = route_result_hint_json(report);
+  std::vector<std::string> lines;
+  lines.push_back("debug route: relay_reachable=" + std::string(relay_reachable(report) ? "true" : "false") +
+                  " outbound=" + report.outbound_path +
+                  (report.bound_interface.empty() ? std::string{} : "/" + report.bound_interface) +
+                  " reason=" + report.outbound_reason);
+  lines.push_back("debug route: direct_probe will_attempt=" + std::string(report.plan.skip_direct ? "false" : "true") +
+                  " timeout=" + std::to_string(report.plan.direct_timeout.count()) +
+                  "ms connect=" + std::to_string(report.plan.direct_connect.count()) +
+                  "ms udp_assist=" + (report.plan.udp_punch_enabled ? "true" : "false"));
+  lines.push_back("debug route: hint path=" + hint.value("path", std::string{}) +
+                  " reason=" + hint.value("reason", std::string{}) +
+                  " data_relay_required=" + (hint.value("data_relay_required", false) ? "true" : "false"));
+  lines.push_back("debug route: recommendation=" + recommendation_for(report));
+  return lines;
 }
 
 int run_doctor_cli(const DoctorOptions& options) {

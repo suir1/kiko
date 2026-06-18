@@ -95,6 +95,7 @@ int main(int argc, char** argv) {
   bool send_ai_route_connectivity_only = false;
   bool send_auto_connections = false;
   bool send_avoid_vpn = false;
+  bool send_debug_route = false;
   bool send_remember = false;
   std::string send_proxy;
   std::string send_ip;
@@ -123,6 +124,7 @@ int main(int argc, char** argv) {
   send_cmd->add_option("--bind-interface", send_bind_interface,
                        "Bind outbound TCP sockets to an interface (for example en0)");
   send_cmd->add_flag("--avoid-vpn", send_avoid_vpn, "Bind outbound TCP sockets to a non-VPN physical interface when possible");
+  send_cmd->add_flag("--debug-route", send_debug_route, "Print route diagnostics before transfer");
   send_cmd->add_option("--connections", send_connections, "Parallel relay connections")->check(CLI::PositiveNumber);
   send_cmd->add_flag("--auto-connections", send_auto_connections, "Pick connection count from relay RTT and file size");
   send_cmd->add_flag("--remember", send_remember, "Save relay and path to ~/.config/kiko/config.json");
@@ -141,6 +143,7 @@ int main(int argc, char** argv) {
   bool recv_ai_route = false;
   bool recv_ai_route_plan_only = false;
   bool recv_avoid_vpn = false;
+  bool recv_debug_route = false;
   bool recv_remember = false;
   std::string recv_proxy;
   std::string recv_ip;
@@ -164,6 +167,7 @@ int main(int argc, char** argv) {
   recv_cmd->add_option("--bind-interface", recv_bind_interface,
                        "Bind outbound TCP sockets to an interface (for example en0)");
   recv_cmd->add_flag("--avoid-vpn", recv_avoid_vpn, "Bind outbound TCP sockets to a non-VPN physical interface when possible");
+  recv_cmd->add_flag("--debug-route", recv_debug_route, "Print route diagnostics before transfer");
   recv_cmd->add_flag("--remember", recv_remember, "Save relay and output directory to ~/.config/kiko/config.json");
   recv_cmd->add_flag("--tui", recv_tui, "Show live progress UI");
 
@@ -215,6 +219,7 @@ int main(int argc, char** argv) {
       if (!send_ip.empty()) config.manual_ip = send_ip;
       config.bind_interface = send_bind_interface;
       config.avoid_vpn = send_avoid_vpn;
+      config.debug_route = send_debug_route;
       apply_relay_pass_cli(config.relay_pass, send_relay_pass, user_config);
       config.udp_probe = send_udp_probe;
       config.ai_route = send_ai_route;
@@ -249,6 +254,7 @@ int main(int argc, char** argv) {
       if (!recv_ip.empty()) config.manual_ip = recv_ip;
       config.bind_interface = recv_bind_interface;
       config.avoid_vpn = recv_avoid_vpn;
+      config.debug_route = recv_debug_route;
       apply_relay_pass_cli(config.relay_pass, recv_relay_pass, user_config);
       config.udp_probe = recv_udp_probe;
       config.ai_route = recv_ai_route;

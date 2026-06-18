@@ -33,6 +33,7 @@ struct SendConfig {
   std::string bind_interface;
   bool avoid_vpn = false;
   bool auto_connections = false;
+  bool debug_route = false;
   // Number of parallel TCP connections to use on the relay path (1 = single
   // stream). The sender controls this; the receiver mirrors it.
   int connections = 4;
@@ -88,6 +89,7 @@ struct RecvConfig {
   std::optional<std::string> relay_pass;
   std::string bind_interface;
   bool avoid_vpn = false;
+  bool debug_route = false;
 };
 
 int run_send(const SendConfig& config, ProgressReporter& reporter);
