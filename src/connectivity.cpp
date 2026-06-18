@@ -5,6 +5,7 @@
 #include "socket.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <thread>
 
 namespace kiko {
@@ -108,6 +109,43 @@ bool direct_hello_ok(const Message& message, const std::string& room, Role expec
   return message.type == "direct_hello" && message.get("room") == room && message.get("role") == role_name(expected_role);
 }
 
+Role peer_role(Role role) { return role == Role::Sender ? Role::Receiver : Role::Sender; }
+
+std::optional<std::uint64_t> parse_punch_token_ms(const std::string& token) {
+  if (token.empty()) return std::nullopt;
+  return parse_u64_strict(token);
+}
+
+void wait_until_punch_time(const std::string& punch_token, std::chrono::steady_clock::time_point deadline) {
+  std::optional<std::uint64_t> punch_at;
+  try {
+    punch_at = parse_punch_token_ms(punch_token);
+  } catch (const KikoError&) {
+    return;
+  }
+  if (!punch_at) return;
+
+  while (std::chrono::steady_clock::now() < deadline) {
+    const auto now = now_ms();
+    if (now >= *punch_at) return;
+    if (*punch_at - now > 2000) return;
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+}
+
+bool complete_direct_dial_preflight(TcpSocket& socket, Role role, const std::string& room) {
+  send_message(socket, Message{"direct_hello", {{"room", room}, {"role", role_name(role)}}});
+  auto response = recv_message_timeout(socket, kDirectPreflightTimeout);
+  if (!response) return false;
+  if (direct_ack_ok(*response, room)) return true;
+
+  if (!direct_hello_ok(*response, room, peer_role(role))) return false;
+
+  send_message(socket, Message{"direct_ack", {{"room", room}}});
+  auto peer_ack = recv_message_timeout(socket, kDirectPreflightTimeout);
+  return peer_ack && direct_ack_ok(*peer_ack, room);
+}
+
 std::optional<TcpSocket> dial_direct_candidate(const DirectCandidate& candidate, std::chrono::milliseconds connect_timeout,
                                                Role role, const std::string& room, AdaptivePuncher& puncher,
                                                const ConnectOptions& connect_options) {
@@ -121,9 +159,7 @@ std::optional<TcpSocket> dial_direct_candidate(const DirectCandidate& candidate,
   }
 
   try {
-    send_message(socket, Message{"direct_hello", {{"room", room}, {"role", role_name(role)}}});
-    auto ack = recv_message_timeout(socket, kDirectPreflightTimeout);
-    const bool ok = ack && direct_ack_ok(*ack, room);
+    const bool ok = complete_direct_dial_preflight(socket, role, room);
     puncher.observe(
         PunchObservation{candidate.endpoint.to_string(), candidate.kind, candidate.priority, ok, now_ms() - start,
                          ok ? "" : "direct_ack_failed"});
@@ -135,6 +171,14 @@ std::optional<TcpSocket> dial_direct_candidate(const DirectCandidate& candidate,
   }
   socket.close();
   return std::nullopt;
+}
+
+std::vector<DirectCandidate> public_candidates_only(const std::vector<DirectCandidate>& candidates) {
+  std::vector<DirectCandidate> out;
+  for (const auto& candidate : candidates) {
+    if (candidate.kind == "public") out.push_back(candidate);
+  }
+  return out;
 }
 
 std::optional<TcpSocket> dial_direct_candidate_same_port(const DirectCandidate& candidate,
@@ -209,15 +253,58 @@ std::optional<TcpSocket> try_direct_phase(Role self_role, Role active_role, TcpL
   return std::nullopt;
 }
 
+std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener& listener, const PunchPlan& plan,
+                                                          AdaptivePuncher& puncher, const std::string& room,
+                                                          std::chrono::steady_clock::time_point phase_deadline,
+                                                          const ConnectOptions& connect_options,
+                                                          const std::string& punch_token) {
+  if (connect_options.proxy) return std::nullopt;
+  auto candidates = public_candidates_only(plan.candidates);
+  if (candidates.empty()) return std::nullopt;
+
+  std::uint16_t local_port = 0;
+  try {
+    local_port = listener.local_endpoint().port;
+  } catch (const std::exception&) {
+  }
+  if (local_port == 0) return std::nullopt;
+
+  wait_until_punch_time(punch_token, phase_deadline);
+  while (std::chrono::steady_clock::now() < phase_deadline) {
+    for (const auto& candidate : candidates) {
+      const auto remaining = remaining_until(phase_deadline);
+      if (remaining.count() <= 0) break;
+      const auto timeout = std::min(plan.connect_timeout, remaining);
+      if (auto socket = dial_direct_candidate_same_port(candidate, timeout, role, room, puncher, connect_options,
+                                                       local_port)) {
+        return socket;
+      }
+    }
+    const auto remaining = remaining_until(phase_deadline);
+    if (remaining.count() <= 0) break;
+    const auto accept_timeout = std::min<std::chrono::milliseconds>(remaining, std::chrono::milliseconds(40));
+    if (auto accepted = accept_direct_candidate(listener, accept_timeout, room, peer_role(role), puncher)) return accepted;
+    std::this_thread::sleep_for(std::min(plan.retry_delay, std::chrono::milliseconds(40)));
+  }
+  return std::nullopt;
+}
+
 }  // namespace
 
 std::optional<TcpSocket> try_direct_with_plan(Role role, TcpListener& listener, PunchPlan plan,
                                               AdaptivePuncher& puncher, const std::string& room,
-                                              const ConnectOptions& connect_options) {
+                                              const ConnectOptions& connect_options, const std::string& punch_token) {
   if (plan.total_timeout.count() <= 0) return std::nullopt;
 
   const auto start = std::chrono::steady_clock::now();
   const auto deadline = start + plan.total_timeout;
+  const auto same_port_budget = std::min<std::chrono::milliseconds>(std::chrono::milliseconds(500), plan.total_timeout / 3);
+  const auto same_port_deadline = std::min(deadline, start + same_port_budget);
+  if (auto socket = try_synchronized_same_port_phase(role, listener, plan, puncher, room, same_port_deadline,
+                                                     connect_options, punch_token)) {
+    return socket;
+  }
+
   const auto first_phase_budget = std::max<std::chrono::milliseconds>(
       std::chrono::milliseconds(250),
       std::chrono::duration_cast<std::chrono::milliseconds>(plan.total_timeout * 2 / 3));

@@ -138,7 +138,7 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
     return try_udp_assisted_direct(role, listener, peer_wan, peer.get("punch_token"), punch, puncher, room,
                                    connect_options);
   }
-  return try_direct_with_plan(role, listener, punch, puncher, room, connect_options);
+  return try_direct_with_plan(role, listener, punch, puncher, room, connect_options, peer.get("punch_token"));
 }
 
 DirectMuxResult negotiate_direct_mux_channels(TcpSocket primary, Role role, TcpListener& listener, const Message& peer,

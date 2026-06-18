@@ -86,7 +86,7 @@ std::optional<TcpSocket> try_udp_assisted_direct(Role role, TcpListener& listene
     udp_thread = std::thread([params]() { udp_punch_burst(params); });
   }
 
-  auto result = try_direct_with_plan(role, listener, plan, puncher, room, connect_options);
+  auto result = try_direct_with_plan(role, listener, plan, puncher, room, connect_options, punch_token);
   if (udp_thread.joinable()) udp_thread.join();
   return result;
 }

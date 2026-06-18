@@ -78,7 +78,8 @@ void apply_direct_candidate_kind_order(std::vector<DirectCandidate>& candidates,
 
 [[nodiscard]] std::optional<TcpSocket> try_direct_with_plan(Role role, TcpListener& listener, PunchPlan plan,
                                                             AdaptivePuncher& puncher, const std::string& room,
-                                                            const ConnectOptions& connect_options = ConnectOptions{});
+                                                            const ConnectOptions& connect_options = ConnectOptions{},
+                                                            const std::string& punch_token = "");
 
 [[nodiscard]] PunchStats punch_stats_from(const AdaptivePuncher& puncher, bool direct_ok, bool attempted);
 
