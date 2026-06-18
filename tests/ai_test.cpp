@@ -104,6 +104,11 @@ int main() {
     snap.relays.push_back(RelayProbeEntry{"external", "relay.example.com:9000", 95, true});
     snap.profile_last_path = "direct";
     snap.profile_success_count = 3;
+    snap.profile_relay_path = "physical";
+    snap.profile_relay_interface = "en0";
+    snap.profile_relay_reason = "physical_lower_rtt";
+    snap.profile_relay_rtt_by_path["default"] = 90;
+    snap.profile_relay_rtt_by_path["physical"] = 42;
     snap.profile_direct_candidate_kind = "lan";
     snap.profile_direct_rtt_ms = 4;
     snap.profile_candidate_failures_by_kind["public"] = 2;
@@ -119,6 +124,8 @@ int main() {
     assert(json.find("\"rtt_ms\":95") != std::string::npos);
     assert(json.find("connect_failed") != std::string::npos);
     assert(json.find("last_direct_candidate_kind") != std::string::npos);
+    assert(json.find("relay_outbound") != std::string::npos);
+    assert(json.find("physical_lower_rtt") != std::string::npos);
     assert(json.find("successful_candidate_kind") != std::string::npos);
     assert(json.find("candidate_failures_by_kind") != std::string::npos);
     assert(json.find("pairing") == std::string::npos);

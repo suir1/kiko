@@ -25,13 +25,24 @@ int main() {
   stats.successful_candidate_priority = 90;
   stats.successful_elapsed_ms = 7;
   stats.candidate_failures_by_kind["public"] = 2;
+  ProfileRelayPath relay;
+  relay.path = "physical";
+  relay.bind_interface = "en0";
+  relay.reason = "physical_lower_rtt";
+  relay.rtt_by_path["default"] = 90;
+  relay.rtt_by_path["physical"] = 42;
 
-  save_profile_success("fp-test", "direct", stats);
+  save_profile_success("fp-test", "direct", stats, relay);
 
   auto loaded = load_profile("fp-test");
   assert(loaded);
   assert(loaded->last_path == "direct");
   assert(loaded->success_count == 1);
+  assert(loaded->last_relay_path == "physical");
+  assert(loaded->last_relay_interface == "en0");
+  assert(loaded->last_relay_reason == "physical_lower_rtt");
+  assert(loaded->relay_rtt_by_path["default"] == 90);
+  assert(loaded->relay_rtt_by_path["physical"] == 42);
   assert(loaded->last_direct_candidate_kind == "lan");
   assert(loaded->last_direct_rtt_ms == 7);
   assert(loaded->candidate_failures_by_kind["public"] == 2);
@@ -48,6 +59,11 @@ int main() {
   apply_profile_to_snapshot(*loaded, snapshot);
   assert(snapshot.profile_last_path == "direct");
   assert(snapshot.profile_success_count == 1);
+  assert(snapshot.profile_relay_path == "physical");
+  assert(snapshot.profile_relay_interface == "en0");
+  assert(snapshot.profile_relay_reason == "physical_lower_rtt");
+  assert(snapshot.profile_relay_rtt_by_path["default"] == 90);
+  assert(snapshot.profile_relay_rtt_by_path["physical"] == 42);
   assert(snapshot.profile_direct_candidate_kind == "lan");
   assert(snapshot.profile_direct_rtt_ms == 7);
   assert(snapshot.profile_candidate_failures_by_kind["public"] == 2);

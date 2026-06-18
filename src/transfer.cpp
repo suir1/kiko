@@ -51,8 +51,9 @@ int normalize_connection_count(int connections) {
   return connections;
 }
 
-ConnectOptions make_connect_options(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,
-                                    const std::string& bind_interface, bool avoid_vpn, ProgressReporter& reporter) {
+OutboundSelection select_outbound_and_report(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,
+                                             const std::string& bind_interface, bool avoid_vpn,
+                                             ProgressReporter& reporter) {
   const auto selection = select_outbound_for_relay(relay, proxy, bind_interface, avoid_vpn);
   if (!selection.probes.empty()) {
     std::string line = "outbound probe:";
@@ -68,7 +69,18 @@ ConnectOptions make_connect_options(const Endpoint& relay, const std::optional<P
   } else if (!relay_target_is_local(relay)) {
     reporter.status("outbound path: default (" + selection.reason + ")");
   }
-  return selection.connect_options;
+  return selection;
+}
+
+ProfileRelayPath profile_relay_path_from(const OutboundSelection& selection) {
+  ProfileRelayPath relay;
+  relay.path = selection.chosen_path;
+  relay.bind_interface = selection.connect_options.bind_interface;
+  relay.reason = selection.reason;
+  for (const auto& probe : selection.probes) {
+    if (!probe.path.empty() && probe.rtt_ms >= 0) relay.rtt_by_path[probe.path] = probe.rtt_ms;
+  }
+  return relay;
 }
 
 void emit_debug_route(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,
@@ -120,8 +132,10 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
 
   int connections = normalize_connection_count(config.connections);
   const auto external_relay = relay_with_manual_ip(config.relay, config.manual_ip);
-  const auto connect_options =
-      make_connect_options(external_relay, config.proxy, config.bind_interface, config.avoid_vpn, reporter);
+  const auto outbound_selection =
+      select_outbound_and_report(external_relay, config.proxy, config.bind_interface, config.avoid_vpn, reporter);
+  const auto connect_options = outbound_selection.connect_options;
+  const auto profile_relay_path = profile_relay_path_from(outbound_selection);
   if (config.auto_connections) {
     const auto rtt = probe_relay_rtt_ms(external_relay, connect_options);
     connections = normalize_connection_count(recommend_connections(rtt, total_size));
@@ -240,8 +254,8 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
     }
     send_files_over_relay(std::move(relay_channel), active_relay, code, connections, connect_options, config.relay_pass,
                           files, reporter);
-    if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats);
-    else save_profile_success(network_fingerprint(), "relay");
+    if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats, profile_relay_path);
+    else save_profile_success(network_fingerprint(), "relay", profile_relay_path);
     return 0;
   };
 
@@ -264,7 +278,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
     auto direct_channel = std::move(*selected_route.direct);
     auto key = perform_handshake(direct_channel, Role::Sender, code);
     reporter.handshake_ok();
-    save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats);
+    save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);
     if (connections > 1) {
       auto mux =
           negotiate_direct_mux_channels(std::move(direct_channel), Role::Sender, listener, peer, connections, room_token(code),
@@ -295,8 +309,10 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
     emit_debug_route(external_relay, config.proxy, config.relay_pass, config.bind_interface, config.avoid_vpn,
                      config.udp_probe, config.no_direct, config.only_local, reporter);
   }
-  const auto connect_options =
-      make_connect_options(external_relay, config.proxy, config.bind_interface, config.avoid_vpn, reporter);
+  const auto outbound_selection =
+      select_outbound_and_report(external_relay, config.proxy, config.bind_interface, config.avoid_vpn, reporter);
+  const auto connect_options = outbound_selection.connect_options;
+  const auto profile_relay_path = profile_relay_path_from(outbound_selection);
   std::vector<Endpoint> relay_targets;
   std::vector<Endpoint> lan_extra;
   if (config.lan_discover && !config.disable_local && !config.manual_ip) {
@@ -404,8 +420,8 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
     }
     receive_files_over_relay(std::move(relay_channel), active_relay, config.code, connections, connect_options,
                              config.relay_pass, config.output_dir, reporter);
-    if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats);
-    else save_profile_success(network_fingerprint(), "relay");
+    if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats, profile_relay_path);
+    else save_profile_success(network_fingerprint(), "relay", profile_relay_path);
     return 0;
   };
 
@@ -428,7 +444,7 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
     auto direct_channel = std::move(*selected_route.direct);
     auto key = perform_handshake(direct_channel, Role::Receiver, config.code);
     reporter.handshake_ok();
-    save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats);
+    save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);
     if (connections > 1) {
       auto mux = negotiate_direct_mux_channels(std::move(direct_channel), Role::Receiver, listener, peer, connections,
                                                room_token(config.code), connect_options, kDirectMuxSetupTimeout);

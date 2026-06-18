@@ -34,6 +34,17 @@ std::map<std::string, int> parse_failures_by_kind(const nlohmann::json& object) 
   return out;
 }
 
+std::map<std::string, std::int64_t> parse_rtt_by_path(const nlohmann::json& object) {
+  std::map<std::string, std::int64_t> out;
+  if (!object.is_object()) return out;
+  for (auto it = object.begin(); it != object.end(); ++it) {
+    if (it.key().empty() || !it.value().is_number_integer()) continue;
+    const auto rtt = it.value().get<std::int64_t>();
+    if (rtt >= 0) out[it.key()] = rtt;
+  }
+  return out;
+}
+
 nlohmann::json failures_by_kind_json(const std::map<std::string, int>& failures) {
   nlohmann::json out = nlohmann::json::object();
   for (const auto& [kind, count] : failures) {
@@ -42,7 +53,16 @@ nlohmann::json failures_by_kind_json(const std::map<std::string, int>& failures)
   return out;
 }
 
-void save_profile_success_impl(const std::string& fingerprint, const std::string& path, const PunchStats* stats) {
+nlohmann::json rtt_by_path_json(const std::map<std::string, std::int64_t>& rtts) {
+  nlohmann::json out = nlohmann::json::object();
+  for (const auto& [path, rtt] : rtts) {
+    if (!path.empty() && rtt >= 0) out[path] = rtt;
+  }
+  return out;
+}
+
+void save_profile_success_impl(const std::string& fingerprint, const std::string& path, const PunchStats* stats,
+                               const ProfileRelayPath* relay) {
   nlohmann::json root;
   std::ifstream in(profile_path());
   if (in) {
@@ -56,6 +76,17 @@ void save_profile_success_impl(const std::string& fingerprint, const std::string
   auto entry = root.contains(fingerprint) && root[fingerprint].is_object() ? root[fingerprint] : nlohmann::json::object();
   entry["last_path"] = path;
   entry["success_count"] = prev + 1;
+
+  if (relay) {
+    if (!relay->path.empty()) entry["last_relay_path"] = relay->path;
+    if (!relay->bind_interface.empty()) {
+      entry["last_relay_interface"] = relay->bind_interface;
+    } else {
+      entry.erase("last_relay_interface");
+    }
+    if (!relay->reason.empty()) entry["last_relay_reason"] = relay->reason;
+    if (!relay->rtt_by_path.empty()) entry["relay_rtt_by_path"] = rtt_by_path_json(relay->rtt_by_path);
+  }
 
   if (stats) {
     if (path == "direct" && !stats->successful_candidate_kind.empty() && stats->successful_candidate_kind != "accept") {
@@ -96,6 +127,12 @@ std::optional<NetworkProfileEntry> load_profile(const std::string& fingerprint) 
   entry.fingerprint = fingerprint;
   entry.last_path = root[fingerprint].value("last_path", "");
   entry.success_count = root[fingerprint].value("success_count", 0);
+  entry.last_relay_path = root[fingerprint].value("last_relay_path", "");
+  entry.last_relay_interface = root[fingerprint].value("last_relay_interface", "");
+  entry.last_relay_reason = root[fingerprint].value("last_relay_reason", "");
+  if (root[fingerprint].contains("relay_rtt_by_path")) {
+    entry.relay_rtt_by_path = parse_rtt_by_path(root[fingerprint]["relay_rtt_by_path"]);
+  }
   entry.last_direct_candidate_kind = root[fingerprint].value("last_direct_candidate_kind", "");
   entry.last_direct_rtt_ms = root[fingerprint].value("last_direct_rtt_ms", -1);
   if (root[fingerprint].contains("candidate_failures_by_kind")) {
@@ -105,16 +142,29 @@ std::optional<NetworkProfileEntry> load_profile(const std::string& fingerprint) 
 }
 
 void save_profile_success(const std::string& fingerprint, const std::string& path) {
-  save_profile_success_impl(fingerprint, path, nullptr);
+  save_profile_success_impl(fingerprint, path, nullptr, nullptr);
 }
 
 void save_profile_success(const std::string& fingerprint, const std::string& path, const PunchStats& stats) {
-  save_profile_success_impl(fingerprint, path, &stats);
+  save_profile_success_impl(fingerprint, path, &stats, nullptr);
+}
+
+void save_profile_success(const std::string& fingerprint, const std::string& path, const ProfileRelayPath& relay) {
+  save_profile_success_impl(fingerprint, path, nullptr, &relay);
+}
+
+void save_profile_success(const std::string& fingerprint, const std::string& path, const PunchStats& stats,
+                          const ProfileRelayPath& relay) {
+  save_profile_success_impl(fingerprint, path, &stats, &relay);
 }
 
 void apply_profile_to_snapshot(const NetworkProfileEntry& profile, ConnectivitySnapshot& snapshot) {
   snapshot.profile_last_path = profile.last_path;
   snapshot.profile_success_count = profile.success_count;
+  snapshot.profile_relay_path = profile.last_relay_path;
+  snapshot.profile_relay_interface = profile.last_relay_interface;
+  snapshot.profile_relay_reason = profile.last_relay_reason;
+  snapshot.profile_relay_rtt_by_path = profile.relay_rtt_by_path;
   snapshot.profile_direct_candidate_kind = profile.last_direct_candidate_kind;
   snapshot.profile_direct_rtt_ms = profile.last_direct_rtt_ms;
   snapshot.profile_candidate_failures_by_kind = profile.candidate_failures_by_kind;

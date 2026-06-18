@@ -64,10 +64,24 @@ std::string connectivity_snapshot_to_json(const ConnectivitySnapshot& snapshot) 
                    {"compressible_ratio", snapshot.compressible_ratio},
                    {"connections_hint", snapshot.connections_hint}};
   if (!snapshot.profile_last_path.empty() || !snapshot.profile_direct_candidate_kind.empty() ||
+      !snapshot.profile_relay_path.empty() || !snapshot.profile_relay_rtt_by_path.empty() ||
       !snapshot.profile_candidate_failures_by_kind.empty()) {
     nlohmann::json profile;
     profile["last_path"] = snapshot.profile_last_path;
     profile["success_count"] = snapshot.profile_success_count;
+    if (!snapshot.profile_relay_path.empty()) {
+      nlohmann::json relay;
+      relay["path"] = snapshot.profile_relay_path;
+      if (!snapshot.profile_relay_interface.empty()) relay["interface"] = snapshot.profile_relay_interface;
+      if (!snapshot.profile_relay_reason.empty()) relay["reason"] = snapshot.profile_relay_reason;
+      if (!snapshot.profile_relay_rtt_by_path.empty()) {
+        relay["rtt_by_path"] = nlohmann::json::object();
+        for (const auto& [path, rtt] : snapshot.profile_relay_rtt_by_path) {
+          relay["rtt_by_path"][path] = rtt;
+        }
+      }
+      profile["relay_outbound"] = std::move(relay);
+    }
     if (!snapshot.profile_direct_candidate_kind.empty()) {
       profile["last_direct_candidate_kind"] = snapshot.profile_direct_candidate_kind;
       if (snapshot.profile_direct_rtt_ms >= 0) profile["last_direct_rtt_ms"] = snapshot.profile_direct_rtt_ms;

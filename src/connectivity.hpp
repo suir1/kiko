@@ -39,6 +39,10 @@ struct ConnectivitySnapshot {
   bool only_local = false;
   std::string profile_last_path;
   int profile_success_count = 0;
+  std::string profile_relay_path;
+  std::string profile_relay_interface;
+  std::string profile_relay_reason;
+  std::map<std::string, std::int64_t> profile_relay_rtt_by_path;
   std::string profile_direct_candidate_kind;
   std::int64_t profile_direct_rtt_ms = -1;
   std::map<std::string, int> profile_candidate_failures_by_kind;
