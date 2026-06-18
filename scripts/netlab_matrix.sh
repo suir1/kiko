@@ -117,8 +117,8 @@ run_one_side_nat_direct() {
   echo "PASS: one side NAT direct TCP"
 }
 
-run_double_nat_relay_fallback() {
-  echo "== double NAT: expect relay fallback =="
+run_double_nat_same_port_direct() {
+  echo "== double NAT: expect synchronized same-port direct TCP =="
   compose up -d --no-build relay nat-a nat-b
   sleep "${NETLAB_INFRA_DELAY:-2}"
   compose up -d --no-build receiver
@@ -126,9 +126,10 @@ run_double_nat_relay_fallback() {
   compose run --rm --no-deps sender
   wait_for_service_exit receiver
   compose run --rm --no-deps verifier
-  assert_service_log_contains receiver "direct failed, using relay"
+  assert_service_log_contains receiver "direct connection established"
+  assert_service_log_contains receiver "route detail: direct_success kind=public-same-port"
   assert_service_log_contains receiver "pake handshake ok"
-  echo "PASS: double NAT relay fallback"
+  echo "PASS: double NAT synchronized same-port direct TCP"
 }
 
 run_outbound_physical_fallback() {
@@ -268,6 +269,6 @@ run_outbound_receiver_only_transfer
 run_same_lan_direct
 run_same_lan_isolated_relay_fallback
 run_one_side_nat_direct
-run_double_nat_relay_fallback
+run_double_nat_same_port_direct
 
 echo "PASS: docker netlab matrix"

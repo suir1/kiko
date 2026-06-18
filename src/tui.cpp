@@ -119,7 +119,6 @@ int run_tui_menu(const Endpoint& default_relay) {
   };
 
   auto screen = ScreenInteractive::Fullscreen();
-  screen.ForceHandleCtrlC(true);
   auto wake = [&] { screen.PostEvent(Event::Custom); };
 
   auto browse_send_path = [&] {
@@ -231,7 +230,7 @@ int run_tui_menu(const Endpoint& default_relay) {
   auto tabs = Container::Tab({menu_view.root, transfer_renderer}, &screen_tab);
 
   auto with_events = CatchEvent(tabs, [&](Event event) {
-    const bool quit_key = event == Event::Character('q') || event == Event::CtrlC;
+    const bool quit_key = event == Event::Character('q');
 
     if (screen_tab == 1) {
       bool done = false;

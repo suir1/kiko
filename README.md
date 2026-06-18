@@ -193,7 +193,7 @@ scripts/netlab_double_nat.sh
 `netlab_matrix.sh` currently verifies fake-VPN outbound physical fallback in `doctor`, manual
 `--avoid-vpn`/`--bind-interface` overrides, fake-VPN relay transfer over the physical outbound path,
 sender-only and receiver-only fake-VPN relay transfers, same-LAN direct TCP, same-LAN isolated relay
-fallback, one-side-NAT direct TCP, and double-NAT relay fallback. The first Docker run builds the
+fallback, one-side-NAT direct TCP, and Docker double-NAT synchronized same-port direct TCP. The first Docker run builds the
 `kiko-netlab:local` image; later runs reuse the cache.
 
 The Docker labs are also available as optional CTest targets:
