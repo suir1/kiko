@@ -184,6 +184,47 @@ int main() {
   }
 
   {
+    std::uint16_t source_port = 0;
+    {
+      auto reservation = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+      source_port = reservation.local_endpoint().port;
+    }
+
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    const auto endpoint = listener.local_endpoint();
+    Endpoint accepted_peer;
+    bool accept_failed = false;
+    std::thread accepter([&] {
+      auto accepted = listener.accept(std::chrono::seconds(2));
+      if (!accepted.valid()) {
+        accept_failed = true;
+        return;
+      }
+      accepted_peer = accepted.peer_endpoint();
+    });
+
+    ConnectOptions options;
+    options.local_bind = Endpoint{"127.0.0.1", source_port};
+    auto socket = connect_tcp(endpoint, std::chrono::seconds(2), options);
+    if (!socket.valid()) {
+      accepter.join();
+      std::cerr << "FAIL: connect_tcp did not honor local bind endpoint\n";
+      return 1;
+    }
+    const auto local = socket.local_endpoint();
+    accepter.join();
+    if (accept_failed) {
+      std::cerr << "FAIL: listener did not accept local-bind connection\n";
+      return 1;
+    }
+    if (local.port != source_port || accepted_peer.port != source_port) {
+      std::cerr << "FAIL: local bind used source port " << local.port << " accepted peer port " << accepted_peer.port
+                << " expected " << source_port << "\n";
+      return 1;
+    }
+  }
+
+  {
     auto proxy_listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
     const auto proxy_endpoint = proxy_listener.local_endpoint();
     bool proxy_accept_failed = false;

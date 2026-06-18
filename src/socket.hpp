@@ -17,6 +17,7 @@ namespace kiko {
 struct ConnectOptions {
   std::optional<ProxyConfig> proxy;
   std::string bind_interface;
+  std::optional<Endpoint> local_bind;
 };
 
 class TcpSocket {

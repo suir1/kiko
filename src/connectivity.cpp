@@ -137,6 +137,21 @@ std::optional<TcpSocket> dial_direct_candidate(const DirectCandidate& candidate,
   return std::nullopt;
 }
 
+std::optional<TcpSocket> dial_direct_candidate_same_port(const DirectCandidate& candidate,
+                                                         std::chrono::milliseconds connect_timeout, Role role,
+                                                         const std::string& room, AdaptivePuncher& puncher,
+                                                         const ConnectOptions& connect_options,
+                                                         std::uint16_t local_port) {
+  if (candidate.kind != "public" || local_port == 0 || connect_options.proxy) return std::nullopt;
+
+  auto same_port_options = connect_options;
+  same_port_options.local_bind = Endpoint{"", local_port};
+
+  auto same_port_candidate = candidate;
+  same_port_candidate.kind = "public-same-port";
+  return dial_direct_candidate(same_port_candidate, connect_timeout, role, room, puncher, same_port_options);
+}
+
 std::optional<TcpSocket> accept_direct_candidate(TcpListener& listener, std::chrono::milliseconds timeout,
                                                  const std::string& room, Role expected_role,
                                                  AdaptivePuncher& puncher) {
@@ -163,10 +178,20 @@ std::optional<TcpSocket> try_direct_phase(Role self_role, Role active_role, TcpL
                                           AdaptivePuncher& puncher, const std::string& room,
                                           std::chrono::steady_clock::time_point phase_deadline,
                                           const ConnectOptions& connect_options) {
+  std::uint16_t local_port = 0;
+  try {
+    local_port = listener.local_endpoint().port;
+  } catch (const std::exception&) {
+  }
+
   while (std::chrono::steady_clock::now() < phase_deadline) {
     if (self_role == active_role) {
       for (const auto& candidate : plan.candidates) {
         if (std::chrono::steady_clock::now() >= phase_deadline) break;
+        if (auto socket = dial_direct_candidate_same_port(candidate, plan.connect_timeout, self_role, room, puncher,
+                                                         connect_options, local_port)) {
+          return socket;
+        }
         if (auto socket = dial_direct_candidate(candidate, plan.connect_timeout, self_role, room, puncher,
                                                connect_options)) {
           return socket;

@@ -50,6 +50,27 @@ void configure_socket(asio::ip::tcp::socket& socket) {
   socket.set_option(asio::ip::tcp::no_delay(true), ec);
 }
 
+void set_reuse_port_native(int fd) {
+#if !defined(_WIN32) && defined(SO_REUSEPORT)
+  int enabled = 1;
+  (void)setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &enabled, sizeof(enabled));
+#else
+  (void)fd;
+#endif
+}
+
+void set_reuse_options(asio::ip::tcp::socket& socket) {
+  asio::error_code ec;
+  socket.set_option(asio::ip::tcp::acceptor::reuse_address(true), ec);
+  set_reuse_port_native(static_cast<int>(socket.native_handle()));
+}
+
+void set_reuse_options(asio::ip::tcp::acceptor& acceptor) {
+  asio::error_code ec;
+  acceptor.set_option(asio::ip::tcp::acceptor::reuse_address(true), ec);
+  set_reuse_port_native(static_cast<int>(acceptor.native_handle()));
+}
+
 bool bind_socket_to_interface(asio::ip::tcp::socket& socket, const asio::ip::tcp::endpoint& candidate,
                               const std::string& interface_name, std::string& error) {
   if (interface_name.empty() || candidate.address().is_loopback()) return true;
@@ -84,6 +105,46 @@ bool bind_socket_to_interface(asio::ip::tcp::socket& socket, const asio::ip::tcp
   return false;
 #endif
 #endif
+}
+
+std::optional<asio::ip::tcp::endpoint> local_bind_endpoint_for(const asio::ip::tcp::endpoint& candidate,
+                                                               const std::optional<Endpoint>& local_bind) {
+  if (!local_bind) return std::nullopt;
+  if (local_bind->host.empty() || local_bind->host == "0.0.0.0" || local_bind->host == "::" ||
+      local_bind->host == "[::]") {
+    return asio::ip::tcp::endpoint(candidate.protocol(), local_bind->port);
+  }
+
+  asio::error_code ec;
+  auto address = asio::ip::make_address(local_bind->host, ec);
+  if (!ec) {
+    if (address.is_v4() != candidate.address().is_v4()) return std::nullopt;
+    return asio::ip::tcp::endpoint(address, local_bind->port);
+  }
+
+  try {
+    auto endpoints = resolve_endpoints(*local_bind, /*passive=*/true);
+    for (const auto& endpoint : endpoints) {
+      if (endpoint.protocol() == candidate.protocol()) return endpoint;
+    }
+  } catch (const KikoError&) {
+  }
+  return std::nullopt;
+}
+
+bool bind_socket_to_local_endpoint(asio::ip::tcp::socket& socket, const asio::ip::tcp::endpoint& candidate,
+                                   const std::optional<Endpoint>& local_bind, std::string& error) {
+  auto bind_endpoint = local_bind_endpoint_for(candidate, local_bind);
+  if (!bind_endpoint) return !local_bind.has_value();
+
+  set_reuse_options(socket);
+  asio::error_code ec;
+  socket.bind(*bind_endpoint, ec);
+  if (ec) {
+    error = "local bind " + from_asio_endpoint(*bind_endpoint).to_string() + " failed: " + ec.message();
+    return false;
+  }
+  return true;
 }
 
 void add_unique(std::vector<std::string>& out, const std::string& text) {
@@ -232,7 +293,7 @@ TcpListener TcpListener::bind(const Endpoint& endpoint, int backlog) {
       last_error = ec.message();
       continue;
     }
-    acceptor.set_option(asio::ip::tcp::acceptor::reuse_address(true), ec);
+    set_reuse_options(acceptor);
     if (candidate.protocol() == asio::ip::tcp::v6()) {
       acceptor.set_option(asio::ip::v6_only(false), ec);
     }
@@ -299,6 +360,7 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
   if (options.proxy) {
     ConnectOptions tunnel_options;
     tunnel_options.bind_interface = options.bind_interface;
+    tunnel_options.local_bind = options.local_bind;
     auto tunnel = connect_tcp(options.proxy->endpoint, timeout, tunnel_options);
     if (!tunnel.valid()) return tunnel;
     try {
@@ -325,6 +387,9 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
     configure_socket(socket);
     std::string bind_error;
     if (!bind_socket_to_interface(socket, candidate, options.bind_interface, bind_error)) {
+      continue;
+    }
+    if (!bind_socket_to_local_endpoint(socket, candidate, options.local_bind, bind_error)) {
       continue;
     }
     socket.native_non_blocking(true, ec);
