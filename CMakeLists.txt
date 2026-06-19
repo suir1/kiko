@@ -23,6 +23,7 @@ set(KIKO_CORE_SOURCES
   src/common.cpp
   src/compression.cpp
   src/connectivity.cpp
+  src/connectivity_session.cpp
   src/crypto.cpp
   src/direct_session.cpp
   src/discovery.cpp
