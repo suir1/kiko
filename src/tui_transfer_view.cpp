@@ -70,6 +70,20 @@ std::string connectivity_stage(const TuiState& state) {
   return activity.empty() ? "starting" : activity;
 }
 
+std::string route_outcome_label(const RouteOutcome& outcome) {
+  std::string label = "control=" + outcome.control_path + " data=" + outcome.data_path;
+  if (!outcome.reason.empty()) label += " (" + outcome.reason + ")";
+  if (outcome.data_path == "direct" && !outcome.direct_candidate_kind.empty()) {
+    label += " via " + outcome.direct_candidate_kind;
+    if (outcome.direct_elapsed_ms >= 0) label += " " + std::to_string(outcome.direct_elapsed_ms) + "ms";
+  } else if (outcome.data_path == "relay" && !outcome.direct_attempted) {
+    label += " direct=not_attempted";
+  } else if (outcome.data_path == "relay" && !outcome.direct_failure_summary.empty()) {
+    label += " direct=" + outcome.direct_failure_summary;
+  }
+  return label;
+}
+
 }  // namespace
 
 std::string human_bytes(std::uint64_t bytes) {
@@ -138,6 +152,16 @@ void TuiReporter::connectivity_report(const std::string& report) {
     std::lock_guard<std::mutex> lock(state_.mutex);
     log_append(state_.connectivity_log, report);
     state_.activity = "connectivity probe finished";
+  }
+  wake_();
+}
+
+void TuiReporter::route_outcome(const RouteOutcome& outcome) {
+  {
+    std::lock_guard<std::mutex> lock(state_.mutex);
+    state_.transfer_path_summary = route_outcome_label(outcome);
+    state_.activity = outcome.data_path == "direct" ? "direct TCP selected" : "relay TCP selected";
+    log_append(state_.connectivity_log, "route outcome: " + state_.transfer_path_summary);
   }
   wake_();
 }

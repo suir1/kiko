@@ -1,9 +1,23 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace kiko {
+
+struct RouteOutcome {
+  std::string control_path = "relay";
+  std::string data_path = "relay";
+  std::string reason;
+  bool direct_attempted = false;
+  bool lan_upgrade = false;
+  bool fallback_ready = true;
+  std::string direct_candidate_kind;
+  int direct_candidate_priority = -1;
+  int direct_elapsed_ms = -1;
+  std::string direct_failure_summary;
+};
 
 // Decouples the transfer core from any particular front-end. The CLI prints
 // lines; the TUI updates widgets. The transfer logic only emits these events.
@@ -16,6 +30,9 @@ class ProgressReporter {
 
   // AdaptivePuncher observations after a direct-connect attempt.
   virtual void connectivity_report(const std::string& report) { (void)report; }
+
+  // The control/data path decision after rendezvous and direct probing.
+  virtual void route_outcome(const RouteOutcome& outcome) { (void)outcome; }
 
   // The PAKE handshake succeeded and an encrypted channel is established.
   virtual void handshake_ok() {}
@@ -67,6 +84,10 @@ class CliReporter : public ProgressReporter {
   void file_start(const std::string& path, std::uint64_t size) override;
   void file_complete(const std::string& path, std::uint64_t size, bool verified) override;
   void transfer_complete(std::size_t file_count, std::uint64_t total_bytes) override;
+  void route_outcome(const RouteOutcome& outcome) override;
+
+ private:
+  std::optional<RouteOutcome> last_route_;
 };
 
 }  // namespace kiko

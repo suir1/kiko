@@ -48,6 +48,7 @@ class TuiReporter : public ProgressReporter {
 
   void status(const std::string& message) override;
   void connectivity_report(const std::string& report) override;
+  void route_outcome(const RouteOutcome& outcome) override;
   void handshake_ok() override;
   void code_ready(const std::string& code, bool show_qrcode = true) override;
   void transfer_overview(std::size_t file_count, std::uint64_t total_bytes) override;

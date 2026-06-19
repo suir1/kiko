@@ -50,6 +50,36 @@ void report_route_detail(ProgressReporter& reporter, const PunchStats& stats) {
   reporter.status(line);
 }
 
+std::string direct_failure_summary(const PunchStats& stats) {
+  if (!stats.attempted) return "not_attempted";
+  std::string summary;
+  if (!stats.failures.empty()) summary += count_map_summary(stats.failures);
+  if (!stats.candidate_failures_by_kind.empty()) {
+    if (!summary.empty()) summary += ";";
+    summary += "candidate_kinds=" + count_map_summary(stats.candidate_failures_by_kind);
+  }
+  return summary.empty() ? "unknown" : summary;
+}
+
+RouteOutcome make_route_outcome(const std::string& data_path, const std::string& reason, bool direct_attempted,
+                                bool lan_upgrade, const PunchStats& stats) {
+  RouteOutcome outcome;
+  outcome.control_path = "relay";
+  outcome.data_path = data_path;
+  outcome.reason = reason;
+  outcome.direct_attempted = direct_attempted;
+  outcome.lan_upgrade = lan_upgrade;
+  outcome.fallback_ready = data_path == "direct";
+  if (stats.direct_ok) {
+    outcome.direct_candidate_kind = stats.successful_candidate_kind;
+    outcome.direct_candidate_priority = stats.successful_candidate_priority;
+    outcome.direct_elapsed_ms = stats.successful_elapsed_ms;
+  } else {
+    outcome.direct_failure_summary = direct_failure_summary(stats);
+  }
+  return outcome;
+}
+
 }  // namespace
 
 RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> direct,
@@ -73,6 +103,9 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
       selection.punch_stats = punch_stats_from(puncher, false, true);
       report_route_result(reporter, "relay", "peer_selected_relay", true, selection.allow_lan_upgrade);
       report_route_detail(reporter, selection.punch_stats);
+      selection.outcome = make_route_outcome("relay", "peer_selected_relay", true, selection.allow_lan_upgrade,
+                                             selection.punch_stats);
+      reporter.route_outcome(selection.outcome);
       return selection;
     }
     if (direct_choice->type != "direct_start") {
@@ -84,6 +117,8 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
     selection.punch_stats = punch_stats_from(puncher, true, true);
     report_route_result(reporter, "direct", "confirmed", true, false);
     report_route_detail(reporter, selection.punch_stats);
+    selection.outcome = make_route_outcome("direct", "confirmed", true, false, selection.punch_stats);
+    reporter.route_outcome(selection.outcome);
     return selection;
   }
 
@@ -98,6 +133,9 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
   report_route_result(reporter, "relay", route_plan.skip_direct ? "direct_skipped" : "direct_failed",
                       !route_plan.skip_direct, selection.allow_lan_upgrade);
   report_route_detail(reporter, selection.punch_stats);
+  selection.outcome = make_route_outcome("relay", route_plan.skip_direct ? "direct_skipped" : "direct_failed",
+                                         !route_plan.skip_direct, selection.allow_lan_upgrade, selection.punch_stats);
+  reporter.route_outcome(selection.outcome);
   return selection;
 }
 

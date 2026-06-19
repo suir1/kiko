@@ -19,6 +19,7 @@ struct RouteSelection {
   bool allow_lan_upgrade = false;
   PunchStats punch_stats;
   bool explain_direct_failure = false;
+  RouteOutcome outcome;
 };
 
 [[nodiscard]] RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> direct,
