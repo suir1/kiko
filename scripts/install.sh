@@ -42,7 +42,7 @@ fi
 
 if [ -z "$version" ]; then
   echo "error: could not determine latest kiko release from https://github.com/$repo/releases" >&2
-  echo "hint: set KIKO_VERSION=v0.1.4-alpha and retry" >&2
+  echo "hint: set KIKO_VERSION=v0.1.5-alpha and retry" >&2
   exit 1
 fi
 
