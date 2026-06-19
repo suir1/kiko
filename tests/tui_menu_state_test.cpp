@@ -1,4 +1,5 @@
 #include "tui_menu_state.hpp"
+#include "tui_transfer_view.hpp"
 
 #include "platform.hpp"
 
@@ -103,6 +104,19 @@ int main() {
         prepared.spec.relay.host != "relay.example" || prepared.spec.relay.port != 9000 ||
         !prepared.spec.relay_pass || *prepared.spec.relay_pass != "secret") {
       std::cerr << "FAIL: receive transfer spec was not prepared correctly\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
+  {
+    TuiState transfer_state;
+    bool woke = false;
+    TuiReporter reporter(transfer_state, [&] { woke = true; });
+    reporter.route_phase(RoutePhase::DirectProbing, RoutePhaseDetail{"trying direct", "default", true});
+    if (!woke || transfer_state.route_phase_label != "direct connect (relay ready)" ||
+        transfer_state.activity != "trying direct" || !contains(transfer_state.connectivity_log, "relay-ready")) {
+      std::cerr << "FAIL: TUI reporter did not expose structured route phase\n";
       fs::remove(send_path);
       return 1;
     }

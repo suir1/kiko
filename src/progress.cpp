@@ -8,6 +8,31 @@
 namespace kiko {
 namespace {
 
+const char* route_phase_name(RoutePhase phase) {
+  switch (phase) {
+    case RoutePhase::Rendezvous:
+      return "rendezvous";
+    case RoutePhase::RelayStandby:
+      return "relay_standby";
+    case RoutePhase::DirectProbing:
+      return "direct_probing";
+    case RoutePhase::RelayCommitted:
+      return "relay_committed";
+    case RoutePhase::Securing:
+      return "securing";
+  }
+  return "unknown";
+}
+
+std::string route_phase_summary(RoutePhase phase, const RoutePhaseDetail& detail) {
+  std::string line = "route phase: ";
+  line += route_phase_name(phase);
+  if (!detail.reason.empty()) line += " reason=" + detail.reason;
+  if (detail.relay_fallback_ready) line += " relay_fallback=ready";
+  if (!detail.message.empty()) line += " message=" + detail.message;
+  return line;
+}
+
 std::string route_outcome_summary(const RouteOutcome& outcome) {
   std::string line = "route summary: control=" + outcome.control_path + " data=" + outcome.data_path;
   if (!outcome.reason.empty()) line += " reason=" + outcome.reason;
@@ -36,6 +61,10 @@ void CliReporter::status(const std::string& message) { std::cout << message << "
 
 void CliReporter::connectivity_report(const std::string& report) {
   std::cout << "punch report:\n" << report;
+}
+
+void CliReporter::route_phase(RoutePhase phase, const RoutePhaseDetail& detail) {
+  std::cout << route_phase_summary(phase, detail) << "\n";
 }
 
 void CliReporter::route_outcome(const RouteOutcome& outcome) {

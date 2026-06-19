@@ -25,6 +25,7 @@ struct TuiState {
   std::string outbound_probe_summary;
   std::string route_plan_summary;
   std::string transfer_path_summary;
+  std::string route_phase_label;
   std::string activity = "starting...";
   std::string current_file;
   std::uint64_t current_done = 0;
@@ -48,6 +49,7 @@ class TuiReporter : public ProgressReporter {
 
   void status(const std::string& message) override;
   void connectivity_report(const std::string& report) override;
+  void route_phase(RoutePhase phase, const RoutePhaseDetail& detail) override;
   void route_outcome(const RouteOutcome& outcome) override;
   void handshake_ok() override;
   void code_ready(const std::string& code, bool show_qrcode = true) override;

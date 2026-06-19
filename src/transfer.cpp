@@ -224,6 +224,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   rendezvous.relay_pass = config.relay_pass;
   rendezvous.failure_message = "failed to connect relay or rendezvous peer";
 
+  reporter.route_phase(RoutePhase::Rendezvous, RoutePhaseDetail{"waiting for receiver via relay", {}, false});
   auto peer_result = wait_for_connectivity_peer(rendezvous);
   lan_cleanup.stop_now();
 
@@ -302,6 +303,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
 
   if (selected_route.direct) {
     auto direct_channel = std::move(*selected_route.direct);
+    reporter.route_phase(RoutePhase::Securing, RoutePhaseDetail{"securing direct channel", "direct", false});
     auto key = perform_handshake(direct_channel, Role::Sender, code);
     reporter.handshake_ok();
     save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);
@@ -392,6 +394,7 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
   rendezvous.relay_pass = config.relay_pass;
   rendezvous.failure_message = "failed to connect any relay or rendezvous peer";
 
+  reporter.route_phase(RoutePhase::Rendezvous, RoutePhaseDetail{"waiting for sender via relay", {}, false});
   auto peer_result = wait_for_connectivity_peer(rendezvous);
   auto relay = std::move(peer_result.socket);
   auto peer = std::move(peer_result.peer);
@@ -484,6 +487,7 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
 
   if (selected_route.direct) {
     auto direct_channel = std::move(*selected_route.direct);
+    reporter.route_phase(RoutePhase::Securing, RoutePhaseDetail{"securing direct channel", "direct", false});
     auto key = perform_handshake(direct_channel, Role::Receiver, config.code);
     reporter.handshake_ok();
     save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);

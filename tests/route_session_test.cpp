@@ -21,8 +21,14 @@ using namespace kiko;
 
 struct RecordingReporter : ProgressReporter {
   std::vector<std::string> statuses;
+  std::vector<RoutePhase> phases;
+  std::vector<RoutePhaseDetail> phase_details;
 
   void status(const std::string& message) override { statuses.push_back(message); }
+  void route_phase(RoutePhase phase, const RoutePhaseDetail& detail) override {
+    phases.push_back(phase);
+    phase_details.push_back(detail);
+  }
 };
 
 std::pair<TcpSocket, TcpSocket> connected_pair() {
@@ -37,6 +43,13 @@ std::pair<TcpSocket, TcpSocket> connected_pair() {
 bool saw_status(const RecordingReporter& reporter, const std::string& needle) {
   for (const auto& status : reporter.statuses) {
     if (status.find(needle) != std::string::npos) return true;
+  }
+  return false;
+}
+
+bool saw_phase(const RecordingReporter& reporter, RoutePhase phase) {
+  for (const auto seen : reporter.phases) {
+    if (seen == phase) return true;
   }
   return false;
 }
@@ -120,6 +133,10 @@ int main() {
     assert(selection.path == RoutePath::Direct);
     assert(selection.direct);
     assert(saw_status(reporter, "relay standby; trying direct"));
+    assert(reporter.phases.size() >= 2);
+    assert(reporter.phases[0] == RoutePhase::RelayStandby);
+    assert(reporter.phases[1] == RoutePhase::DirectProbing);
+    assert(reporter.phase_details[1].relay_fallback_ready);
     assert(saw_status(reporter, "route result: path=direct reason=confirmed direct_attempted=true lan_upgrade=false"));
   }
 
@@ -152,6 +169,7 @@ int main() {
     assert(selection.path == RoutePath::Relay);
     assert(selection.allow_lan_upgrade);
     assert(cancel_seen.load());
+    assert(saw_phase(reporter, RoutePhase::RelayCommitted));
     assert(saw_status(reporter, "relay committed by peer; canceling direct"));
     assert(saw_status(reporter,
                       "route result: path=relay reason=peer_selected_relay direct_attempted=true lan_upgrade=true"));
@@ -182,6 +200,7 @@ int main() {
 
     assert(selection.path == RoutePath::Relay);
     assert(selection.allow_lan_upgrade);
+    assert(saw_phase(reporter, RoutePhase::RelayCommitted));
     assert(saw_status(reporter, "direct attempt failed: direct worker exploded"));
     assert(saw_status(reporter,
                       "route result: path=relay reason=direct_failed direct_attempted=true lan_upgrade=true"));

@@ -55,6 +55,7 @@ std::string connectivity_stage(const TuiState& state) {
   if (state.failed) return "failed";
   if (state.handshake && state.files_total > 0 && state.files_done < state.files_total) return "transferring";
   if (state.handshake) return "secure channel ready";
+  if (!state.route_phase_label.empty()) return state.route_phase_label;
 
   const auto& activity = state.activity;
   const auto has = [&](const char* needle) { return activity.find(needle) != std::string::npos; };
@@ -82,6 +83,22 @@ std::string route_outcome_label(const RouteOutcome& outcome) {
     label += " direct=" + outcome.direct_failure_summary;
   }
   return label;
+}
+
+std::string route_phase_label(RoutePhase phase, const RoutePhaseDetail& detail) {
+  switch (phase) {
+    case RoutePhase::Rendezvous:
+      return "rendezvous";
+    case RoutePhase::RelayStandby:
+      return "relay fallback ready";
+    case RoutePhase::DirectProbing:
+      return detail.relay_fallback_ready ? "direct connect (relay ready)" : "direct connect";
+    case RoutePhase::RelayCommitted:
+      return "relay selected";
+    case RoutePhase::Securing:
+      return "securing";
+  }
+  return detail.message.empty() ? "starting" : detail.message;
 }
 
 }  // namespace
@@ -117,6 +134,7 @@ void reset_transfer_state(TuiState& state) {
   state.outbound_probe_summary.clear();
   state.route_plan_summary.clear();
   state.transfer_path_summary.clear();
+  state.route_phase_label.clear();
   state.activity = "starting...";
   state.current_file.clear();
   state.current_done = 0;
@@ -156,11 +174,25 @@ void TuiReporter::connectivity_report(const std::string& report) {
   wake_();
 }
 
+void TuiReporter::route_phase(RoutePhase phase, const RoutePhaseDetail& detail) {
+  {
+    std::lock_guard<std::mutex> lock(state_.mutex);
+    state_.route_phase_label = route_phase_label(phase, detail);
+    state_.activity = detail.message.empty() ? state_.route_phase_label : detail.message;
+    std::string line = "route phase: " + state_.route_phase_label;
+    if (!detail.reason.empty()) line += " (" + detail.reason + ")";
+    if (detail.relay_fallback_ready) line += " relay-ready";
+    log_append(state_.connectivity_log, line);
+  }
+  wake_();
+}
+
 void TuiReporter::route_outcome(const RouteOutcome& outcome) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
     state_.transfer_path_summary = route_outcome_label(outcome);
     state_.activity = outcome.data_path == "direct" ? "direct TCP selected" : "relay TCP selected";
+    state_.route_phase_label = outcome.data_path == "direct" ? "direct TCP selected" : "relay TCP selected";
     log_append(state_.connectivity_log, "route outcome: " + state_.transfer_path_summary);
   }
   wake_();

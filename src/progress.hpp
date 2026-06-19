@@ -6,13 +6,26 @@
 
 namespace kiko {
 
+enum class RoutePhase {
+  Rendezvous,
+  RelayStandby,
+  DirectProbing,
+  RelayCommitted,
+  Securing,
+};
+
+struct RoutePhaseDetail {
+  std::string message;
+  std::string reason;
+  bool relay_fallback_ready = false;
+};
+
 struct RouteOutcome {
   std::string control_path = "relay";
   std::string data_path = "relay";
   std::string reason;
   bool direct_attempted = false;
   bool lan_upgrade = false;
-  bool fallback_ready = true;
   std::string direct_candidate_kind;
   int direct_candidate_priority = -1;
   int direct_elapsed_ms = -1;
@@ -30,6 +43,13 @@ class ProgressReporter {
 
   // AdaptivePuncher observations after a direct-connect attempt.
   virtual void connectivity_report(const std::string& report) { (void)report; }
+
+  // Structured connection-route phase for front-ends that should not parse
+  // free-form status lines.
+  virtual void route_phase(RoutePhase phase, const RoutePhaseDetail& detail) {
+    (void)phase;
+    (void)detail;
+  }
 
   // The control/data path decision after rendezvous and direct probing.
   virtual void route_outcome(const RouteOutcome& outcome) { (void)outcome; }
@@ -78,6 +98,7 @@ class CliReporter : public ProgressReporter {
  public:
   void status(const std::string& message) override;
   void connectivity_report(const std::string& report) override;
+  void route_phase(RoutePhase phase, const RoutePhaseDetail& detail) override;
   void handshake_ok() override;
   void code_ready(const std::string& code, bool show_qrcode = true) override;
   void transfer_overview(std::size_t file_count, std::uint64_t total_bytes) override;

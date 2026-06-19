@@ -45,6 +45,8 @@ void send_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay
                            int connections, const ConnectOptions& connect_options,
                            const std::optional<std::string>& relay_pass, const std::vector<FileEntry>& files,
                            ProgressReporter& reporter) {
+  reporter.route_phase(RoutePhase::Securing,
+                       RoutePhaseDetail{"securing relay channel", "relay", /*relay_fallback_ready=*/true});
   auto key = perform_handshake(relay_channel, Role::Sender, code);
   reporter.handshake_ok();
 
@@ -64,6 +66,8 @@ void receive_files_over_relay(TcpSocket relay_channel, const Endpoint& active_re
                               int connections, const ConnectOptions& connect_options,
                               const std::optional<std::string>& relay_pass,
                               const std::filesystem::path& output_dir, ProgressReporter& reporter) {
+  reporter.route_phase(RoutePhase::Securing,
+                       RoutePhaseDetail{"securing relay channel", "relay", /*relay_fallback_ready=*/true});
   auto key = perform_handshake(relay_channel, Role::Receiver, code);
   reporter.handshake_ok();
 
