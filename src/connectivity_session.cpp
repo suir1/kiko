@@ -25,11 +25,11 @@ RouteSelection select_connectivity_route(TcpSocket relay, const ConnectivitySess
 
   if (session.peer.get("route_commit") == "v2") {
     return race_transfer_route(std::move(relay), direct_attempt, puncher, session.route_plan, reporter,
-                               session.confirmation_timeout);
+                               session.confirmation_timeout, session.timing);
   }
 
   return select_transfer_route(std::move(relay), direct_attempt(nullptr), puncher, session.route_plan, reporter,
-                               session.confirmation_timeout);
+                               session.confirmation_timeout, session.timing);
 }
 
 }  // namespace kiko

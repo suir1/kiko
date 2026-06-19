@@ -32,6 +32,13 @@ struct RouteOutcome {
   std::string direct_failure_summary;
 };
 
+struct RouteTiming {
+  int rendezvous_ms = -1;
+  int direct_probe_ms = -1;
+  int relay_commit_ms = -1;
+  int securing_ms = -1;
+};
+
 // Decouples the transfer core from any particular front-end. The CLI prints
 // lines; the TUI updates widgets. The transfer logic only emits these events.
 class ProgressReporter {
@@ -53,6 +60,9 @@ class ProgressReporter {
 
   // The control/data path decision after rendezvous and direct probing.
   virtual void route_outcome(const RouteOutcome& outcome) { (void)outcome; }
+
+  // Route timing slices, emitted once a route is selected or secured.
+  virtual void route_timing(const RouteTiming& timing) { (void)timing; }
 
   // The PAKE handshake succeeded and an encrypted channel is established.
   virtual void handshake_ok() {}
@@ -106,6 +116,7 @@ class CliReporter : public ProgressReporter {
   void file_complete(const std::string& path, std::uint64_t size, bool verified) override;
   void transfer_complete(std::size_t file_count, std::uint64_t total_bytes) override;
   void route_outcome(const RouteOutcome& outcome) override;
+  void route_timing(const RouteTiming& timing) override;
 
  private:
   std::optional<RouteOutcome> last_route_;

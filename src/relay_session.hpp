@@ -18,11 +18,12 @@ struct FileEntry;
 void send_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay, const std::string& code,
                            int connections, const ConnectOptions& connect_options,
                            const std::optional<std::string>& relay_pass, const std::vector<FileEntry>& files,
-                           ProgressReporter& reporter);
+                           ProgressReporter& reporter, RouteTiming timing = {});
 
 void receive_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay, const std::string& code,
                               int connections, const ConnectOptions& connect_options,
                               const std::optional<std::string>& relay_pass,
-                              const std::filesystem::path& output_dir, ProgressReporter& reporter);
+                              const std::filesystem::path& output_dir, ProgressReporter& reporter,
+                              RouteTiming timing = {});
 
 }  // namespace kiko

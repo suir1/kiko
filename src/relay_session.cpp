@@ -4,6 +4,8 @@
 #include "protocol.hpp"
 #include "transfer.hpp"
 
+#include <chrono>
+
 namespace kiko {
 namespace {
 
@@ -13,6 +15,11 @@ void apply_relay_pass_fields(Message& msg, const std::optional<std::string>& rel
 
 bool is_loopback_host(const std::string& host) {
   return host == "127.0.0.1" || host == "::1" || host == "localhost";
+}
+
+int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
 std::vector<TcpSocket> open_relay_mux_channels(TcpSocket primary, Role role, const Endpoint& active_relay,
@@ -44,10 +51,13 @@ std::vector<TcpSocket> open_relay_mux_channels(TcpSocket primary, Role role, con
 void send_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay, const std::string& code,
                            int connections, const ConnectOptions& connect_options,
                            const std::optional<std::string>& relay_pass, const std::vector<FileEntry>& files,
-                           ProgressReporter& reporter) {
+                           ProgressReporter& reporter, RouteTiming timing) {
   reporter.route_phase(RoutePhase::Securing,
                        RoutePhaseDetail{"securing relay channel", "relay", /*relay_fallback_ready=*/true});
+  const auto securing_start = std::chrono::steady_clock::now();
   auto key = perform_handshake(relay_channel, Role::Sender, code);
+  timing.securing_ms = elapsed_ms_since(securing_start);
+  reporter.route_timing(timing);
   reporter.handshake_ok();
 
   if (connections > 1) {
@@ -65,10 +75,14 @@ void send_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay
 void receive_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay, const std::string& code,
                               int connections, const ConnectOptions& connect_options,
                               const std::optional<std::string>& relay_pass,
-                              const std::filesystem::path& output_dir, ProgressReporter& reporter) {
+                              const std::filesystem::path& output_dir, ProgressReporter& reporter,
+                              RouteTiming timing) {
   reporter.route_phase(RoutePhase::Securing,
                        RoutePhaseDetail{"securing relay channel", "relay", /*relay_fallback_ready=*/true});
+  const auto securing_start = std::chrono::steady_clock::now();
   auto key = perform_handshake(relay_channel, Role::Receiver, code);
+  timing.securing_ms = elapsed_ms_since(securing_start);
+  reporter.route_timing(timing);
   reporter.handshake_ok();
 
   if (connections > 1) {

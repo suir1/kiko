@@ -55,6 +55,19 @@ std::string route_outcome_summary(const RouteOutcome& outcome) {
   return line;
 }
 
+void append_timing_field(std::string& line, const std::string& name, int value_ms) {
+  if (value_ms >= 0) line += " " + name + "_ms=" + std::to_string(value_ms);
+}
+
+std::string route_timing_summary(const RouteTiming& timing) {
+  std::string line = "route timing:";
+  append_timing_field(line, "rendezvous", timing.rendezvous_ms);
+  append_timing_field(line, "direct_probe", timing.direct_probe_ms);
+  append_timing_field(line, "relay_commit", timing.relay_commit_ms);
+  append_timing_field(line, "securing", timing.securing_ms);
+  return line;
+}
+
 }  // namespace
 
 void CliReporter::status(const std::string& message) { std::cout << message << "\n"; }
@@ -71,6 +84,8 @@ void CliReporter::route_outcome(const RouteOutcome& outcome) {
   last_route_ = outcome;
   std::cout << route_outcome_summary(outcome) << "\n";
 }
+
+void CliReporter::route_timing(const RouteTiming& timing) { std::cout << route_timing_summary(timing) << "\n"; }
 
 void CliReporter::handshake_ok() { std::cout << "pake handshake ok\n"; }
 

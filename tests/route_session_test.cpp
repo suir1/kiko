@@ -137,6 +137,7 @@ int main() {
     assert(reporter.phases[0] == RoutePhase::RelayStandby);
     assert(reporter.phases[1] == RoutePhase::DirectProbing);
     assert(reporter.phase_details[1].relay_fallback_ready);
+    assert(selection.timing.direct_probe_ms >= 0);
     assert(saw_status(reporter, "route result: path=direct reason=confirmed direct_attempted=true lan_upgrade=false"));
   }
 
@@ -173,6 +174,9 @@ int main() {
     assert(saw_status(reporter, "relay committed by peer; canceling direct"));
     assert(saw_status(reporter,
                       "route result: path=relay reason=peer_selected_relay direct_attempted=true lan_upgrade=true"));
+    assert(selection.timing.direct_probe_ms >= 0);
+    assert(selection.timing.relay_commit_ms >= 0);
+    assert(selection.timing.relay_commit_ms < 500);
   }
 
   {
@@ -204,6 +208,9 @@ int main() {
     assert(saw_status(reporter, "direct attempt failed: direct worker exploded"));
     assert(saw_status(reporter,
                       "route result: path=relay reason=direct_failed direct_attempted=true lan_upgrade=true"));
+    assert(selection.timing.direct_probe_ms >= 0);
+    assert(selection.timing.relay_commit_ms >= 0);
+    assert(selection.timing.relay_commit_ms < 500);
   }
 
   {
@@ -235,6 +242,9 @@ int main() {
     assert(selection.allow_lan_upgrade);
     assert(saw_status(reporter,
                       "route result: path=relay reason=direct_failed direct_attempted=true lan_upgrade=true"));
+    assert(selection.timing.direct_probe_ms >= 0);
+    assert(selection.timing.relay_commit_ms >= 0);
+    assert(selection.timing.relay_commit_ms < 500);
   }
 
   {

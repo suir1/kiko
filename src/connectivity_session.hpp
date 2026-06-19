@@ -35,6 +35,7 @@ struct ConnectivitySession {
   std::string room;
   ConnectOptions connect_options;
   std::chrono::milliseconds confirmation_timeout;
+  RouteTiming timing;
 };
 
 [[nodiscard]] RelayPeerResult wait_for_connectivity_peer(const ConnectivityRendezvous& rendezvous);

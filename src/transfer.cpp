@@ -109,6 +109,11 @@ std::string describe_route_plan_for_transfer(const RoutePlan& plan) {
   return line;
 }
 
+int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+}
+
 }  // namespace
 
 int run_send(const SendConfig& config, ProgressReporter& reporter) {
@@ -225,7 +230,10 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   rendezvous.failure_message = "failed to connect relay or rendezvous peer";
 
   reporter.route_phase(RoutePhase::Rendezvous, RoutePhaseDetail{"waiting for receiver via relay", {}, false});
+  RouteTiming route_timing;
+  const auto rendezvous_start = std::chrono::steady_clock::now();
   auto peer_result = wait_for_connectivity_peer(rendezvous);
+  route_timing.rendezvous_ms = elapsed_ms_since(rendezvous_start);
   lan_cleanup.stop_now();
 
   auto relay = std::move(peer_result.socket);
@@ -264,7 +272,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   apply_peer_direct_policy(route_plan, peer);
   reporter.status("route plan: " + describe_route_plan_for_transfer(route_plan));
 
-  auto run_relay_send = [&](TcpSocket relay_channel, bool allow_lan_upgrade,
+  auto run_relay_send = [&](TcpSocket relay_channel, bool allow_lan_upgrade, RouteTiming timing,
                             const std::optional<PunchStats>& profile_stats = std::nullopt) -> int {
     const bool peer_no_direct = peer.get("peer_no_direct") == "1";
     if (allow_lan_upgrade && config.lan_discover && !config.no_direct && !peer_no_direct) {
@@ -272,7 +280,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
           resolve_relay_channel(Role::Sender, std::move(relay_channel), listener, local_listen.port, local_addrs, config.no_direct);
     }
     send_files_over_relay(std::move(relay_channel), active_relay, code, connections, connect_options, config.relay_pass,
-                          files, reporter);
+                          files, reporter, timing);
     if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats, profile_relay_path);
     else save_profile_success(network_fingerprint(), "relay", profile_relay_path);
     return 0;
@@ -290,6 +298,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
       room_token(code),
       connect_options,
       kRelayRouteConfirmTimeout,
+      route_timing,
   };
   auto selected_route = select_connectivity_route(std::move(relay), connectivity_session, puncher, reporter);
   emit_punch_report(puncher, reporter);
@@ -298,13 +307,18 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
       snapshot.punch = selected_route.punch_stats;
       explain_direct_failure(snapshot, route_plan, config.ai_route, reporter);
     }
-    return run_relay_send(std::move(selected_route.relay), selected_route.allow_lan_upgrade, selected_route.punch_stats);
+    return run_relay_send(std::move(selected_route.relay), selected_route.allow_lan_upgrade, selected_route.timing,
+                          selected_route.punch_stats);
   }
 
   if (selected_route.direct) {
     auto direct_channel = std::move(*selected_route.direct);
     reporter.route_phase(RoutePhase::Securing, RoutePhaseDetail{"securing direct channel", "direct", false});
+    auto timing = selected_route.timing;
+    const auto securing_start = std::chrono::steady_clock::now();
     auto key = perform_handshake(direct_channel, Role::Sender, code);
+    timing.securing_ms = elapsed_ms_since(securing_start);
+    reporter.route_timing(timing);
     reporter.handshake_ok();
     save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);
     if (connections > 1) {
@@ -395,7 +409,10 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
   rendezvous.failure_message = "failed to connect any relay or rendezvous peer";
 
   reporter.route_phase(RoutePhase::Rendezvous, RoutePhaseDetail{"waiting for sender via relay", {}, false});
+  RouteTiming route_timing;
+  const auto rendezvous_start = std::chrono::steady_clock::now();
   auto peer_result = wait_for_connectivity_peer(rendezvous);
+  route_timing.rendezvous_ms = elapsed_ms_since(rendezvous_start);
   auto relay = std::move(peer_result.socket);
   auto peer = std::move(peer_result.peer);
   const auto active_relay = peer_result.relay;
@@ -447,7 +464,7 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
   reporter.status("route plan: " + describe_route_plan_for_transfer(route_plan));
   const int connections = mux_connections;
 
-  auto run_relay_recv = [&](TcpSocket relay_channel, bool allow_lan_upgrade,
+  auto run_relay_recv = [&](TcpSocket relay_channel, bool allow_lan_upgrade, RouteTiming timing,
                             const std::optional<PunchStats>& profile_stats = std::nullopt) -> int {
     const bool peer_no_direct = peer.get("peer_no_direct") == "1";
     if (allow_lan_upgrade && config.lan_discover && !config.no_direct && !peer_no_direct) {
@@ -456,7 +473,7 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
                                 config.no_direct);
     }
     receive_files_over_relay(std::move(relay_channel), active_relay, config.code, connections, connect_options,
-                             config.relay_pass, config.output_dir, reporter);
+                             config.relay_pass, config.output_dir, reporter, timing);
     if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats, profile_relay_path);
     else save_profile_success(network_fingerprint(), "relay", profile_relay_path);
     return 0;
@@ -474,6 +491,7 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
       room_token(config.code),
       connect_options,
       kRelayRouteConfirmTimeout,
+      route_timing,
   };
   auto selected_route = select_connectivity_route(std::move(relay), connectivity_session, puncher, reporter);
   emit_punch_report(puncher, reporter);
@@ -482,13 +500,18 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
       snapshot.punch = selected_route.punch_stats;
       explain_direct_failure(snapshot, route_plan, config.ai_route, reporter);
     }
-    return run_relay_recv(std::move(selected_route.relay), selected_route.allow_lan_upgrade, selected_route.punch_stats);
+    return run_relay_recv(std::move(selected_route.relay), selected_route.allow_lan_upgrade, selected_route.timing,
+                          selected_route.punch_stats);
   }
 
   if (selected_route.direct) {
     auto direct_channel = std::move(*selected_route.direct);
     reporter.route_phase(RoutePhase::Securing, RoutePhaseDetail{"securing direct channel", "direct", false});
+    auto timing = selected_route.timing;
+    const auto securing_start = std::chrono::steady_clock::now();
     auto key = perform_handshake(direct_channel, Role::Receiver, config.code);
+    timing.securing_ms = elapsed_ms_since(securing_start);
+    reporter.route_timing(timing);
     reporter.handshake_ok();
     save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);
     if (connections > 1) {
