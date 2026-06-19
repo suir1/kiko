@@ -6,20 +6,81 @@
 #include "transfer.hpp"
 #include "transfer_heuristics.hpp"
 
+#include <algorithm>
+
 namespace kiko {
+namespace {
+
+bool route_reason_allows_profile_shortening(const RoutePlan& plan) {
+  return !plan.skip_direct && (plan.reason == "default" || plan.reason == "stun_cone_direct_probe");
+}
+
+int failure_count_for_kind(const NetworkProfileEntry& profile, const std::string& kind) {
+  const auto it = profile.candidate_failures_by_kind.find(kind);
+  return it == profile.candidate_failures_by_kind.end() ? 0 : it->second;
+}
+
+std::string normalized_direct_kind(std::string kind) {
+  if (kind == "public-same-port") return "public";
+  if (kind == "manual" || kind == "discovered" || kind == "lan" || kind == "listen" || kind == "public") return kind;
+  return {};
+}
+
+void push_unique_kind(std::vector<std::string>& kinds, const std::string& kind) {
+  if (kind.empty()) return;
+  if (std::find(kinds.begin(), kinds.end(), kind) == kinds.end()) kinds.push_back(kind);
+}
+
+void prefer_prior_direct_kind(RoutePlan& plan, const NetworkProfileEntry& profile) {
+  std::vector<std::string> order;
+  push_unique_kind(order, normalized_direct_kind(profile.last_direct_candidate_kind));
+  for (const auto& kind : plan.direct_candidate_order) push_unique_kind(order, kind);
+  plan.direct_candidate_order = std::move(order);
+}
+
+void prefer_local_before_public(RoutePlan& plan) {
+  std::vector<std::string> order;
+  push_unique_kind(order, "lan");
+  push_unique_kind(order, "listen");
+  push_unique_kind(order, "manual");
+  push_unique_kind(order, "discovered");
+  push_unique_kind(order, "public");
+  for (const auto& kind : plan.direct_candidate_order) push_unique_kind(order, kind);
+  plan.direct_candidate_order = std::move(order);
+}
+
+void apply_profile_route_history(RoutePlan& plan, const NetworkProfileEntry& profile) {
+  if (!profile.last_direct_candidate_kind.empty()) prefer_prior_direct_kind(plan, profile);
+
+  if (profile.last_path == "direct") return;
+
+  const int public_failures = failure_count_for_kind(profile, "public") + failure_count_for_kind(profile, "public-same-port");
+  if (public_failures >= 2 && route_reason_allows_profile_shortening(plan)) {
+    if (plan.direct_timeout > std::chrono::milliseconds(900)) {
+      plan.direct_timeout = std::chrono::milliseconds(900);
+      plan.direct_connect = std::chrono::milliseconds(250);
+    }
+    plan.reason = "profile_public_failures_short_direct";
+    prefer_local_before_public(plan);
+  }
+
+  if (profile.last_path == "relay" && profile.success_count >= 2 && !plan.skip_direct &&
+      (plan.reason == "default" || plan.reason == "profile_public_failures_short_direct")) {
+    plan.direct_timeout = std::chrono::milliseconds(600);
+    plan.direct_connect = std::chrono::milliseconds(220);
+    plan.reason = "profile_relay_history_short_direct";
+  }
+}
+
+}  // namespace
 
 RoutePlan build_route_plan(bool no_direct, ConnectivitySnapshot snapshot, const std::optional<StunProbeResult>& stun,
                            int connections) {
   RuleScheduler scheduler;
-  if (auto profile = load_profile(network_fingerprint())) apply_profile_to_snapshot(*profile, snapshot);
+  const auto profile = load_profile(network_fingerprint());
+  if (profile) apply_profile_to_snapshot(*profile, snapshot);
   auto plan = scheduler.plan(snapshot, stun, no_direct, connections);
-  if (auto prior = load_profile(network_fingerprint())) {
-    if (prior->last_path == "relay" && prior->success_count >= 2 && !plan.skip_direct && plan.reason == "default") {
-      plan.direct_timeout = std::chrono::milliseconds(600);
-      plan.direct_connect = std::chrono::milliseconds(220);
-      plan.reason = "profile_relay_history_short_direct";
-    }
-  }
+  if (profile) apply_profile_route_history(plan, *profile);
   return plan;
 }
 

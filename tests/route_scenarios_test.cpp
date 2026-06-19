@@ -60,6 +60,7 @@ int main() {
 #endif
 
   RuleScheduler rules;
+  auto clear_profile = [&]() { fs::remove(profile_path); };
 
   {
     ConnectivitySnapshot snapshot;
@@ -160,6 +161,7 @@ int main() {
   }
 
   {
+    clear_profile();
     ConnectivitySnapshot snapshot;
     snapshot.relays.push_back(RelayProbeEntry{"external", "relay.example:9000", 25, true});
     const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
@@ -169,6 +171,53 @@ int main() {
   }
 
   {
+    clear_profile();
+    const auto fingerprint = network_fingerprint();
+    PunchStats stats;
+    stats.attempted = true;
+    stats.direct_ok = true;
+    stats.successful_candidate_kind = "lan";
+    stats.successful_candidate_priority = 90;
+    stats.successful_elapsed_ms = 12;
+    stats.candidate_failures_by_kind["public"] = 3;
+    save_profile_success(fingerprint, "direct", stats);
+
+    ConnectivitySnapshot snapshot;
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
+    assert(!plan.skip_direct);
+    assert_ms(plan.direct_timeout, 2500, "direct success profile keeps default direct window");
+    assert_reason(plan, "default");
+    if (plan.direct_candidate_order.empty() || plan.direct_candidate_order.front() != "lan") {
+      std::cerr << "FAIL: direct success profile did not prioritize prior successful candidate kind\n";
+      return 1;
+    }
+  }
+
+  {
+    clear_profile();
+    const auto fingerprint = network_fingerprint();
+    PunchStats stats;
+    stats.attempted = true;
+    stats.direct_ok = false;
+    stats.candidate_failures_by_kind["public"] = 1;
+    stats.candidate_failures_by_kind["public-same-port"] = 1;
+    save_profile_success(fingerprint, "relay", stats);
+
+    ConnectivitySnapshot snapshot;
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
+    assert(!plan.skip_direct);
+    assert_ms(plan.direct_timeout, 900, "public failure profile direct window");
+    assert_ms(plan.direct_connect, 250, "public failure profile connect timeout");
+    assert_reason(plan, "profile_public_failures_short_direct");
+    if (plan.direct_candidate_order.empty() || plan.direct_candidate_order.front() != "lan" ||
+        plan.direct_candidate_order.back() != "public") {
+      std::cerr << "FAIL: public failure profile did not prefer local candidates before public\n";
+      return 1;
+    }
+  }
+
+  {
+    clear_profile();
     const auto fingerprint = network_fingerprint();
     save_profile_success(fingerprint, "relay");
     save_profile_success(fingerprint, "relay");

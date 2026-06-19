@@ -6,6 +6,7 @@
 #include "profile.hpp"
 #include "protocol.hpp"
 #include "relay_race.hpp"
+#include "route_planner.hpp"
 #include "socket.hpp"
 
 #include <nlohmann/json.hpp>
@@ -225,16 +226,7 @@ DoctorReport run_doctor(const DoctorOptions& options) {
     if (report.stun->ok) report.snapshot.stun_nat = report.stun->nat_class;
   }
 
-  RuleScheduler scheduler;
-  report.plan = scheduler.plan(report.snapshot, report.stun, options.no_direct, 4);
-
-  if (profile) {
-    if (profile->last_path == "relay" && report.plan.reason == "default") {
-      report.plan.direct_timeout = std::chrono::milliseconds(600);
-      report.plan.direct_connect = std::chrono::milliseconds(220);
-      report.plan.reason = "profile_relay_history_short_direct";
-    }
-  }
+  report.plan = build_route_plan(options.no_direct, report.snapshot, report.stun, 4);
 
   report.diagnosis = diagnose(report);
   if (options.ai_explain) {
