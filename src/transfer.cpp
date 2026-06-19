@@ -217,13 +217,19 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
                  {"total_size", std::to_string(total_size)}}};
   if (stun_early && stun_early->ok) hello.fields["stun_nat"] = stun_nat_class_name(stun_early->nat_class);
 
-  auto peer_result = race_until_peer(race_entries, hello, std::chrono::seconds(30), connect_options, config.relay_pass);
+  ConnectivityRendezvous rendezvous;
+  rendezvous.entries = race_entries;
+  rendezvous.hello = hello;
+  rendezvous.connect_options = connect_options;
+  rendezvous.relay_pass = config.relay_pass;
+  rendezvous.failure_message = "failed to connect relay or rendezvous peer";
+
+  auto peer_result = wait_for_connectivity_peer(rendezvous);
   lan_cleanup.stop_now();
 
-  if (!peer_result) throw KikoError("failed to connect relay or rendezvous peer");
-  auto relay = std::move(peer_result->socket);
-  auto peer = std::move(peer_result->peer);
-  const auto active_relay = peer_result->relay;
+  auto relay = std::move(peer_result.socket);
+  auto peer = std::move(peer_result.peer);
+  const auto active_relay = peer_result.relay;
 
   Endpoint reflexive{peer.get("your_public_host"), message_port_or(peer, "your_public_port", 0, true)};
   auto self_nat = classify_nat(local_addrs, reflexive);
@@ -379,11 +385,17 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
   auto race_entries = relay_race_entries_for_recv(relay_targets, external_relay);
   auto relay_probes = probe_and_sort_relay_race_entries(race_entries, external_relay, connect_options);
 
-  auto peer_result = race_until_peer(race_entries, hello, std::chrono::seconds(30), connect_options, config.relay_pass);
-  if (!peer_result) throw KikoError("failed to connect any relay or rendezvous peer");
-  auto relay = std::move(peer_result->socket);
-  auto peer = std::move(peer_result->peer);
-  const auto active_relay = peer_result->relay;
+  ConnectivityRendezvous rendezvous;
+  rendezvous.entries = race_entries;
+  rendezvous.hello = hello;
+  rendezvous.connect_options = connect_options;
+  rendezvous.relay_pass = config.relay_pass;
+  rendezvous.failure_message = "failed to connect any relay or rendezvous peer";
+
+  auto peer_result = wait_for_connectivity_peer(rendezvous);
+  auto relay = std::move(peer_result.socket);
+  auto peer = std::move(peer_result.peer);
+  const auto active_relay = peer_result.relay;
 
   reporter.transfer_overview(peer.get_u64("file_count", 0), peer.get_u64("total_size", 0));
   std::filesystem::create_directories(config.output_dir);

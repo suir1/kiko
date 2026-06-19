@@ -11,7 +11,8 @@ project that needs explicit module boundaries.
 - `transfer`: send/recv orchestration, transfer streams, mux transfer, resume, heuristics.
 - `network`: sockets, relay sessions, direct sessions, LAN discovery, LAN upgrade, UDP punch, probes, proxy.
 - `relay`: rendezvous relay server and relay control path.
-- `connectivity`: route planning, outbound policy, NAT/adaptive decisions, post-rendezvous route selection, doctor diagnostics.
+- `connectivity`: route planning, outbound policy, NAT/adaptive decisions, rendezvous wait/race,
+  post-rendezvous route selection, doctor diagnostics.
 - `config`: runtime profile and user config.
 - `ui`: FTXUI menu/progress screens, path browser, clipboard, advanced network options.
 - `ai`: BYOK route advice and doctor explanations.

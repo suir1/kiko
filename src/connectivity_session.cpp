@@ -1,11 +1,19 @@
 #include "connectivity_session.hpp"
 
+#include "common.hpp"
 #include "direct_session.hpp"
 
 #include <atomic>
 #include <utility>
 
 namespace kiko {
+
+RelayPeerResult wait_for_connectivity_peer(const ConnectivityRendezvous& rendezvous) {
+  auto peer_result = race_until_peer(rendezvous.entries, rendezvous.hello, rendezvous.deadline,
+                                     rendezvous.connect_options, rendezvous.relay_pass);
+  if (!peer_result) throw KikoError(rendezvous.failure_message);
+  return std::move(*peer_result);
+}
 
 RouteSelection select_connectivity_route(TcpSocket relay, const ConnectivitySession& session, AdaptivePuncher& puncher,
                                          ProgressReporter& reporter) {

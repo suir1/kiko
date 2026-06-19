@@ -4,14 +4,25 @@
 #include "connectivity.hpp"
 #include "progress.hpp"
 #include "protocol.hpp"
+#include "relay_race.hpp"
 #include "route_session.hpp"
 #include "socket.hpp"
 
 #include <chrono>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace kiko {
+
+struct ConnectivityRendezvous {
+  std::vector<RelayRaceEntry> entries;
+  Message hello;
+  ConnectOptions connect_options;
+  std::optional<std::string> relay_pass;
+  std::chrono::milliseconds deadline = std::chrono::seconds(30);
+  std::string failure_message = "failed to connect relay or rendezvous peer";
+};
 
 struct ConnectivitySession {
   Role role;
@@ -25,6 +36,8 @@ struct ConnectivitySession {
   ConnectOptions connect_options;
   std::chrono::milliseconds confirmation_timeout;
 };
+
+[[nodiscard]] RelayPeerResult wait_for_connectivity_peer(const ConnectivityRendezvous& rendezvous);
 
 [[nodiscard]] RouteSelection select_connectivity_route(TcpSocket relay, const ConnectivitySession& session,
                                                        AdaptivePuncher& puncher, ProgressReporter& reporter);
