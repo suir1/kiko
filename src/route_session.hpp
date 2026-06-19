@@ -5,7 +5,9 @@
 #include "progress.hpp"
 #include "socket.hpp"
 
+#include <atomic>
 #include <chrono>
+#include <functional>
 #include <optional>
 
 namespace kiko {
@@ -26,5 +28,12 @@ struct RouteSelection {
                                                    const AdaptivePuncher& puncher, const RoutePlan& route_plan,
                                                    ProgressReporter& reporter,
                                                    std::chrono::milliseconds confirmation_timeout);
+
+using DirectAttemptFn = std::function<std::optional<TcpSocket>(const std::atomic_bool*)>;
+
+[[nodiscard]] RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attempt,
+                                                 const AdaptivePuncher& puncher, const RoutePlan& route_plan,
+                                                 ProgressReporter& reporter,
+                                                 std::chrono::milliseconds confirmation_timeout);
 
 }  // namespace kiko

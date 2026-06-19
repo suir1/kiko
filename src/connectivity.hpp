@@ -7,6 +7,7 @@
 #include "proxy.hpp"
 #include "relay_race.hpp"
 #include "socket.hpp"
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -83,7 +84,8 @@ void apply_direct_candidate_kind_order(std::vector<DirectCandidate>& candidates,
 [[nodiscard]] std::optional<TcpSocket> try_direct_with_plan(Role role, TcpListener& listener, PunchPlan plan,
                                                             AdaptivePuncher& puncher, const std::string& room,
                                                             const ConnectOptions& connect_options = ConnectOptions{},
-                                                            const std::string& punch_token = "");
+                                                            const std::string& punch_token = "",
+                                                            const std::atomic_bool* cancel = nullptr);
 
 [[nodiscard]] PunchStats punch_stats_from(const AdaptivePuncher& puncher, bool direct_ok, bool attempted);
 

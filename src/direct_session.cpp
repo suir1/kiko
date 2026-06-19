@@ -163,7 +163,8 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
                                         const std::vector<Endpoint>& lan_extra, AdaptivePuncher& puncher,
                                         const NatProfile& self, const NatProfile& peer_nat,
                                         const RoutePlan& route_plan, const std::string& room,
-                                        const ConnectOptions& connect_options, ProgressReporter* reporter) {
+                                        const ConnectOptions& connect_options, ProgressReporter* reporter,
+                                        const std::atomic_bool* cancel) {
   if (route_plan.skip_direct) return std::nullopt;
   PunchPlan punch;
   auto candidates = peer_candidates(peer, lan_extra);
@@ -174,9 +175,9 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
   if (route_plan.udp_punch_enabled) {
     Endpoint peer_wan{peer.get("peer_public_host"), message_port_or(peer, "peer_public_port", 0, true)};
     return try_udp_assisted_direct(role, listener, peer_wan, peer.get("punch_token"), punch, puncher, room,
-                                   connect_options);
+                                   connect_options, cancel);
   }
-  return try_direct_with_plan(role, listener, punch, puncher, room, connect_options, peer.get("punch_token"));
+  return try_direct_with_plan(role, listener, punch, puncher, room, connect_options, peer.get("punch_token"), cancel);
 }
 
 DirectMuxResult negotiate_direct_mux_channels(TcpSocket primary, Role role, TcpListener& listener, const Message& peer,

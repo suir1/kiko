@@ -5,6 +5,7 @@
 #include "socket.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <optional>
 #include <thread>
 
@@ -14,6 +15,8 @@ namespace {
 constexpr auto kDirectPreflightTimeout = std::chrono::milliseconds(1500);
 constexpr auto kRelayStandbyDirectWindow = std::chrono::milliseconds(500);
 constexpr auto kRelayStandbyConnectWindow = std::chrono::milliseconds(220);
+
+bool direct_cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
 
 }  // namespace
 
@@ -128,7 +131,8 @@ std::optional<std::uint64_t> parse_punch_token_ms(const std::string& token) {
   return parse_u64_strict(token);
 }
 
-void wait_until_punch_time(const std::string& punch_token, std::chrono::steady_clock::time_point deadline) {
+void wait_until_punch_time(const std::string& punch_token, std::chrono::steady_clock::time_point deadline,
+                           const std::atomic_bool* cancel) {
   std::optional<std::uint64_t> punch_at;
   try {
     punch_at = parse_punch_token_ms(punch_token);
@@ -137,7 +141,7 @@ void wait_until_punch_time(const std::string& punch_token, std::chrono::steady_c
   }
   if (!punch_at) return;
 
-  while (std::chrono::steady_clock::now() < deadline) {
+  while (!direct_cancelled(cancel) && std::chrono::steady_clock::now() < deadline) {
     const auto now = now_ms();
     if (now >= *punch_at) return;
     if (*punch_at - now > 2000) return;
@@ -231,17 +235,18 @@ std::optional<TcpSocket> accept_direct_candidate(TcpListener& listener, std::chr
 std::optional<TcpSocket> try_direct_phase(Role self_role, Role active_role, TcpListener& listener, const PunchPlan& plan,
                                           AdaptivePuncher& puncher, const std::string& room,
                                           std::chrono::steady_clock::time_point phase_deadline,
-                                          const ConnectOptions& connect_options) {
+                                          const ConnectOptions& connect_options, const std::atomic_bool* cancel) {
   std::uint16_t local_port = 0;
   try {
     local_port = listener.local_endpoint().port;
   } catch (const std::exception&) {
   }
 
-  while (std::chrono::steady_clock::now() < phase_deadline) {
+  while (!direct_cancelled(cancel) && std::chrono::steady_clock::now() < phase_deadline) {
     const std::string phase = active_role == Role::Receiver ? "receiver-active" : "sender-active";
     if (self_role == active_role) {
       for (const auto& candidate : plan.candidates) {
+        if (direct_cancelled(cancel)) break;
         if (std::chrono::steady_clock::now() >= phase_deadline) break;
         const auto connect_timeout = candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline);
         if (connect_timeout.count() <= 0) break;
@@ -265,7 +270,7 @@ std::optional<TcpSocket> try_direct_phase(Role self_role, Role active_role, TcpL
       return accepted;
     }
 
-    std::this_thread::sleep_for(std::min(plan.retry_delay, std::chrono::milliseconds(50)));
+    if (!direct_cancelled(cancel)) std::this_thread::sleep_for(std::min(plan.retry_delay, std::chrono::milliseconds(50)));
   }
   return std::nullopt;
 }
@@ -274,7 +279,8 @@ std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener
                                                           AdaptivePuncher& puncher, const std::string& room,
                                                           std::chrono::steady_clock::time_point phase_deadline,
                                                           const ConnectOptions& connect_options,
-                                                          const std::string& punch_token) {
+                                                          const std::string& punch_token,
+                                                          const std::atomic_bool* cancel) {
   if (connect_options.proxy) return std::nullopt;
   auto candidates = public_candidates_only(plan.candidates);
   if (candidates.empty()) return std::nullopt;
@@ -286,9 +292,10 @@ std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener
   }
   if (local_port == 0) return std::nullopt;
 
-  wait_until_punch_time(punch_token, phase_deadline);
-  while (std::chrono::steady_clock::now() < phase_deadline) {
+  wait_until_punch_time(punch_token, phase_deadline, cancel);
+  while (!direct_cancelled(cancel) && std::chrono::steady_clock::now() < phase_deadline) {
     for (const auto& candidate : candidates) {
+      if (direct_cancelled(cancel)) break;
       const auto timeout = candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline);
       if (timeout.count() <= 0) break;
       if (auto socket = dial_direct_candidate_same_port(candidate, timeout, role, room, puncher, connect_options,
@@ -303,7 +310,7 @@ std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener
             accept_direct_candidate(listener, accept_timeout, room, peer_role(role), puncher, "sync-same-port-accept")) {
       return accepted;
     }
-    std::this_thread::sleep_for(std::min(plan.retry_delay, std::chrono::milliseconds(40)));
+    if (!direct_cancelled(cancel)) std::this_thread::sleep_for(std::min(plan.retry_delay, std::chrono::milliseconds(40)));
   }
   return std::nullopt;
 }
@@ -312,17 +319,20 @@ std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener
 
 std::optional<TcpSocket> try_direct_with_plan(Role role, TcpListener& listener, PunchPlan plan,
                                               AdaptivePuncher& puncher, const std::string& room,
-                                              const ConnectOptions& connect_options, const std::string& punch_token) {
+                                              const ConnectOptions& connect_options, const std::string& punch_token,
+                                              const std::atomic_bool* cancel) {
   if (plan.total_timeout.count() <= 0) return std::nullopt;
+  if (direct_cancelled(cancel)) return std::nullopt;
 
   const auto start = std::chrono::steady_clock::now();
   const auto deadline = start + plan.total_timeout;
   const auto same_port_budget = std::min<std::chrono::milliseconds>(std::chrono::milliseconds(500), plan.total_timeout / 3);
   const auto same_port_deadline = std::min(deadline, start + same_port_budget);
   if (auto socket = try_synchronized_same_port_phase(role, listener, plan, puncher, room, same_port_deadline,
-                                                     connect_options, punch_token)) {
+                                                     connect_options, punch_token, cancel)) {
     return socket;
   }
+  if (direct_cancelled(cancel)) return std::nullopt;
 
   const auto first_phase_budget = std::max<std::chrono::milliseconds>(
       std::chrono::milliseconds(250),
@@ -330,10 +340,12 @@ std::optional<TcpSocket> try_direct_with_plan(Role role, TcpListener& listener, 
   const auto first_deadline = std::min(deadline, start + first_phase_budget);
 
   if (auto socket = try_direct_phase(role, Role::Receiver, listener, plan, puncher, room, first_deadline,
-                                     connect_options)) {
+                                     connect_options, cancel)) {
     return socket;
   }
-  if (auto socket = try_direct_phase(role, Role::Sender, listener, plan, puncher, room, deadline, connect_options)) {
+  if (direct_cancelled(cancel)) return std::nullopt;
+  if (auto socket = try_direct_phase(role, Role::Sender, listener, plan, puncher, room, deadline, connect_options,
+                                     cancel)) {
     return socket;
   }
   return std::nullopt;

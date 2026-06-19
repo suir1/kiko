@@ -271,12 +271,17 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   };
 
   AdaptivePuncher puncher;
-  auto direct =
-      attempt_direct(Role::Sender, listener, peer, {}, puncher, self_nat, peer_nat, route_plan, room_token(code),
-                     connect_options, &reporter);
+  const bool route_commit_v2 = peer.get("route_commit") == "v2";
+  auto direct_attempt = [&](const std::atomic_bool* cancel) {
+    return attempt_direct(Role::Sender, listener, peer, {}, puncher, self_nat, peer_nat, route_plan, room_token(code),
+                          connect_options, &reporter, cancel);
+  };
+  auto selected_route = route_commit_v2
+                            ? race_transfer_route(std::move(relay), direct_attempt, puncher, route_plan, reporter,
+                                                  kRelayRouteConfirmTimeout)
+                            : select_transfer_route(std::move(relay), direct_attempt(nullptr), puncher, route_plan,
+                                                    reporter, kRelayRouteConfirmTimeout);
   emit_punch_report(puncher, reporter);
-  auto selected_route =
-      select_transfer_route(std::move(relay), std::move(direct), puncher, route_plan, reporter, kRelayRouteConfirmTimeout);
   if (selected_route.path == RoutePath::Relay) {
     if (selected_route.explain_direct_failure) {
       snapshot.punch = selected_route.punch_stats;
@@ -439,12 +444,17 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
   };
 
   AdaptivePuncher puncher;
-  auto direct =
-      attempt_direct(Role::Receiver, listener, peer, lan_extra, puncher, self_nat, peer_nat, route_plan,
-                     room_token(config.code), connect_options, &reporter);
+  const bool route_commit_v2 = peer.get("route_commit") == "v2";
+  auto direct_attempt = [&](const std::atomic_bool* cancel) {
+    return attempt_direct(Role::Receiver, listener, peer, lan_extra, puncher, self_nat, peer_nat, route_plan,
+                          room_token(config.code), connect_options, &reporter, cancel);
+  };
+  auto selected_route = route_commit_v2
+                            ? race_transfer_route(std::move(relay), direct_attempt, puncher, route_plan, reporter,
+                                                  kRelayRouteConfirmTimeout)
+                            : select_transfer_route(std::move(relay), direct_attempt(nullptr), puncher, route_plan,
+                                                    reporter, kRelayRouteConfirmTimeout);
   emit_punch_report(puncher, reporter);
-  auto selected_route =
-      select_transfer_route(std::move(relay), std::move(direct), puncher, route_plan, reporter, kRelayRouteConfirmTimeout);
   if (selected_route.path == RoutePath::Relay) {
     if (selected_route.explain_direct_failure) {
       snapshot.punch = selected_route.punch_stats;

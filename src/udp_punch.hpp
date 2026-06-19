@@ -6,6 +6,8 @@
 #include "protocol.hpp"
 #include "socket.hpp"
 
+#include <atomic>
+
 namespace kiko {
 
 struct UdpPunchParams {
@@ -13,6 +15,7 @@ struct UdpPunchParams {
   Endpoint peer_wan{};
   std::string token;
   std::chrono::milliseconds window{400};
+  const std::atomic_bool* cancel = nullptr;
 };
 
 // Sends synchronized UDP probes to peer's WAN listen endpoint (NAT mapping assist only).
@@ -23,6 +26,7 @@ void udp_punch_burst(const UdpPunchParams& params);
                                                                const Endpoint& peer_wan, const std::string& punch_token,
                                                                PunchPlan plan, AdaptivePuncher& puncher,
                                                                const std::string& room,
-                                                               const ConnectOptions& connect_options = ConnectOptions{});
+                                                               const ConnectOptions& connect_options = ConnectOptions{},
+                                                               const std::atomic_bool* cancel = nullptr);
 
 }  // namespace kiko

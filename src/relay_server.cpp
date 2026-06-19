@@ -20,6 +20,8 @@ namespace {
 
 constexpr auto kControlReadTimeout = std::chrono::seconds(5);
 constexpr auto kRouteChoiceTimeout = std::chrono::seconds(15);
+constexpr auto kRoutePollSlice = std::chrono::milliseconds(25);
+constexpr auto kRouteFrameReadTimeout = std::chrono::milliseconds(250);
 constexpr std::uint64_t kMaxRelayConnections = 32;
 
 std::string room_base(const std::string& match_key) {
@@ -45,6 +47,87 @@ bool socket_is_dead(TcpSocket& socket) {
   if (rc > 0) return false;
   const int err = net_last_error();
   return err != kErrWouldBlock && err != kErrIntr;
+}
+
+enum class RouteChoiceState { Waiting, Standby, DirectOk, RelayReady, Invalid };
+
+struct RouteDecision {
+  enum class Kind { Pending, Direct, Relay, Invalid };
+  Kind kind = Kind::Pending;
+  std::string relay_reason;
+};
+
+bool has_route_presence(RouteChoiceState state) { return state != RouteChoiceState::Waiting && state != RouteChoiceState::Invalid; }
+
+bool route_choice_final(RouteChoiceState state) {
+  return state == RouteChoiceState::DirectOk || state == RouteChoiceState::RelayReady ||
+         state == RouteChoiceState::Invalid;
+}
+
+RouteChoiceState route_choice_from(const Message& msg) {
+  if (msg.type == "relay_standby") return RouteChoiceState::Standby;
+  if (msg.type == "direct_ok") return RouteChoiceState::DirectOk;
+  if (msg.type == "relay_ready") return RouteChoiceState::RelayReady;
+  return RouteChoiceState::Invalid;
+}
+
+void merge_route_choice(RouteChoiceState& state, RouteChoiceState next) {
+  if (state == RouteChoiceState::Invalid || route_choice_final(state)) return;
+  if (next == RouteChoiceState::Invalid || route_choice_final(next) || state == RouteChoiceState::Waiting) {
+    state = next;
+  }
+}
+
+std::optional<Message> recv_route_choice_if_ready(TcpSocket& socket) {
+  const int fd = socket.fd();
+  if (fd < 0) return std::nullopt;
+  if (net_poll(fd, /*want_read=*/true, /*want_write=*/false, 0) <= 0) return std::nullopt;
+  return recv_message_timeout(socket, kRouteFrameReadTimeout);
+}
+
+RouteDecision route_decision_for(RouteChoiceState first, RouteChoiceState second, bool deadline_expired) {
+  if (first == RouteChoiceState::Invalid || second == RouteChoiceState::Invalid) {
+    return {RouteDecision::Kind::Invalid, {}};
+  }
+  if (first == RouteChoiceState::DirectOk && second == RouteChoiceState::DirectOk) {
+    return {RouteDecision::Kind::Direct, {}};
+  }
+
+  const bool first_relay = first == RouteChoiceState::RelayReady;
+  const bool second_relay = second == RouteChoiceState::RelayReady;
+  if ((first_relay && has_route_presence(second)) || (second_relay && has_route_presence(first))) {
+    if (first_relay && second_relay) return {RouteDecision::Kind::Relay, "relay"};
+    if (first == RouteChoiceState::DirectOk || second == RouteChoiceState::DirectOk) {
+      return {RouteDecision::Kind::Relay, "mismatch"};
+    }
+    return {RouteDecision::Kind::Relay, "standby"};
+  }
+
+  if (deadline_expired && has_route_presence(first) && has_route_presence(second)) {
+    return {RouteDecision::Kind::Relay, "timeout"};
+  }
+  return {};
+}
+
+RouteDecision wait_route_decision(TcpSocket& first, TcpSocket& second) {
+  RouteChoiceState first_choice = RouteChoiceState::Waiting;
+  RouteChoiceState second_choice = RouteChoiceState::Waiting;
+  const auto deadline = std::chrono::steady_clock::now() + kRouteChoiceTimeout;
+
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (auto msg = recv_route_choice_if_ready(first)) {
+      merge_route_choice(first_choice, route_choice_from(*msg));
+    }
+    if (auto msg = recv_route_choice_if_ready(second)) {
+      merge_route_choice(second_choice, route_choice_from(*msg));
+    }
+
+    auto decision = route_decision_for(first_choice, second_choice, /*deadline_expired=*/false);
+    if (decision.kind != RouteDecision::Kind::Pending) return decision;
+    std::this_thread::sleep_for(kRoutePollSlice);
+  }
+
+  return route_decision_for(first_choice, second_choice, /*deadline_expired=*/true);
 }
 
 std::uint16_t checked_control_port(const Message& message, const std::string& field, std::uint16_t fallback,
@@ -175,6 +258,7 @@ void send_peer_messages(WaitingPeer& a, WaitingPeer& b) {
                         {"your_public_host", a.public_endpoint.host},
                         {"your_public_port", std::to_string(a.public_endpoint.port)},
                         {"punch_token", punch_token},
+                        {"route_commit", "v2"},
                         {"file_count", std::to_string(b.file_count)},
                         {"total_size", std::to_string(b.total_size)},
                         {"conn_count", std::to_string(b.conn_count)}}});
@@ -189,6 +273,7 @@ void send_peer_messages(WaitingPeer& a, WaitingPeer& b) {
                         {"your_public_host", b.public_endpoint.host},
                         {"your_public_port", std::to_string(b.public_endpoint.port)},
                         {"punch_token", punch_token},
+                        {"route_commit", "v2"},
                         {"file_count", std::to_string(a.file_count)},
                         {"total_size", std::to_string(a.total_size)},
                         {"conn_count", std::to_string(a.conn_count)}}});
@@ -339,21 +424,15 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
 
     send_peer_messages(*other, self);
 
-    auto first_choice = recv_message_timeout(other->socket, kRouteChoiceTimeout);
-    auto second_choice = recv_message_timeout(self.socket, kRouteChoiceTimeout);
-    if (!first_choice || !second_choice) return;
-
-    if (first_choice->type == "direct_ok" && second_choice->type == "direct_ok") {
+    const auto decision = wait_route_decision(other->socket, self.socket);
+    if (decision.kind == RouteDecision::Kind::Direct) {
       send_message(other->socket, Message{"direct_start", {}});
       send_message(self.socket, Message{"direct_start", {}});
       return;
     }
 
-    const bool first_valid = first_choice->type == "relay_ready" || first_choice->type == "direct_ok";
-    const bool second_valid = second_choice->type == "relay_ready" || second_choice->type == "direct_ok";
-    if (first_valid && second_valid) {
-      const bool mismatch = first_choice->type != second_choice->type;
-      Message start{"relay_start", {{"reason", mismatch ? "mismatch" : "relay"}}};
+    if (decision.kind == RouteDecision::Kind::Relay) {
+      Message start{"relay_start", {{"reason", decision.relay_reason}}};
       send_message(other->socket, start);
       send_message(self.socket, start);
       relay_stream_sync(std::move(other->socket), std::move(self.socket));

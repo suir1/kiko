@@ -62,6 +62,54 @@ int main() {
     BackgroundRelay relay;
     relay.start(Endpoint{"127.0.0.1", 0});
     const auto endpoint = relay.local_endpoint();
+    const std::vector<RelayRaceEntry> entries{{endpoint, false}};
+
+    Message sender_hello{"hello", {{"room", "room-standby"}, {"role", "sender"}}};
+    Message receiver_hello{"hello", {{"room", "room-standby"}, {"role", "receiver"}}};
+
+    auto sender_future = std::async(std::launch::async, [&] {
+      return race_until_peer(entries, sender_hello, std::chrono::seconds(2), ConnectOptions{});
+    });
+    auto receiver_future = std::async(std::launch::async, [&] {
+      return race_until_peer(entries, receiver_hello, std::chrono::seconds(2), ConnectOptions{});
+    });
+
+    auto sender_peer = sender_future.get();
+    auto receiver_peer = receiver_future.get();
+    if (!sender_peer || !receiver_peer) {
+      std::cerr << "FAIL: standby route test did not rendezvous peers\n";
+      return 1;
+    }
+    if (sender_peer->peer.get("route_commit") != "v2" || receiver_peer->peer.get("route_commit") != "v2") {
+      std::cerr << "FAIL: relay did not advertise route commit v2\n";
+      return 1;
+    }
+
+    send_message(sender_peer->socket, Message{"relay_standby", {}});
+    send_message(receiver_peer->socket, Message{"relay_standby", {}});
+    send_message(receiver_peer->socket, Message{"relay_ready", {}});
+
+    auto sender_relay_start = recv_message_timeout(sender_peer->socket, std::chrono::milliseconds(800));
+    auto receiver_relay_start = recv_message_timeout(receiver_peer->socket, std::chrono::milliseconds(800));
+    if (!sender_relay_start || sender_relay_start->type != "relay_start" || !receiver_relay_start ||
+        receiver_relay_start->type != "relay_start") {
+      std::cerr << "FAIL: relay did not start from standby + relay_ready\n";
+      return 1;
+    }
+    if (sender_relay_start->get("reason") != "standby" || receiver_relay_start->get("reason") != "standby") {
+      std::cerr << "FAIL: standby relay start did not report standby reason\n";
+      return 1;
+    }
+    sender_peer->socket.close();
+    receiver_peer->socket.close();
+
+    relay.stop();
+  }
+
+  {
+    BackgroundRelay relay;
+    relay.start(Endpoint{"127.0.0.1", 0});
+    const auto endpoint = relay.local_endpoint();
 
     auto client = connect_tcp(endpoint, std::chrono::seconds(2));
     if (!client.valid()) {

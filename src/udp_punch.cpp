@@ -11,13 +11,16 @@ namespace {
 constexpr int kMaxUdpPackets = 32;
 constexpr const char kPunchPayload[] = "kiko-punch";
 
+bool cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
+
 std::optional<std::uint64_t> parse_punch_token_ms(const std::string& token) {
   if (token.empty()) return std::nullopt;
   return parse_u64_strict(token);
 }
 
-void wait_until_punch_time(std::uint64_t punch_at_ms) {
+void wait_until_punch_time(std::uint64_t punch_at_ms, const std::atomic_bool* cancel) {
   while (true) {
+    if (cancelled(cancel)) return;
     const auto now = now_ms();
     if (now >= punch_at_ms) return;
     if (punch_at_ms - now > 2000) return;
@@ -59,12 +62,14 @@ void udp_punch_burst(const UdpPunchParams& params) {
   const auto punch_at = parse_punch_token_ms(params.token);
   if (!punch_at) return;
 
-  wait_until_punch_time(*punch_at);
+  wait_until_punch_time(*punch_at, params.cancel);
+  if (cancelled(params.cancel)) return;
 
   const auto interval_ms = params.window.count() > 0
                                ? std::max<std::int64_t>(1, params.window.count() / kMaxUdpPackets)
                                : 1;
   for (int i = 0; i < kMaxUdpPackets; ++i) {
+    if (cancelled(params.cancel)) return;
     (void)send_udp_packet(params.peer_wan, kPunchPayload, sizeof(kPunchPayload) - 1);
     if (i + 1 < kMaxUdpPackets) std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
   }
@@ -73,7 +78,8 @@ void udp_punch_burst(const UdpPunchParams& params) {
 std::optional<TcpSocket> try_udp_assisted_direct(Role role, TcpListener& listener, const Endpoint& peer_wan,
                                                  const std::string& punch_token, PunchPlan plan,
                                                  AdaptivePuncher& puncher, const std::string& room,
-                                                 const ConnectOptions& connect_options) {
+                                                 const ConnectOptions& connect_options,
+                                                 const std::atomic_bool* cancel) {
   if (plan.total_timeout.count() <= 0) return std::nullopt;
 
   std::thread udp_thread;
@@ -83,10 +89,11 @@ std::optional<TcpSocket> try_udp_assisted_direct(Role role, TcpListener& listene
     params.peer_wan = peer_wan;
     params.token = punch_token;
     params.window = std::chrono::milliseconds(400);
+    params.cancel = cancel;
     udp_thread = std::thread([params]() { udp_punch_burst(params); });
   }
 
-  auto result = try_direct_with_plan(role, listener, plan, puncher, room, connect_options, punch_token);
+  auto result = try_direct_with_plan(role, listener, plan, puncher, room, connect_options, punch_token, cancel);
   if (udp_thread.joinable()) udp_thread.join();
   return result;
 }

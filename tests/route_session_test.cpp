@@ -4,6 +4,7 @@
 #include "route_session.hpp"
 
 #include <cassert>
+#include <atomic>
 #include <chrono>
 #include <iostream>
 #include <optional>
@@ -68,6 +69,105 @@ int main() {
     assert(selection.direct);
     assert(saw_status(reporter, "route result: path=direct reason=confirmed direct_attempted=true lan_upgrade=false"));
     assert(saw_status(reporter, "route detail: direct_success kind=lan priority=90 elapsed_ms=7"));
+  }
+
+  {
+    auto relay_pair = connected_pair();
+    auto direct_pair = connected_pair();
+    std::optional<TcpSocket> direct;
+    direct.emplace(std::move(direct_pair.first));
+
+    std::thread peer([relay = std::move(relay_pair.second)]() mutable {
+      auto standby = recv_message(relay);
+      assert(standby);
+      assert(standby->type == "relay_standby");
+      auto choice = recv_message(relay);
+      assert(choice);
+      assert(choice->type == "direct_ok");
+      send_message(relay, Message{"direct_start", {}});
+    });
+
+    RecordingReporter reporter;
+    AdaptivePuncher puncher;
+    puncher.observe(PunchObservation{"receiver-active", "127.0.0.1:1234", "lan", 90, true, 7, ""});
+    RoutePlan plan;
+    auto selection = race_transfer_route(
+        std::move(relay_pair.first),
+        [&](const std::atomic_bool*) mutable {
+          return std::move(direct);
+        },
+        puncher, plan, reporter, std::chrono::seconds(2));
+    peer.join();
+
+    assert(selection.path == RoutePath::Direct);
+    assert(selection.direct);
+    assert(saw_status(reporter, "relay standby; trying direct"));
+    assert(saw_status(reporter, "route result: path=direct reason=confirmed direct_attempted=true lan_upgrade=false"));
+  }
+
+  {
+    auto relay_pair = connected_pair();
+    std::atomic_bool cancel_seen{false};
+
+    std::thread peer([relay = std::move(relay_pair.second)]() mutable {
+      auto standby = recv_message(relay);
+      assert(standby);
+      assert(standby->type == "relay_standby");
+      send_message(relay, Message{"relay_start", {{"reason", "standby"}}});
+      auto late = recv_message_timeout(relay, std::chrono::milliseconds(150));
+      assert(!late);
+    });
+
+    RecordingReporter reporter;
+    AdaptivePuncher puncher;
+    RoutePlan plan;
+    auto selection = race_transfer_route(
+        std::move(relay_pair.first),
+        [&](const std::atomic_bool* cancel) -> std::optional<TcpSocket> {
+          while (!cancel->load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+          cancel_seen.store(true);
+          return std::nullopt;
+        },
+        puncher, plan, reporter, std::chrono::seconds(2));
+    peer.join();
+
+    assert(selection.path == RoutePath::Relay);
+    assert(selection.allow_lan_upgrade);
+    assert(cancel_seen.load());
+    assert(saw_status(reporter, "relay committed by peer; canceling direct"));
+    assert(saw_status(reporter,
+                      "route result: path=relay reason=peer_selected_relay direct_attempted=true lan_upgrade=true"));
+  }
+
+  {
+    auto relay_pair = connected_pair();
+    std::thread peer([relay = std::move(relay_pair.second)]() mutable {
+      auto standby = recv_message(relay);
+      assert(standby);
+      assert(standby->type == "relay_standby");
+      auto choice = recv_message(relay);
+      assert(choice);
+      assert(choice->type == "relay_ready");
+      send_message(relay, Message{"relay_start", {{"reason", "relay"}}});
+    });
+
+    RecordingReporter reporter;
+    AdaptivePuncher puncher;
+    puncher.observe(PunchObservation{"receiver-active", "192.168.1.8:5000", "lan", 90, false, 100,
+                                     "connect_failed"});
+    RoutePlan plan;
+    auto selection = race_transfer_route(
+        std::move(relay_pair.first),
+        [](const std::atomic_bool*) -> std::optional<TcpSocket> {
+          return std::nullopt;
+        },
+        puncher, plan, reporter, std::chrono::seconds(2));
+    peer.join();
+
+    assert(selection.path == RoutePath::Relay);
+    assert(selection.allow_lan_upgrade);
+    assert(saw_status(reporter,
+                      "route result: path=relay reason=direct_failed direct_attempted=true lan_upgrade=true"));
   }
 
   {

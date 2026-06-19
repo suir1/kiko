@@ -7,6 +7,7 @@
 #include "proxy.hpp"
 #include "socket.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <optional>
 #include <vector>
@@ -27,7 +28,8 @@ struct DirectMuxResult {
                                                       const NatProfile& peer_nat, const RoutePlan& route_plan,
                                                       const std::string& room,
                                                       const ConnectOptions& connect_options = ConnectOptions{},
-                                                      ProgressReporter* reporter = nullptr);
+                                                      ProgressReporter* reporter = nullptr,
+                                                      const std::atomic_bool* cancel = nullptr);
 
 // Opens auxiliary direct channels and confirms both peers are ready before
 // switching to mux. If auxiliary setup fails on either peer, keeps channel 0

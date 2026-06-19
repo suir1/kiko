@@ -1,8 +1,12 @@
 #include "route_session.hpp"
 
+#include "platform.hpp"
 #include "protocol.hpp"
 
+#include <algorithm>
+#include <future>
 #include <sstream>
+#include <thread>
 
 namespace kiko {
 namespace {
@@ -59,6 +63,43 @@ std::string direct_failure_summary(const PunchStats& stats) {
     summary += "candidate_kinds=" + count_map_summary(stats.candidate_failures_by_kind);
   }
   return summary.empty() ? "unknown" : summary;
+}
+
+RouteOutcome make_route_outcome(const std::string& data_path, const std::string& reason, bool direct_attempted,
+                                bool lan_upgrade, const PunchStats& stats);
+
+std::optional<Message> recv_relay_control_if_ready(TcpSocket& relay, std::chrono::milliseconds poll_timeout) {
+  const int fd = relay.fd();
+  if (fd < 0) return std::nullopt;
+  const int poll_ms = static_cast<int>(std::max<std::int64_t>(0, poll_timeout.count()));
+  if (net_poll(fd, /*want_read=*/true, /*want_write=*/false, poll_ms) <= 0) return std::nullopt;
+  return recv_message_timeout(relay, std::chrono::milliseconds(250));
+}
+
+RouteSelection relay_selection_from_start(TcpSocket relay, const Message& start, const AdaptivePuncher& puncher,
+                                          const RoutePlan& route_plan, bool direct_attempted,
+                                          bool explain_direct_failure, ProgressReporter& reporter,
+                                          const std::string& result_reason) {
+  RouteSelection selection;
+  selection.relay = std::move(relay);
+  selection.path = RoutePath::Relay;
+  selection.allow_lan_upgrade = start.get("reason") != "mismatch";
+  selection.punch_stats = punch_stats_from(puncher, false, direct_attempted);
+  selection.explain_direct_failure = explain_direct_failure;
+  report_route_result(reporter, "relay", result_reason, direct_attempted, selection.allow_lan_upgrade);
+  report_route_detail(reporter, selection.punch_stats);
+  selection.outcome =
+      make_route_outcome("relay", result_reason, direct_attempted, selection.allow_lan_upgrade, selection.punch_stats);
+  reporter.route_outcome(selection.outcome);
+  (void)route_plan;
+  return selection;
+}
+
+std::optional<TcpSocket> finish_direct_future(std::future<std::optional<TcpSocket>>& future, std::atomic_bool& cancel) {
+  cancel.store(true);
+  auto direct = future.get();
+  if (direct) direct->close();
+  return direct;
 }
 
 RouteOutcome make_route_outcome(const std::string& data_path, const std::string& reason, bool direct_attempted,
@@ -137,6 +178,53 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
                                          !route_plan.skip_direct, selection.allow_lan_upgrade, selection.punch_stats);
   reporter.route_outcome(selection.outcome);
   return selection;
+}
+
+RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attempt, const AdaptivePuncher& puncher,
+                                   const RoutePlan& route_plan, ProgressReporter& reporter,
+                                   std::chrono::milliseconds confirmation_timeout) {
+  if (route_plan.skip_direct || !direct_attempt) {
+    return select_transfer_route(std::move(relay), std::nullopt, puncher, route_plan, reporter, confirmation_timeout);
+  }
+
+  send_message(relay, Message{"relay_standby", {}});
+  reporter.status("relay standby; trying direct");
+
+  std::atomic_bool cancel{false};
+  auto direct_future = std::async(std::launch::async, [&]() { return direct_attempt(&cancel); });
+
+  while (direct_future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+    if (auto relay_msg = recv_relay_control_if_ready(relay, std::chrono::milliseconds(25))) {
+      if (relay_msg->type == "relay_start") {
+        reporter.status("relay committed by peer; canceling direct");
+        (void)finish_direct_future(direct_future, cancel);
+        return relay_selection_from_start(std::move(relay), *relay_msg, puncher, route_plan,
+                                          /*direct_attempted=*/true, /*explain_direct_failure=*/false, reporter,
+                                          "peer_selected_relay");
+      }
+      if (relay_msg->type == "error") throw KikoError("relay route error: " + relay_msg->get("code", "unknown"));
+      if (relay_msg->type == "done") throw KikoError("relay closed before route selection");
+      throw KikoError("unexpected relay route message while direct pending: " + relay_msg->type);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  auto direct = direct_future.get();
+  if (auto relay_msg = recv_relay_control_if_ready(relay, std::chrono::milliseconds(35))) {
+    if (relay_msg->type == "relay_start") {
+      if (direct) direct->close();
+      reporter.status("relay committed before direct confirmation");
+      return relay_selection_from_start(std::move(relay), *relay_msg, puncher, route_plan,
+                                        /*direct_attempted=*/true, /*explain_direct_failure=*/false, reporter,
+                                        "peer_selected_relay");
+    }
+    if (relay_msg->type == "error") throw KikoError("relay route error: " + relay_msg->get("code", "unknown"));
+    if (relay_msg->type == "done") throw KikoError("relay closed before route selection");
+    throw KikoError("unexpected relay route message before route confirmation: " + relay_msg->type);
+  }
+
+  return select_transfer_route(std::move(relay), std::move(direct), puncher, route_plan, reporter,
+                               confirmation_timeout);
 }
 
 }  // namespace kiko
