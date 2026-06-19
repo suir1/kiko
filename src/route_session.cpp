@@ -4,6 +4,7 @@
 #include "protocol.hpp"
 
 #include <algorithm>
+#include <exception>
 #include <future>
 #include <sstream>
 #include <thread>
@@ -95,11 +96,31 @@ RouteSelection relay_selection_from_start(TcpSocket relay, const Message& start,
   return selection;
 }
 
-std::optional<TcpSocket> finish_direct_future(std::future<std::optional<TcpSocket>>& future, std::atomic_bool& cancel) {
+std::optional<TcpSocket> finish_direct_future(std::future<std::optional<TcpSocket>>& future, std::atomic_bool& cancel,
+                                              bool suppress_errors) {
   cancel.store(true);
-  auto direct = future.get();
-  if (direct) direct->close();
-  return direct;
+  try {
+    auto direct = future.get();
+    if (direct) direct->close();
+    return direct;
+  } catch (const std::exception&) {
+    if (!suppress_errors) throw;
+  } catch (...) {
+    if (!suppress_errors) throw;
+  }
+  return std::nullopt;
+}
+
+std::optional<TcpSocket> collect_direct_future(std::future<std::optional<TcpSocket>>& future,
+                                               ProgressReporter& reporter) {
+  try {
+    return future.get();
+  } catch (const std::exception& error) {
+    reporter.status(std::string("direct attempt failed: ") + error.what());
+  } catch (...) {
+    reporter.status("direct attempt failed: unknown error");
+  }
+  return std::nullopt;
 }
 
 RouteOutcome make_route_outcome(const std::string& data_path, const std::string& reason, bool direct_attempted,
@@ -197,7 +218,7 @@ RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attem
     if (auto relay_msg = recv_relay_control_if_ready(relay, std::chrono::milliseconds(25))) {
       if (relay_msg->type == "relay_start") {
         reporter.status("relay committed by peer; canceling direct");
-        (void)finish_direct_future(direct_future, cancel);
+        (void)finish_direct_future(direct_future, cancel, /*suppress_errors=*/true);
         return relay_selection_from_start(std::move(relay), *relay_msg, puncher, route_plan,
                                           /*direct_attempted=*/true, /*explain_direct_failure=*/false, reporter,
                                           "peer_selected_relay");
@@ -209,7 +230,7 @@ RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attem
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
 
-  auto direct = direct_future.get();
+  auto direct = collect_direct_future(direct_future, reporter);
   if (auto relay_msg = recv_relay_control_if_ready(relay, std::chrono::milliseconds(35))) {
     if (relay_msg->type == "relay_start") {
       if (direct) direct->close();

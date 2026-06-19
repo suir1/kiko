@@ -9,6 +9,7 @@
 #include <future>
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -143,7 +144,7 @@ int main() {
         [&](const std::atomic_bool* cancel) -> std::optional<TcpSocket> {
           while (!cancel->load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
           cancel_seen.store(true);
-          return std::nullopt;
+          throw std::runtime_error("direct canceled late");
         },
         puncher, plan, reporter, std::chrono::seconds(2));
     peer.join();
@@ -154,6 +155,36 @@ int main() {
     assert(saw_status(reporter, "relay committed by peer; canceling direct"));
     assert(saw_status(reporter,
                       "route result: path=relay reason=peer_selected_relay direct_attempted=true lan_upgrade=true"));
+  }
+
+  {
+    auto relay_pair = connected_pair();
+    std::thread peer([relay = std::move(relay_pair.second)]() mutable {
+      auto standby = recv_message(relay);
+      assert(standby);
+      assert(standby->type == "relay_standby");
+      auto choice = recv_message(relay);
+      assert(choice);
+      assert(choice->type == "relay_ready");
+      send_message(relay, Message{"relay_start", {{"reason", "relay"}}});
+    });
+
+    RecordingReporter reporter;
+    AdaptivePuncher puncher;
+    RoutePlan plan;
+    auto selection = race_transfer_route(
+        std::move(relay_pair.first),
+        [](const std::atomic_bool*) -> std::optional<TcpSocket> {
+          throw std::runtime_error("direct worker exploded");
+        },
+        puncher, plan, reporter, std::chrono::seconds(2));
+    peer.join();
+
+    assert(selection.path == RoutePath::Relay);
+    assert(selection.allow_lan_upgrade);
+    assert(saw_status(reporter, "direct attempt failed: direct worker exploded"));
+    assert(saw_status(reporter,
+                      "route result: path=relay reason=direct_failed direct_attempted=true lan_upgrade=true"));
   }
 
   {
