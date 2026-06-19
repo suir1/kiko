@@ -12,18 +12,22 @@ def send_msg(sock, msg):
     sock.sendall(b"kiko" + struct.pack("!I", len(data)) + data)
 
 
-def recv_msg(sock):
-    header = sock.recv(8)
-    if len(header) != 8 or header[:4] != b"kiko":
-        raise RuntimeError(f"bad frame header: {header!r}")
-    size = struct.unpack("!I", header[4:])[0]
+def recv_exact(sock, size):
     data = bytearray()
     while len(data) < size:
         chunk = sock.recv(size - len(data))
         if not chunk:
-            raise RuntimeError("relay closed frame")
+            raise RuntimeError(f"relay closed with {size - len(data)} bytes left")
         data.extend(chunk)
-    return json.loads(data.decode())
+    return bytes(data)
+
+
+def recv_msg(sock):
+    header = recv_exact(sock, 8)
+    if header[:4] != b"kiko":
+        raise RuntimeError(f"bad frame header: {header!r}")
+    size = struct.unpack("!I", header[4:])[0]
+    return json.loads(recv_exact(sock, size).decode())
 
 
 def main():
