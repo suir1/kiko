@@ -4,12 +4,18 @@ set -eu
 repo="${KIKO_REPO:-suir1/kiko}"
 version="${KIKO_VERSION:-}"
 install_dir="${KIKO_INSTALL_DIR:-$HOME/.local/bin}"
+dry_run="${KIKO_INSTALL_DRY_RUN:-}"
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "error: required command not found: $1" >&2
     exit 1
   fi
+}
+
+die() {
+  echo "error: $*" >&2
+  exit 1
 }
 
 need curl
@@ -35,49 +41,69 @@ if [ -z "$version" ]; then
 fi
 
 if [ -z "$version" ]; then
-  echo "error: could not determine latest kiko release" >&2
+  echo "error: could not determine latest kiko release from https://github.com/$repo/releases" >&2
   echo "hint: set KIKO_VERSION=v0.1.4-alpha and retry" >&2
   exit 1
 fi
 
-case "$(uname -s)" in
+os_name="${KIKO_TEST_UNAME_S:-$(uname -s)}"
+arch_name="${KIKO_TEST_UNAME_M:-$(uname -m)}"
+
+case "$os_name" in
   Darwin)
-    case "$(uname -m)" in
+    case "$arch_name" in
       arm64) asset="macos-arm64" ;;
       x86_64) asset="macos-x64" ;;
-      *)
-        echo "error: unsupported macOS architecture: $(uname -m)" >&2
-        exit 1
-        ;;
+      *) die "unsupported macOS architecture: $arch_name" ;;
     esac
     ;;
   Linux)
-    case "$(uname -m)" in
+    case "$arch_name" in
       x86_64 | amd64) asset="linux-x64" ;;
       aarch64 | arm64) asset="linux-arm64" ;;
-      *)
-        echo "error: unsupported Linux architecture: $(uname -m)" >&2
-        exit 1
-        ;;
+      *) die "unsupported Linux architecture: $arch_name" ;;
     esac
     ;;
   *)
-    echo "error: unsupported OS: $(uname -s)" >&2
-    exit 1
+    die "unsupported OS: $os_name"
     ;;
 esac
 
 archive="kiko-$version-$asset.tar.gz"
 url="https://github.com/$repo/releases/download/$version/$archive"
+
+if [ -n "$dry_run" ]; then
+  echo "version=$version"
+  echo "asset=$asset"
+  echo "archive=$archive"
+  echo "url=$url"
+  echo "install_dir=$install_dir"
+  exit 0
+fi
+
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT INT TERM
 
 echo "Downloading $url"
-curl -fL "$url" -o "$tmp_dir/$archive"
-tar -xzf "$tmp_dir/$archive" -C "$tmp_dir"
+if ! curl -fL "$url" -o "$tmp_dir/$archive"; then
+  echo "error: failed to download $archive" >&2
+  echo "hint: check that release $version has a $asset package at https://github.com/$repo/releases/tag/$version" >&2
+  exit 1
+fi
+
+if ! tar -xzf "$tmp_dir/$archive" -C "$tmp_dir"; then
+  echo "error: failed to extract $archive" >&2
+  exit 1
+fi
+
+source_path="$tmp_dir/kiko-$version-$asset/kiko"
+if [ ! -f "$source_path" ]; then
+  echo "error: release archive did not contain kiko-$version-$asset/kiko" >&2
+  exit 1
+fi
 
 mkdir -p "$install_dir"
-cp "$tmp_dir/kiko-$version-$asset/kiko" "$install_dir/kiko"
+cp "$source_path" "$install_dir/kiko"
 chmod +x "$install_dir/kiko"
 
 echo "Installed kiko $version to $install_dir/kiko"

@@ -21,6 +21,7 @@ irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
 
 The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
 `KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.4-alpha` to install a specific release.
+Use `KIKO_INSTALL_DRY_RUN=1` to print the release asset URL without downloading it.
 
 macOS binaries are not signed yet. If Gatekeeper blocks the downloaded binary, open **System Settings** →
 **Privacy & Security** and allow `kiko`, or remove the quarantine flag:

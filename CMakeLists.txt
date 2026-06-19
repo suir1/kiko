@@ -209,6 +209,13 @@ if(NOT WIN32 AND Python3_Interpreter_FOUND)
   set_tests_properties(tui_smoke PROPERTIES DEPENDS kiko)
 endif()
 
+if(NOT WIN32)
+  find_program(SH_EXECUTABLE sh)
+  if(SH_EXECUTABLE)
+    add_test(NAME install_script COMMAND ${SH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/install_script_test.sh)
+  endif()
+endif()
+
 if(KIKO_ENABLE_NETLAB_TESTS)
   find_program(BASH_EXECUTABLE bash REQUIRED)
   add_test(NAME netlab_matrix COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/netlab_matrix.sh)

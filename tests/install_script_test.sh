@@ -1,0 +1,50 @@
+#!/usr/bin/env sh
+set -eu
+
+root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+installer="$root/scripts/install.sh"
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT INT TERM
+
+assert_contains() {
+  file="$1"
+  text="$2"
+  if ! grep -Fq "$text" "$file"; then
+    echo "expected '$text' in $file" >&2
+    cat "$file" >&2
+    exit 1
+  fi
+}
+
+run_dry() {
+  os="$1"
+  arch="$2"
+  out="$3"
+  env \
+    KIKO_VERSION=v9.9.9-test \
+    KIKO_INSTALL_DIR="$tmp_dir/bin" \
+    KIKO_INSTALL_DRY_RUN=1 \
+    KIKO_TEST_UNAME_S="$os" \
+    KIKO_TEST_UNAME_M="$arch" \
+    "$installer" >"$out"
+}
+
+run_dry Linux x86_64 "$tmp_dir/linux-x64.out"
+assert_contains "$tmp_dir/linux-x64.out" "asset=linux-x64"
+assert_contains "$tmp_dir/linux-x64.out" "archive=kiko-v9.9.9-test-linux-x64.tar.gz"
+
+run_dry Linux aarch64 "$tmp_dir/linux-arm64.out"
+assert_contains "$tmp_dir/linux-arm64.out" "asset=linux-arm64"
+assert_contains "$tmp_dir/linux-arm64.out" "archive=kiko-v9.9.9-test-linux-arm64.tar.gz"
+
+run_dry Darwin arm64 "$tmp_dir/macos-arm64.out"
+assert_contains "$tmp_dir/macos-arm64.out" "asset=macos-arm64"
+assert_contains "$tmp_dir/macos-arm64.out" "archive=kiko-v9.9.9-test-macos-arm64.tar.gz"
+
+if run_dry Linux riscv64 "$tmp_dir/unsupported.out" 2>"$tmp_dir/unsupported.err"; then
+  echo "expected unsupported architecture to fail" >&2
+  exit 1
+fi
+assert_contains "$tmp_dir/unsupported.err" "unsupported Linux architecture: riscv64"
+
+echo "install script dry-run checks passed"
