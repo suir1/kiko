@@ -158,6 +158,7 @@ set(KIKO_APP_SOURCES
   src/tui_session.cpp
   src/tui_transfer_actions.cpp
   src/tui_transfer_view.cpp
+  src/tui_failure_hint.cpp
   src/clipboard.cpp
 )
 
@@ -182,6 +183,10 @@ kiko_add_core_test(tui_advanced tests/tui_advanced_test.cpp)
 add_executable(kiko_tui_menu_state_test tests/tui_menu_state_test.cpp src/tui_menu_state.cpp src/tui_transfer_view.cpp)
 target_link_libraries(kiko_tui_menu_state_test PRIVATE kiko_core ftxui::component)
 add_test(NAME tui_menu_state COMMAND kiko_tui_menu_state_test)
+
+add_executable(kiko_tui_failure_hint_test tests/tui_failure_hint_test.cpp src/tui_failure_hint.cpp)
+target_link_libraries(kiko_tui_failure_hint_test PRIVATE kiko_core)
+add_test(NAME tui_failure_hint COMMAND kiko_tui_failure_hint_test)
 kiko_add_core_test(mux tests/mux_test.cpp)
 kiko_add_core_test(adaptive tests/adaptive_test.cpp)
 kiko_add_core_test(connectivity tests/connectivity_test.cpp)

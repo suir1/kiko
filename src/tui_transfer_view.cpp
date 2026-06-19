@@ -1,6 +1,8 @@
 #include "tui_transfer_view.hpp"
 
 #include "qrcode_print.hpp"
+#include "tui_advanced.hpp"
+#include "tui_failure_hint.hpp"
 
 #include <ftxui/dom/elements.hpp>
 
@@ -239,7 +241,7 @@ void TuiReporter::update_network_summary(const std::string& message) {
 }
 
 ftxui::Element render_transfer_view(const TuiState& state, const std::string& copy_notice,
-                                    bool quit_confirm_pending) {
+                                    bool quit_confirm_pending, const FailureRecoveryHint* recovery_hint) {
   using namespace ftxui;
 
   const double overall_ratio = state.overall_total > 0
@@ -320,6 +322,12 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& co
       for (const auto& line : split_lines(state.doctor_summary)) {
         left.push_back(text("  " + line));
       }
+    }
+    if (recovery_hint != nullptr && !recovery_hint->reason.empty()) {
+      left.push_back(separator());
+      left.push_back(text("suggestion") | underlined);
+      left.push_back(text("  " + recovery_hint->reason) | color(Color::Yellow));
+      left.push_back(text("  preset: " + std::string(network_preset_label(recovery_hint->preset))) | dim);
     }
   }
   if (!copy_notice.empty()) {

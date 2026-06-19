@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tui_menu_state.hpp"
 #include "tui_transfer_view.hpp"
 
 #include <ftxui/component/component_base.hpp>
@@ -14,7 +15,8 @@ struct TuiTransferActions {
   ftxui::Component visible_actions;
 };
 
-[[nodiscard]] TuiTransferActions make_tui_transfer_actions(TuiState& state, std::string& copy_notice,
+[[nodiscard]] TuiTransferActions make_tui_transfer_actions(TuiState& state, TuiMenuState& menu,
+                                                           std::string& copy_notice,
                                                            std::function<void()> repeat_transfer,
                                                            std::function<void()> diagnose_transfer,
                                                            std::function<void()> return_to_menu,

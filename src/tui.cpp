@@ -4,6 +4,7 @@
 #include "progress.hpp"
 #include "tui_browser.hpp"
 #include "tui_doctor_modal.hpp"
+#include "tui_failure_hint.hpp"
 #include "tui_menu_state.hpp"
 #include "tui_menu_view.hpp"
 #include "tui_session.hpp"
@@ -198,7 +199,7 @@ int run_tui_menu(const Endpoint& default_relay) {
   };
 
   auto transfer_actions = make_tui_transfer_actions(
-      transfer_state, copy_notice, [&] { repeat_transfer(); },
+      transfer_state, menu, copy_notice, [&] { repeat_transfer(); },
       [&] {
         show_doctor_modal(last_transfer_relay, last_transfer_relay_pass, menu.network.udp_probe);
         wake();
@@ -213,9 +214,15 @@ int run_tui_menu(const Endpoint& default_relay) {
   auto transfer_renderer = Renderer(transfer_layout, [&] {
     Element transfer_view;
     bool done = false;
+    bool failed = false;
+    std::optional<FailureRecoveryHint> recovery_hint;
     {
       std::lock_guard<std::mutex> lock(transfer_state.mutex);
-      transfer_view = render_transfer_view(transfer_state, copy_notice, quit_confirm_pending);
+      failed = transfer_state.failed;
+      if (failed) recovery_hint = suggest_failure_recovery(transfer_state, menu);
+      transfer_view =
+          render_transfer_view(transfer_state, copy_notice, quit_confirm_pending,
+                               failed && recovery_hint ? &*recovery_hint : nullptr);
       done = transfer_state.finished || transfer_state.failed;
     }
     Elements rows;
