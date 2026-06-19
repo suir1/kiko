@@ -17,6 +17,8 @@
 namespace kiko {
 namespace {
 
+bool operation_cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
+
 Endpoint from_asio_endpoint(const asio::ip::tcp::endpoint& endpoint) {
   return Endpoint{endpoint.address().to_string(), endpoint.port()};
 }
@@ -211,9 +213,11 @@ bool TcpSocket::recv_exact(void* data, std::size_t size) {
   return true;
 }
 
-bool TcpSocket::recv_exact_timeout(void* data, std::size_t size, std::chrono::milliseconds timeout) {
+bool TcpSocket::recv_exact_timeout(void* data, std::size_t size, std::chrono::milliseconds timeout,
+                                   const std::atomic_bool* cancel) {
   if (size == 0) return true;
   if (!valid()) return false;
+  if (operation_cancelled(cancel)) return false;
 
   asio::error_code ec;
   socket_->non_blocking(true, ec);
@@ -230,6 +234,7 @@ bool TcpSocket::recv_exact_timeout(void* data, std::size_t size, std::chrono::mi
   std::size_t received = 0;
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   while (received < size) {
+    if (operation_cancelled(cancel)) return false;
     std::size_t n = socket_->read_some(asio::buffer(ptr + received, size - received), ec);
     if (!ec) {
       if (n == 0) return false;
@@ -243,7 +248,8 @@ bool TcpSocket::recv_exact_timeout(void* data, std::size_t size, std::chrono::mi
 
     auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
     if (remaining.count() <= 0) return false;
-    const int poll_ms = static_cast<int>(std::min<std::int64_t>(remaining.count(), 50));
+    const auto slice = cancel ? std::chrono::milliseconds(25) : std::chrono::milliseconds(50);
+    const int poll_ms = static_cast<int>(std::min<std::int64_t>(remaining.count(), slice.count()));
     if (net_poll(fd(), /*want_read=*/true, /*want_write=*/false, poll_ms) < 0) return false;
   }
   return true;
@@ -353,19 +359,30 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
                       const std::optional<ProxyConfig>& proxy) {
   ConnectOptions options;
   options.proxy = proxy;
-  return connect_tcp(endpoint, timeout, options);
+  return connect_tcp(endpoint, timeout, options, nullptr);
 }
 
-TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeout, const ConnectOptions& options) {
+TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeout, const ConnectOptions& options,
+                      const std::atomic_bool* cancel) {
+  if (operation_cancelled(cancel)) return TcpSocket();
+
   if (options.proxy) {
     ConnectOptions tunnel_options;
     tunnel_options.bind_interface = options.bind_interface;
     tunnel_options.local_bind = options.local_bind;
-    auto tunnel = connect_tcp(options.proxy->endpoint, timeout, tunnel_options);
+    auto tunnel = connect_tcp(options.proxy->endpoint, timeout, tunnel_options, cancel);
     if (!tunnel.valid()) return tunnel;
+    if (operation_cancelled(cancel)) {
+      tunnel.close();
+      return TcpSocket();
+    }
     try {
       proxy_connect(tunnel, endpoint, *options.proxy, timeout);
     } catch (...) {
+      tunnel.close();
+      return TcpSocket();
+    }
+    if (operation_cancelled(cancel)) {
       tunnel.close();
       return TcpSocket();
     }
@@ -380,6 +397,7 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
   }
 
   for (const auto& candidate : candidates) {
+    if (operation_cancelled(cancel)) return TcpSocket();
     asio::ip::tcp::socket socket(io_context());
     asio::error_code ec;
     socket.open(candidate.protocol(), ec);
@@ -403,6 +421,7 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
                              static_cast<socklen_t>(candidate.size()));
 #endif
     if (rc == 0) {
+      if (operation_cancelled(cancel)) return TcpSocket();
       socket.native_non_blocking(false, ec);
       if (ec) continue;
       return TcpSocket(std::move(socket));
@@ -412,13 +431,15 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
     if (connect_error != kErrInProgress && connect_error != kErrWouldBlock) continue;
 
     const auto deadline = std::chrono::steady_clock::now() + timeout;
-    while (std::chrono::steady_clock::now() < deadline) {
+    while (!operation_cancelled(cancel) && std::chrono::steady_clock::now() < deadline) {
       auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
       if (remaining.count() <= 0) break;
+      const auto slice = cancel ? std::chrono::milliseconds(25) : remaining;
       if (net_poll(static_cast<int>(socket.native_handle()), /*want_read=*/false, /*want_write=*/true,
-                   static_cast<int>(remaining.count())) <= 0) {
+                   static_cast<int>(std::min(remaining, slice).count())) <= 0) {
         continue;
       }
+      if (operation_cancelled(cancel)) break;
       int error = 0;
       socklen_t error_len = sizeof(error);
       if (getsockopt(socket.native_handle(), SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &error_len) != 0 || error != 0) {
@@ -426,6 +447,7 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
       }
       socket.native_non_blocking(false, ec);
       if (ec) break;
+      if (operation_cancelled(cancel)) break;
       return TcpSocket(std::move(socket));
     }
   }

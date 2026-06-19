@@ -6,6 +6,7 @@
 #include <asio/awaitable.hpp>
 #include <asio/ip/tcp.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -42,7 +43,8 @@ class TcpSocket {
   void set_blocking(bool blocking);
   void send_all(const void* data, std::size_t size);
   [[nodiscard]] bool recv_exact(void* data, std::size_t size);
-  [[nodiscard]] bool recv_exact_timeout(void* data, std::size_t size, std::chrono::milliseconds timeout);
+  [[nodiscard]] bool recv_exact_timeout(void* data, std::size_t size, std::chrono::milliseconds timeout,
+                                        const std::atomic_bool* cancel = nullptr);
 
   asio::awaitable<void> async_send_all(const void* data, std::size_t size);
   [[nodiscard]] asio::awaitable<bool> async_recv_exact(void* data, std::size_t size);
@@ -76,7 +78,7 @@ class TcpListener {
 [[nodiscard]] TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeout,
                                     const std::optional<ProxyConfig>& proxy = std::nullopt);
 [[nodiscard]] TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeout,
-                                    const ConnectOptions& options);
+                                    const ConnectOptions& options, const std::atomic_bool* cancel = nullptr);
 [[nodiscard]] std::vector<std::string> local_interface_addresses();
 // LAN/private candidates for punch and hello; excludes typical VPN tunnel interfaces.
 [[nodiscard]] std::vector<std::string> local_lan_candidate_addresses();

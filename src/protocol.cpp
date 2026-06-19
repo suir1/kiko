@@ -67,17 +67,18 @@ std::optional<Bytes> recv_frame(TcpSocket& socket) {
   return payload;
 }
 
-std::optional<Bytes> recv_frame_timeout(TcpSocket& socket, std::chrono::milliseconds timeout) {
+std::optional<Bytes> recv_frame_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
+                                        const std::atomic_bool* cancel) {
   std::uint8_t magic[4]{};
-  if (!socket.recv_exact_timeout(magic, sizeof(magic), timeout)) return std::nullopt;
+  if (!socket.recv_exact_timeout(magic, sizeof(magic), timeout, cancel)) return std::nullopt;
   verify_magic(magic);
 
   std::uint32_t be_len = 0;
-  if (!socket.recv_exact_timeout(&be_len, sizeof(be_len), timeout)) return std::nullopt;
+  if (!socket.recv_exact_timeout(&be_len, sizeof(be_len), timeout, cancel)) return std::nullopt;
   auto len = ntohl(be_len);
   if (len > 64ull * 1024ull * 1024ull) throw KikoError("received frame too large");
   Bytes payload(len);
-  if (len > 0 && !socket.recv_exact_timeout(payload.data(), payload.size(), timeout)) return std::nullopt;
+  if (len > 0 && !socket.recv_exact_timeout(payload.data(), payload.size(), timeout, cancel)) return std::nullopt;
   return payload;
 }
 
@@ -91,8 +92,9 @@ std::optional<std::string> recv_text(TcpSocket& socket) {
   return std::string(payload->begin(), payload->end());
 }
 
-std::optional<std::string> recv_text_timeout(TcpSocket& socket, std::chrono::milliseconds timeout) {
-  auto payload = recv_frame_timeout(socket, timeout);
+std::optional<std::string> recv_text_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
+                                             const std::atomic_bool* cancel) {
+  auto payload = recv_frame_timeout(socket, timeout, cancel);
   if (!payload) return std::nullopt;
   return std::string(payload->begin(), payload->end());
 }
@@ -134,8 +136,9 @@ std::optional<Message> recv_message(TcpSocket& socket) {
   return decode_message(*text);
 }
 
-std::optional<Message> recv_message_timeout(TcpSocket& socket, std::chrono::milliseconds timeout) {
-  auto text = recv_text_timeout(socket, timeout);
+std::optional<Message> recv_message_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
+                                            const std::atomic_bool* cancel) {
+  auto text = recv_text_timeout(socket, timeout, cancel);
   if (!text) return std::nullopt;
   return decode_message(*text);
 }

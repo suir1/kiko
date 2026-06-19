@@ -149,32 +149,42 @@ void wait_until_punch_time(const std::string& punch_token, std::chrono::steady_c
   }
 }
 
-bool complete_direct_dial_preflight(TcpSocket& socket, Role role, const std::string& room) {
+bool complete_direct_dial_preflight(TcpSocket& socket, Role role, const std::string& room,
+                                    const std::atomic_bool* cancel) {
+  if (direct_cancelled(cancel)) return false;
   send_message(socket, Message{"direct_hello", {{"room", room}, {"role", role_name(role)}}});
-  auto response = recv_message_timeout(socket, kDirectPreflightTimeout);
+  auto response = recv_message_timeout(socket, kDirectPreflightTimeout, cancel);
+  if (direct_cancelled(cancel)) return false;
   if (!response) return false;
   if (direct_ack_ok(*response, room)) return true;
 
   if (!direct_hello_ok(*response, room, peer_role(role))) return false;
 
   send_message(socket, Message{"direct_ack", {{"room", room}}});
-  auto peer_ack = recv_message_timeout(socket, kDirectPreflightTimeout);
+  auto peer_ack = recv_message_timeout(socket, kDirectPreflightTimeout, cancel);
+  if (direct_cancelled(cancel)) return false;
   return peer_ack && direct_ack_ok(*peer_ack, room);
 }
 
 std::optional<TcpSocket> dial_direct_candidate(const DirectCandidate& candidate, std::chrono::milliseconds connect_timeout,
                                                Role role, const std::string& room, AdaptivePuncher& puncher,
-                                               const ConnectOptions& connect_options, const std::string& phase) {
+                                               const ConnectOptions& connect_options, const std::string& phase,
+                                               const std::atomic_bool* cancel) {
   const auto start = now_ms();
-  auto socket = connect_tcp(candidate.endpoint, connect_timeout, connect_options);
+  auto socket = connect_tcp(candidate.endpoint, connect_timeout, connect_options, cancel);
   if (!socket.valid()) {
+    if (direct_cancelled(cancel)) return std::nullopt;
     puncher.observe(PunchObservation{phase, candidate.endpoint.to_string(), candidate.kind, candidate.priority, false,
                                      now_ms() - start, "connect_failed"});
     return std::nullopt;
   }
 
   try {
-    const bool ok = complete_direct_dial_preflight(socket, role, room);
+    const bool ok = complete_direct_dial_preflight(socket, role, room, cancel);
+    if (direct_cancelled(cancel)) {
+      socket.close();
+      return std::nullopt;
+    }
     puncher.observe(PunchObservation{phase, candidate.endpoint.to_string(), candidate.kind, candidate.priority, ok,
                                      now_ms() - start, ok ? "" : "direct_ack_failed"});
     if (ok) return socket;
@@ -198,7 +208,8 @@ std::optional<TcpSocket> dial_direct_candidate_same_port(const DirectCandidate& 
                                                          std::chrono::milliseconds connect_timeout, Role role,
                                                          const std::string& room, AdaptivePuncher& puncher,
                                                          const ConnectOptions& connect_options,
-                                                         std::uint16_t local_port, const std::string& phase) {
+                                                         std::uint16_t local_port, const std::string& phase,
+                                                         const std::atomic_bool* cancel) {
   if (candidate.kind != "public" || local_port == 0 || connect_options.proxy) return std::nullopt;
 
   auto same_port_options = connect_options;
@@ -207,7 +218,8 @@ std::optional<TcpSocket> dial_direct_candidate_same_port(const DirectCandidate& 
   auto same_port_candidate = candidate;
   same_port_candidate.kind = "public-same-port";
   add_direct_candidate_reason(same_port_candidate, "same_port_probe");
-  return dial_direct_candidate(same_port_candidate, connect_timeout, role, room, puncher, same_port_options, phase);
+  return dial_direct_candidate(same_port_candidate, connect_timeout, role, room, puncher, same_port_options, phase,
+                               cancel);
 }
 
 std::optional<TcpSocket> accept_direct_candidate(TcpListener& listener, std::chrono::milliseconds timeout,
@@ -251,13 +263,13 @@ std::optional<TcpSocket> try_direct_phase(Role self_role, Role active_role, TcpL
         const auto connect_timeout = candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline);
         if (connect_timeout.count() <= 0) break;
         if (auto socket = dial_direct_candidate_same_port(candidate, connect_timeout, self_role, room, puncher,
-                                                         connect_options, local_port, phase + "-same-port")) {
+                                                         connect_options, local_port, phase + "-same-port", cancel)) {
           return socket;
         }
         const auto remaining_timeout = candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline);
         if (remaining_timeout.count() <= 0) break;
         if (auto socket = dial_direct_candidate(candidate, remaining_timeout, self_role, room, puncher,
-                                               connect_options, phase)) {
+                                               connect_options, phase, cancel)) {
           return socket;
         }
       }
@@ -299,7 +311,7 @@ std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener
       const auto timeout = candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline);
       if (timeout.count() <= 0) break;
       if (auto socket = dial_direct_candidate_same_port(candidate, timeout, role, room, puncher, connect_options,
-                                                       local_port, "sync-same-port")) {
+                                                       local_port, "sync-same-port", cancel)) {
         return socket;
       }
     }

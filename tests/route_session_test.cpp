@@ -6,6 +6,7 @@
 #include <cassert>
 #include <atomic>
 #include <chrono>
+#include <future>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -43,6 +44,22 @@ bool saw_status(const RecordingReporter& reporter, const std::string& needle) {
 
 int main() {
   using namespace kiko;
+
+  {
+    auto relay_pair = connected_pair();
+    std::atomic_bool cancel{false};
+    const auto start = std::chrono::steady_clock::now();
+    auto wait = std::async(std::launch::async, [&]() {
+      return recv_message_timeout(relay_pair.first, std::chrono::seconds(2), &cancel);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    cancel.store(true);
+    auto message = wait.get();
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+
+    assert(!message);
+    assert(elapsed < std::chrono::milliseconds(500));
+  }
 
   {
     auto relay_pair = connected_pair();
