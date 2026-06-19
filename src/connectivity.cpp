@@ -93,6 +93,7 @@ void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePunc
   if (plan.direct_connect.count() > 0) {
     out.connect_timeout = plan.direct_connect;
   }
+  tune_direct_candidate_timeouts(out);
 }
 
 namespace {
@@ -110,6 +111,15 @@ bool direct_hello_ok(const Message& message, const std::string& room, Role expec
 }
 
 Role peer_role(Role role) { return role == Role::Sender ? Role::Receiver : Role::Sender; }
+
+std::chrono::milliseconds candidate_connect_timeout(const DirectCandidate& candidate,
+                                                    std::chrono::milliseconds fallback_timeout,
+                                                    std::chrono::steady_clock::time_point deadline) {
+  auto timeout = candidate.connect_timeout.count() > 0 ? candidate.connect_timeout : fallback_timeout;
+  const auto remaining = remaining_until(deadline);
+  if (remaining.count() <= 0) return std::chrono::milliseconds(0);
+  return std::min(timeout, remaining);
+}
 
 std::optional<std::uint64_t> parse_punch_token_ms(const std::string& token) {
   if (token.empty()) return std::nullopt;
@@ -231,11 +241,15 @@ std::optional<TcpSocket> try_direct_phase(Role self_role, Role active_role, TcpL
     if (self_role == active_role) {
       for (const auto& candidate : plan.candidates) {
         if (std::chrono::steady_clock::now() >= phase_deadline) break;
-        if (auto socket = dial_direct_candidate_same_port(candidate, plan.connect_timeout, self_role, room, puncher,
+        const auto connect_timeout = candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline);
+        if (connect_timeout.count() <= 0) break;
+        if (auto socket = dial_direct_candidate_same_port(candidate, connect_timeout, self_role, room, puncher,
                                                          connect_options, local_port, phase + "-same-port")) {
           return socket;
         }
-        if (auto socket = dial_direct_candidate(candidate, plan.connect_timeout, self_role, room, puncher,
+        const auto remaining_timeout = candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline);
+        if (remaining_timeout.count() <= 0) break;
+        if (auto socket = dial_direct_candidate(candidate, remaining_timeout, self_role, room, puncher,
                                                connect_options, phase)) {
           return socket;
         }
@@ -273,9 +287,8 @@ std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener
   wait_until_punch_time(punch_token, phase_deadline);
   while (std::chrono::steady_clock::now() < phase_deadline) {
     for (const auto& candidate : candidates) {
-      const auto remaining = remaining_until(phase_deadline);
-      if (remaining.count() <= 0) break;
-      const auto timeout = std::min(plan.connect_timeout, remaining);
+      const auto timeout = candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline);
+      if (timeout.count() <= 0) break;
       if (auto socket = dial_direct_candidate_same_port(candidate, timeout, role, room, puncher, connect_options,
                                                        local_port, "sync-same-port")) {
         return socket;

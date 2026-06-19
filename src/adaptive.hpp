@@ -38,6 +38,7 @@ struct DirectCandidate {
   Endpoint endpoint;
   std::string kind = "unknown";
   int priority = 0;
+  std::chrono::milliseconds connect_timeout{0};
   std::vector<std::string> reasons;
 };
 
@@ -51,6 +52,8 @@ struct PunchPlan {
   bool prefer_outbound = true;
   std::vector<DirectCandidate> candidates;
 };
+
+void tune_direct_candidate_timeouts(PunchPlan& plan);
 
 class AdaptivePuncher {
  public:

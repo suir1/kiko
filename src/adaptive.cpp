@@ -6,6 +6,11 @@
 namespace kiko {
 namespace {
 
+std::chrono::milliseconds clamp_ms(std::chrono::milliseconds value, std::chrono::milliseconds min_value,
+                                   std::chrono::milliseconds max_value) {
+  return std::min(max_value, std::max(min_value, value));
+}
+
 std::string default_candidate_reason(const std::string& kind) {
   if (kind == "discovered") return "lan_discovery";
   if (kind == "lan") return "peer_lan_candidate";
@@ -14,6 +19,41 @@ std::string default_candidate_reason(const std::string& kind) {
   if (kind == "public-same-port") return "same_port_probe";
   if (kind == "accept") return "inbound_accept";
   return "candidate";
+}
+
+bool has_reason(const DirectCandidate& candidate, const std::string& reason) {
+  return std::find(candidate.reasons.begin(), candidate.reasons.end(), reason) != candidate.reasons.end();
+}
+
+std::chrono::milliseconds dial_timeout_for(const DirectCandidate& candidate,
+                                           std::chrono::milliseconds plan_connect_timeout) {
+  if (candidate.priority >= 90 || candidate.kind == "discovered" || candidate.kind == "lan" ||
+      has_reason(candidate, "profile_direct_success")) {
+    return clamp_ms(plan_connect_timeout + std::chrono::milliseconds(100), std::chrono::milliseconds(300),
+                    std::chrono::milliseconds(600));
+  }
+  if (candidate.priority >= 60 || candidate.kind == "listen") {
+    return clamp_ms(plan_connect_timeout, std::chrono::milliseconds(220), std::chrono::milliseconds(450));
+  }
+  if (candidate.kind == "public" || candidate.kind == "public-same-port") {
+    return clamp_ms(plan_connect_timeout, std::chrono::milliseconds(120), std::chrono::milliseconds(220));
+  }
+  return clamp_ms(plan_connect_timeout, std::chrono::milliseconds(150), std::chrono::milliseconds(400));
+}
+
+void assign_candidate_dial_timeouts(PunchPlan& plan) {
+  for (auto& candidate : plan.candidates) {
+    candidate.reasons.erase(std::remove(candidate.reasons.begin(), candidate.reasons.end(), "short_probe"),
+                            candidate.reasons.end());
+    candidate.reasons.erase(std::remove(candidate.reasons.begin(), candidate.reasons.end(), "extended_probe"),
+                            candidate.reasons.end());
+    candidate.connect_timeout = dial_timeout_for(candidate, plan.connect_timeout);
+    if (candidate.connect_timeout < plan.connect_timeout) {
+      add_direct_candidate_reason(candidate, "short_probe");
+    } else if (candidate.connect_timeout > plan.connect_timeout) {
+      add_direct_candidate_reason(candidate, "extended_probe");
+    }
+  }
 }
 
 }  // namespace
@@ -56,6 +96,8 @@ void add_direct_candidate_reason(DirectCandidate& candidate, std::string reason)
   }
 }
 
+void tune_direct_candidate_timeouts(PunchPlan& plan) { assign_candidate_dial_timeouts(plan); }
+
 PunchPlan AdaptivePuncher::plan(Role role, const std::vector<DirectCandidate>& candidates) const {
   PunchPlan plan;
   plan.candidates = candidates;
@@ -80,6 +122,7 @@ PunchPlan AdaptivePuncher::plan(Role role, const std::vector<DirectCandidate>& c
     plan.total_timeout = std::chrono::milliseconds(1800);
     plan.connect_timeout = std::chrono::milliseconds(250);
   }
+  tune_direct_candidate_timeouts(plan);
   return plan;
 }
 
@@ -98,6 +141,7 @@ PunchPlan AdaptivePuncher::plan(Role role, const std::vector<DirectCandidate>& c
     plan.connect_timeout = std::chrono::milliseconds(250);
     plan.retry_delay = std::chrono::milliseconds(70);
   }
+  tune_direct_candidate_timeouts(plan);
   return plan;
 }
 

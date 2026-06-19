@@ -57,6 +57,9 @@ std::string describe_direct_plan(const RoutePlan& route_plan, const PunchPlan& p
     const auto& candidate = punch.candidates[i];
     if (i > 0) oss << ",";
     oss << candidate.kind << "@" << candidate.endpoint.to_string() << " score=" << candidate.priority;
+    if (candidate.connect_timeout.count() > 0 && candidate.connect_timeout != punch.connect_timeout) {
+      oss << " dial=" << candidate.connect_timeout.count() << "ms";
+    }
     if (!candidate.reasons.empty()) {
       oss << " reason=";
       for (std::size_t j = 0; j < candidate.reasons.size(); ++j) {
