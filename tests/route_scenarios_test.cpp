@@ -283,6 +283,32 @@ int main() {
     }
   }
 
+  {
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    Message peer{"peer", {{"peer_public_host", "127.0.0.1"}, {"peer_public_port", "1"}}};
+    RoutePlan plan;
+    plan.direct_timeout = std::chrono::milliseconds(2500);
+    plan.direct_connect = std::chrono::milliseconds(450);
+
+    AdaptivePuncher puncher;
+    RecordingReporter reporter;
+    const auto direct = attempt_direct(Role::Receiver, listener, peer, {}, puncher, NatProfile{}, NatProfile{}, plan,
+                                       "public-only-direct-room", ConnectOptions{}, &reporter);
+    assert(!direct);
+    bool saw_guard = false;
+    for (const auto& status : reporter.statuses) {
+      if (status.find("direct plan: timeout=500ms connect=220ms") != std::string::npos &&
+          status.find("public@127.0.0.1:1") != std::string::npos &&
+          status.find("relay_fallback_guard") != std::string::npos) {
+        saw_guard = true;
+      }
+    }
+    if (!saw_guard) {
+      std::cerr << "FAIL: public-only direct plan did not shorten for relay fallback\n";
+      return 1;
+    }
+  }
+
   fs::remove(profile_path);
   std::cout << "PASS: route scenario decisions\n";
   return 0;

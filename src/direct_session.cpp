@@ -10,6 +10,33 @@
 namespace kiko {
 namespace {
 
+constexpr auto kPublicOnlyDirectWindow = std::chrono::milliseconds(500);
+constexpr auto kPublicOnlyConnectWindow = std::chrono::milliseconds(220);
+
+bool is_high_confidence_direct_candidate(const DirectCandidate& candidate) {
+  return candidate.kind == "discovered" || candidate.kind == "lan" || candidate.kind == "listen" ||
+         candidate.kind == "manual";
+}
+
+void apply_relay_fallback_guard(PunchPlan& punch) {
+  if (punch.candidates.empty()) return;
+  if (std::any_of(punch.candidates.begin(), punch.candidates.end(), is_high_confidence_direct_candidate)) return;
+
+  bool changed = false;
+  if (punch.total_timeout > kPublicOnlyDirectWindow) {
+    punch.total_timeout = kPublicOnlyDirectWindow;
+    changed = true;
+  }
+  if (punch.connect_timeout > kPublicOnlyConnectWindow) {
+    punch.connect_timeout = kPublicOnlyConnectWindow;
+    changed = true;
+  }
+  if (!changed) return;
+
+  for (auto& candidate : punch.candidates) add_direct_candidate_reason(candidate, "relay_fallback_guard");
+  tune_direct_candidate_timeouts(punch);
+}
+
 std::vector<DirectCandidate> peer_candidates(const Message& peer, const std::vector<Endpoint>& extra = {}) {
   std::vector<DirectCandidate> out;
   auto unspecified_host = [](const std::string& host) {
@@ -142,6 +169,7 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
   auto candidates = peer_candidates(peer, lan_extra);
   if (auto profile = load_profile(network_fingerprint())) apply_profile_candidate_bias(*profile, candidates);
   apply_route_plan_to_adaptive(route_plan, role, puncher, candidates, self, peer_nat, punch);
+  apply_relay_fallback_guard(punch);
   if (reporter) reporter->status(describe_direct_plan(route_plan, punch));
   if (route_plan.udp_punch_enabled) {
     Endpoint peer_wan{peer.get("peer_public_host"), message_port_or(peer, "peer_public_port", 0, true)};
