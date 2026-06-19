@@ -98,6 +98,13 @@ Run a relay (LAN-announced via multicast):
 ./build/kiko relay --listen [::]:9000 --pass my-secret --room-ttl 10800
 ```
 
+Run a public/server relay without the full CLI/TUI frontend:
+
+```sh
+./build/kiko-relayd --listen 0.0.0.0:9000
+./build/kiko-relayd --listen 0.0.0.0:9000 --pass my-secret --room-ttl 10800
+```
+
 Clients use `--relay-pass` or `KIKO_RELAY_PASS` when the relay requires a password.
 
 `kiko` uses `106.53.170.243:9000` as the built-in public relay when `KIKO_RELAY` is unset.

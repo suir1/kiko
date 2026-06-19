@@ -87,6 +87,7 @@ jobs:
           name="kiko-${GITHUB_REF_NAME}-${{ matrix.asset }}"
           mkdir -p "dist/${name}"
           cp build/kiko "dist/${name}/"
+          cp build/kiko-relayd "dist/${name}/"
           cp README.md LICENSE "dist/${name}/"
           tar -czf "dist/${name}.tar.gz" -C dist "${name}"
         shell: bash
@@ -97,6 +98,7 @@ jobs:
           $name = "kiko-${env:GITHUB_REF_NAME}-${{ matrix.asset }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
           Copy-Item "build/kiko.exe" "dist/$name/"
+          Copy-Item "build/kiko-relayd.exe" "dist/$name/"
           Copy-Item "build/*.dll" "dist/$name/" -ErrorAction SilentlyContinue
           Copy-Item "README.md" "dist/$name/"
           Copy-Item "LICENSE" "dist/$name/"

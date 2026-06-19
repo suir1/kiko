@@ -1,6 +1,7 @@
 # kiko architecture
 
-`kiko` is currently a single CMake project with one core static library and one CLI/TUI executable.
+`kiko` is currently a single CMake project with one core static library, one CLI/TUI executable,
+and one lightweight `kiko-relayd` executable for server relay deployment.
 The structure is still workable, but the source tree is moving from a small flat layout toward a
 project that needs explicit module boundaries.
 

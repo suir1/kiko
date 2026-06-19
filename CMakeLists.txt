@@ -165,6 +165,25 @@ set(KIKO_APP_SOURCES
 add_executable(kiko ${KIKO_APP_SOURCES})
 target_link_libraries(kiko PRIVATE kiko_core ftxui::component CLI11::CLI11)
 
+set(KIKO_RELAYD_SOURCES
+  src/relayd_main.cpp
+  src/adaptive.cpp
+  src/common.cpp
+  src/io.cpp
+  src/protocol.cpp
+  src/proxy.cpp
+  src/relay_server.cpp
+  src/socket.cpp
+)
+
+add_executable(kiko-relayd ${KIKO_RELAYD_SOURCES})
+target_include_directories(kiko-relayd PRIVATE src)
+target_link_libraries(kiko-relayd PRIVATE asio::asio nlohmann_json::nlohmann_json Threads::Threads)
+target_compile_definitions(kiko-relayd PRIVATE ASIO_STANDALONE)
+if(WIN32)
+  target_link_libraries(kiko-relayd PRIVATE ws2_32 iphlpapi)
+endif()
+
 enable_testing()
 function(kiko_add_core_test name source)
   add_executable(kiko_${name}_test ${source})
@@ -202,6 +221,8 @@ find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
   add_test(NAME relay_transfer_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/relay_transfer_smoke.py $<TARGET_FILE:kiko>)
   set_tests_properties(relay_transfer_smoke PROPERTIES DEPENDS kiko TIMEOUT 120)
+  add_test(NAME relayd_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/relayd_smoke.py $<TARGET_FILE:kiko-relayd>)
+  set_tests_properties(relayd_smoke PROPERTIES DEPENDS kiko-relayd TIMEOUT 20)
 endif()
 
 if(NOT WIN32 AND Python3_Interpreter_FOUND)
