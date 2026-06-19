@@ -13,7 +13,7 @@ int main() {
     DoctorReport report;
     report.snapshot.relays.push_back(RelayProbeEntry{"external", "relay.example:9000", 35, true});
     report.plan.reason = "stun_symmetric_short_direct";
-    report.plan.direct_timeout = std::chrono::milliseconds(700);
+    report.plan.direct_timeout = std::chrono::milliseconds(500);
     report.plan.direct_connect = std::chrono::milliseconds(220);
     report.plan.connections = 4;
     report.diagnosis = "synthetic";
@@ -26,7 +26,7 @@ int main() {
     assert(j["route_result_hint"]["data_relay_required"] == false);
     assert(j["route_result_hint"]["rendezvous_relay_required"] == true);
     assert(j["direct_probe"]["will_attempt"] == true);
-    assert(j["direct_probe"]["timeout_ms"] == 700);
+    assert(j["direct_probe"]["timeout_ms"] == 500);
     assert(j["direct_probe"]["connect_timeout_ms"] == 220);
     assert(j["plan"]["direct_connect_ms"] == 220);
   }

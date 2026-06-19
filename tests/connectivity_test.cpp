@@ -36,7 +36,7 @@ int main() {
     ConnectivitySnapshot snap;
     auto plan = scheduler.plan(snap, stun, false, 4);
     assert(!plan.skip_direct);
-    assert(plan.direct_timeout.count() == 700);
+    assert(plan.direct_timeout.count() == 500);
     assert(plan.direct_connect.count() == 220);
     assert(plan.reason == "stun_symmetric_short_direct");
   }
@@ -58,7 +58,8 @@ int main() {
     snap.peer_nat = NatType::BehindNat;
     auto plan = scheduler.plan(snap, std::nullopt, false, 4);
     assert(!plan.skip_direct);
-    assert(plan.direct_timeout.count() == 800);
+    assert(plan.direct_timeout.count() == 500);
+    assert(plan.direct_connect.count() == 220);
     assert(plan.reason == "double_nat_short_punch");
   }
 

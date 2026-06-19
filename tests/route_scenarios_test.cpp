@@ -125,7 +125,7 @@ int main() {
     const auto plan = rules.plan(snapshot, stun(StunNatClass::Symmetric), false, 4);
     assert(!plan.skip_direct);
     assert(!plan.udp_punch_enabled);
-    assert_ms(plan.direct_timeout, 700, "symmetric NAT direct window");
+    assert_ms(plan.direct_timeout, 500, "symmetric NAT direct window");
     assert_ms(plan.direct_connect, 220, "symmetric NAT connect timeout");
     assert_reason(plan, "stun_symmetric_short_direct");
   }
@@ -136,8 +136,8 @@ int main() {
     snapshot.peer_nat = NatType::BehindNat;
     const auto plan = rules.plan(snapshot, std::nullopt, false, 4);
     assert(!plan.skip_direct);
-    assert_ms(plan.direct_timeout, 800, "double NAT direct window");
-    assert_ms(plan.direct_connect, 250, "double NAT connect timeout");
+    assert_ms(plan.direct_timeout, 500, "double NAT direct window");
+    assert_ms(plan.direct_connect, 220, "double NAT connect timeout");
     assert_reason(plan, "double_nat_short_punch");
   }
 

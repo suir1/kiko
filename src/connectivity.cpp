@@ -12,6 +12,8 @@ namespace kiko {
 namespace {
 
 constexpr auto kDirectPreflightTimeout = std::chrono::milliseconds(1500);
+constexpr auto kRelayStandbyDirectWindow = std::chrono::milliseconds(500);
+constexpr auto kRelayStandbyConnectWindow = std::chrono::milliseconds(220);
 
 }  // namespace
 
@@ -52,8 +54,8 @@ RoutePlan RuleScheduler::plan(const ConnectivitySnapshot& snapshot, const std::o
 
   if (stun && stun->ok) {
     if (stun->nat_class == StunNatClass::Symmetric) {
-      plan.direct_timeout = std::chrono::milliseconds(700);
-      plan.direct_connect = std::chrono::milliseconds(220);
+      plan.direct_timeout = kRelayStandbyDirectWindow;
+      plan.direct_connect = kRelayStandbyConnectWindow;
       plan.reason = "stun_symmetric_short_direct";
     } else if (stun->nat_class == StunNatClass::Open) {
       plan.direct_timeout = std::chrono::milliseconds(3500);
@@ -62,10 +64,10 @@ RoutePlan RuleScheduler::plan(const ConnectivitySnapshot& snapshot, const std::o
   }
 
   if (snapshot.self_nat == NatType::BehindNat && snapshot.peer_nat == NatType::BehindNat) {
-    if (plan.direct_timeout > std::chrono::milliseconds(800)) {
-      plan.direct_timeout = std::chrono::milliseconds(800);
+    if (plan.direct_timeout > kRelayStandbyDirectWindow) {
+      plan.direct_timeout = kRelayStandbyDirectWindow;
     }
-    plan.direct_connect = std::chrono::milliseconds(250);
+    plan.direct_connect = kRelayStandbyConnectWindow;
     if (plan.reason == "default") plan.reason = "double_nat_short_punch";
   }
 

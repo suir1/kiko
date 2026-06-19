@@ -99,6 +99,15 @@ void emit_debug_route(const Endpoint& relay, const std::optional<ProxyConfig>& p
   for (const auto& line : doctor_debug_lines(report)) reporter.status(line);
 }
 
+std::string describe_route_plan_for_transfer(const RoutePlan& plan) {
+  std::string line = plan.reason;
+  if (plan.skip_direct) return line + " (skip direct)";
+  line += " direct_window=" + std::to_string(plan.direct_timeout.count()) + "ms";
+  line += " direct_connect=" + std::to_string(plan.direct_connect.count()) + "ms";
+  if (plan.udp_punch_enabled) line += " udp-assist";
+  return line;
+}
+
 }  // namespace
 
 int run_send(const SendConfig& config, ProgressReporter& reporter) {
@@ -245,7 +254,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
     connections = normalize_connection_count(route_plan.connections);
   }
   apply_peer_direct_policy(route_plan, peer);
-  reporter.status("route plan: " + route_plan.reason + (route_plan.skip_direct ? " (skip direct)" : ""));
+  reporter.status("route plan: " + describe_route_plan_for_transfer(route_plan));
 
   auto run_relay_send = [&](TcpSocket relay_channel, bool allow_lan_upgrade,
                             const std::optional<PunchStats>& profile_stats = std::nullopt) -> int {
@@ -411,7 +420,7 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
     }
   }
   apply_peer_direct_policy(route_plan, peer);
-  reporter.status("route plan: " + route_plan.reason + (route_plan.skip_direct ? " (skip direct)" : ""));
+  reporter.status("route plan: " + describe_route_plan_for_transfer(route_plan));
   const int connections = mux_connections;
 
   auto run_relay_recv = [&](TcpSocket relay_channel, bool allow_lan_upgrade,
