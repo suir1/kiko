@@ -5,6 +5,7 @@
 #include "platform.hpp"
 #include "protocol.hpp"
 #include "socket.hpp"
+#include <array>
 #include <chrono>
 #include <iostream>
 #include <map>
@@ -289,26 +290,96 @@ void handle_punch_probe(TcpSocket& socket, const Message& probe, const std::shar
                                {{"public_host", peer_addr.host}, {"public_port", std::to_string(peer_addr.port)}}});
 }
 
-void pipe_frames_sync(TcpSocket& from, TcpSocket& to, std::atomic<bool>& done) {
-  try {
-    while (!done.load()) {
-      auto frame = recv_frame(from);
-      if (!frame) break;
-      send_frame(to, *frame);
+void native_shutdown_both(int fd) {
+  if (fd < 0) return;
+#ifdef _WIN32
+  shutdown(static_cast<SOCKET>(fd), SD_BOTH);
+#else
+  ::shutdown(fd, SHUT_RDWR);
+#endif
+}
+
+void disable_native_sigpipe(int fd) {
+#if !defined(_WIN32) && defined(SO_NOSIGPIPE)
+  int enabled = 1;
+  (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));
+#else
+  (void)fd;
+#endif
+}
+
+bool native_send_all(int fd, const char* data, std::size_t size) {
+  std::size_t sent = 0;
+  while (sent < size) {
+#ifdef _WIN32
+    const int rc = send(static_cast<SOCKET>(fd), data + sent, static_cast<int>(size - sent), 0);
+#else
+    int flags = 0;
+#ifdef MSG_NOSIGNAL
+    flags |= MSG_NOSIGNAL;
+#endif
+    const ssize_t rc = send(fd, data + sent, size - sent, flags);
+#endif
+    if (rc > 0) {
+      sent += static_cast<std::size_t>(rc);
+      continue;
     }
-  } catch (const std::exception&) {
+    if (rc == 0) return false;
+    const int err = net_last_error();
+    if (err == kErrIntr) continue;
+    if (err == kErrWouldBlock) {
+      if (net_poll(fd, /*want_read=*/false, /*want_write=*/true, 250) <= 0) return false;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+std::optional<std::size_t> native_recv_some(int fd, char* data, std::size_t size) {
+  while (true) {
+#ifdef _WIN32
+    const int rc = recv(static_cast<SOCKET>(fd), data, static_cast<int>(size), 0);
+#else
+    const ssize_t rc = recv(fd, data, size, 0);
+#endif
+    if (rc > 0) return static_cast<std::size_t>(rc);
+    if (rc == 0) return std::nullopt;
+    const int err = net_last_error();
+    if (err == kErrIntr) continue;
+    if (err == kErrWouldBlock) {
+      if (net_poll(fd, /*want_read=*/true, /*want_write=*/false, 250) <= 0) return std::nullopt;
+      continue;
+    }
+    return std::nullopt;
+  }
+}
+
+void pipe_bytes_native(int from_fd, int to_fd, std::atomic<bool>& done) {
+  disable_native_sigpipe(to_fd);
+  std::array<char, 16 * 1024> buffer{};
+  while (!done.load()) {
+    auto count = native_recv_some(from_fd, buffer.data(), buffer.size());
+    if (!count) break;
+    if (!native_send_all(to_fd, buffer.data(), *count)) break;
   }
   done.store(true);
-  from.close();
-  to.close();
+  native_shutdown_both(from_fd);
+  native_shutdown_both(to_fd);
 }
 
 void relay_stream_sync(TcpSocket first, TcpSocket second) {
-  auto done = std::make_shared<std::atomic<bool>>(false);
-  std::thread t1([&] { pipe_frames_sync(first, second, *done); });
-  std::thread t2([&] { pipe_frames_sync(second, first, *done); });
+  const int first_fd = first.fd();
+  const int second_fd = second.fd();
+  std::atomic<bool> done{false};
+  // Use native full-duplex I/O here; sharing one Asio socket object across two
+  // pipe threads for recv/send/close is not a safe ownership model.
+  std::thread t1([&] { pipe_bytes_native(first_fd, second_fd, done); });
+  std::thread t2([&] { pipe_bytes_native(second_fd, first_fd, done); });
   if (t1.joinable()) t1.join();
   if (t2.joinable()) t2.join();
+  first.close();
+  second.close();
 }
 
 void reject_client(TcpSocket& socket, const std::string& code) {
