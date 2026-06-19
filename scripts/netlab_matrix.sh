@@ -75,6 +75,17 @@ assert_service_log_not_contains() {
   fi
 }
 
+assert_service_log_matches() {
+  local service="$1"
+  local pattern="$2"
+  local logs
+  logs="$(compose logs --no-color "$service")"
+  if ! grep -Eq "$pattern" <<<"$logs"; then
+    echo "expected $service logs to match: $pattern" >&2
+    return 1
+  fi
+}
+
 run_same_lan_direct() {
   echo "== same LAN: expect direct TCP =="
   compose up -d --no-build relay
@@ -98,7 +109,9 @@ run_same_lan_isolated_relay_fallback() {
   compose run --rm --no-deps sender-lan-isolated
   wait_for_service_exit receiver-lan-isolated
   compose run --rm --no-deps verifier-lan-isolated
-  assert_service_log_contains receiver-lan-isolated "direct failed, using relay"
+  assert_service_log_contains receiver-lan-isolated "route summary: control=relay data=relay"
+  assert_service_log_contains receiver-lan-isolated "direct_attempted=true"
+  assert_service_log_matches receiver-lan-isolated "route timing: .*direct_probe_ms=[0-9]+.*relay_commit_ms=([0-9]|[1-9][0-9]|[1-4][0-9][0-9])"
   assert_service_log_contains receiver-lan-isolated "pake handshake ok"
   echo "PASS: same LAN isolated relay fallback"
 }
@@ -117,8 +130,8 @@ run_one_side_nat_direct() {
   echo "PASS: one side NAT direct TCP"
 }
 
-run_double_nat_same_port_direct() {
-  echo "== double NAT: expect synchronized same-port direct TCP =="
+run_double_nat_relay_fallback() {
+  echo "== double NAT: expect fast relay fallback after direct probe =="
   compose up -d --no-build relay nat-a nat-b
   sleep "${NETLAB_INFRA_DELAY:-2}"
   compose up -d --no-build receiver
@@ -126,10 +139,11 @@ run_double_nat_same_port_direct() {
   compose run --rm --no-deps sender
   wait_for_service_exit receiver
   compose run --rm --no-deps verifier
-  assert_service_log_contains receiver "direct connection established"
-  assert_service_log_contains receiver "route detail: direct_success kind=public-same-port"
+  assert_service_log_contains receiver "route summary: control=relay data=relay"
+  assert_service_log_contains receiver "direct_attempted=true"
+  assert_service_log_matches receiver "route timing: .*direct_probe_ms=[0-9]+.*relay_commit_ms=([0-9]|[1-9][0-9]|[1-4][0-9][0-9])"
   assert_service_log_contains receiver "pake handshake ok"
-  echo "PASS: double NAT synchronized same-port direct TCP"
+  echo "PASS: double NAT fast relay fallback"
 }
 
 run_outbound_physical_fallback() {
@@ -269,6 +283,6 @@ run_outbound_receiver_only_transfer
 run_same_lan_direct
 run_same_lan_isolated_relay_fallback
 run_one_side_nat_direct
-run_double_nat_same_port_direct
+run_double_nat_relay_fallback
 
 echo "PASS: docker netlab matrix"
