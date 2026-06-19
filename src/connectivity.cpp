@@ -190,6 +190,7 @@ std::optional<TcpSocket> dial_direct_candidate_same_port(const DirectCandidate& 
 
   auto same_port_candidate = candidate;
   same_port_candidate.kind = "public-same-port";
+  add_direct_candidate_reason(same_port_candidate, "same_port_probe");
   return dial_direct_candidate(same_port_candidate, connect_timeout, role, room, puncher, same_port_options, phase);
 }
 
@@ -359,6 +360,7 @@ void apply_direct_candidate_kind_order(std::vector<DirectCandidate>& candidates,
     const auto r = rank(candidate.kind);
     if (r < static_cast<int>(kind_order.size())) {
       candidate.priority += 1000 - r * 100;
+      add_direct_candidate_reason(candidate, "route_order_hint");
     }
   }
 }

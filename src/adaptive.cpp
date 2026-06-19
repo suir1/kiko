@@ -4,6 +4,19 @@
 #include <sstream>
 
 namespace kiko {
+namespace {
+
+std::string default_candidate_reason(const std::string& kind) {
+  if (kind == "discovered") return "lan_discovery";
+  if (kind == "lan") return "peer_lan_candidate";
+  if (kind == "listen") return "peer_listen_host";
+  if (kind == "public") return "relay_observed_public";
+  if (kind == "public-same-port") return "same_port_probe";
+  if (kind == "accept") return "inbound_accept";
+  return "candidate";
+}
+
+}  // namespace
 
 NatProfile classify_nat(const std::vector<std::string>& local_addresses, const Endpoint& reflexive) {
   NatProfile profile;
@@ -28,7 +41,19 @@ std::string nat_type_name(NatType type) {
 }
 
 DirectCandidate make_direct_candidate(Endpoint endpoint, std::string kind, int priority) {
-  return DirectCandidate{std::move(endpoint), std::move(kind), priority};
+  DirectCandidate candidate;
+  candidate.endpoint = std::move(endpoint);
+  candidate.kind = std::move(kind);
+  candidate.priority = priority;
+  candidate.reasons.push_back(default_candidate_reason(candidate.kind));
+  return candidate;
+}
+
+void add_direct_candidate_reason(DirectCandidate& candidate, std::string reason) {
+  if (reason.empty()) return;
+  if (std::find(candidate.reasons.begin(), candidate.reasons.end(), reason) == candidate.reasons.end()) {
+    candidate.reasons.push_back(std::move(reason));
+  }
 }
 
 PunchPlan AdaptivePuncher::plan(Role role, const std::vector<DirectCandidate>& candidates) const {

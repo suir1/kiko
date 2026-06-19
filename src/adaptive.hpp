@@ -38,9 +38,11 @@ struct DirectCandidate {
   Endpoint endpoint;
   std::string kind = "unknown";
   int priority = 0;
+  std::vector<std::string> reasons;
 };
 
 [[nodiscard]] DirectCandidate make_direct_candidate(Endpoint endpoint, std::string kind, int priority);
+void add_direct_candidate_reason(DirectCandidate& candidate, std::string reason);
 
 struct PunchPlan {
   std::chrono::milliseconds total_timeout{2500};

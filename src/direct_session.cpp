@@ -56,7 +56,14 @@ std::string describe_direct_plan(const RoutePlan& route_plan, const PunchPlan& p
   for (std::size_t i = 0; i < punch.candidates.size(); ++i) {
     const auto& candidate = punch.candidates[i];
     if (i > 0) oss << ",";
-    oss << candidate.kind << "@" << candidate.endpoint.to_string() << "#" << candidate.priority;
+    oss << candidate.kind << "@" << candidate.endpoint.to_string() << " score=" << candidate.priority;
+    if (!candidate.reasons.empty()) {
+      oss << " reason=";
+      for (std::size_t j = 0; j < candidate.reasons.size(); ++j) {
+        if (j > 0) oss << "+";
+        oss << candidate.reasons[j];
+      }
+    }
   }
   return oss.str();
 }

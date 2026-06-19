@@ -189,10 +189,12 @@ void apply_profile_candidate_bias(const NetworkProfileEntry& profile, std::vecto
     if (!profile.last_direct_candidate_kind.empty() && profile.last_path == "direct" &&
         candidate.kind == profile.last_direct_candidate_kind) {
       candidate.priority += 25;
+      add_direct_candidate_reason(candidate, "profile_direct_success");
     }
     const auto failure = profile.candidate_failures_by_kind.find(candidate.kind);
     if (failure != profile.candidate_failures_by_kind.end()) {
       candidate.priority -= std::min(30, failure->second * 5);
+      add_direct_candidate_reason(candidate, "profile_previous_failure");
     }
   }
 }
