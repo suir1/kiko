@@ -4,6 +4,7 @@
 #include "crypto.hpp"
 #include "file_metadata.hpp"
 #include "protocol.hpp"
+#include "receive_plan.hpp"
 #include "socket.hpp"
 #include "transfer.hpp"
 
@@ -11,7 +12,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <iosfwd>
-#include <map>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -45,46 +45,6 @@ struct ResumeRequest {
   std::uint64_t offset = 0;
   std::string prefix_sha256;
   bool complete_skip = false;
-};
-
-struct TransferManifestEntry {
-  std::string path;
-  std::uint64_t size = 0;
-  std::string kind;
-  std::string target;
-  std::string imohash;
-  std::uint64_t mtime_ms = 0;
-  std::uint32_t mode = 0;
-};
-
-struct TransferManifest {
-  std::vector<TransferManifestEntry> entries;
-  std::uint64_t total_size = 0;
-};
-
-enum class ReceivePlanAction {
-  Write,
-  Skip,
-  Rename,
-};
-
-struct ReceivePlanEntry {
-  TransferManifestEntry manifest;
-  std::filesystem::path target_path;
-  ReceivePlanAction action = ReceivePlanAction::Write;
-  std::uint64_t resume_offset = 0;
-};
-
-struct ReceivePlan {
-  std::map<std::string, ReceivePlanEntry> entries;
-  std::uint64_t total_size = 0;
-  std::uint64_t resume_bytes = 0;
-  std::uint64_t skip_bytes = 0;
-  std::size_t write_count = 0;
-  std::size_t skip_count = 0;
-  std::size_t rename_count = 0;
-  std::size_t overwrite_count = 0;
-  std::size_t resume_count = 0;
 };
 
 void ensure_declared_space(std::uint64_t current_total, std::uint64_t declared_size, std::uint64_t next_size,
@@ -134,12 +94,6 @@ void create_safe_symlink(const std::filesystem::path& current_path, const std::s
 [[nodiscard]] std::string encode_transfer_manifest(const std::vector<FileEntry>& files);
 [[nodiscard]] TransferManifest decode_transfer_manifest(std::string_view text);
 void send_transfer_manifest(TcpSocket& socket, StreamCipher& cipher, const std::vector<FileEntry>& files);
-[[nodiscard]] ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest,
-                                                      const std::filesystem::path& output_dir,
-                                                      ConflictPolicy conflict_policy, ProgressReporter& reporter);
-[[nodiscard]] const ReceivePlanEntry* find_receive_plan_entry(const ReceivePlan* plan, const std::string& relative);
-void validate_receive_plan_header(const ReceivePlanEntry& planned, const Message& header,
-                                  const std::string& relative, std::uint64_t declared_size);
 
 void send_tagged(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, std::span<const std::uint8_t> payload);
 void send_tagged_text(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, const std::string& text);

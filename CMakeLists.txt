@@ -49,6 +49,7 @@ set(KIKO_CORE_SOURCES
   src/relay_race.cpp
   src/relay_session.cpp
   src/relay_server.cpp
+  src/receive_plan.cpp
   src/rendezvous_session.cpp
   src/route_planner.cpp
   src/route_session.cpp

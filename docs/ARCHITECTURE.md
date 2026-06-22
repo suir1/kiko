@@ -23,20 +23,18 @@ but new work should preserve these conceptual modules even before directories ar
 
 ## Friction points
 
-### TUI file size
+### Transfer file size
 
-`src/tui.cpp` is the largest file and carries too many responsibilities:
+`src/transfer_stream.cpp` remains the largest transfer file. It now delegates receive-plan
+preflight to `src/receive_plan.*`, but still carries several responsibilities:
 
-- menu form state and validation
-- transfer progress state
-- worker thread lifecycle
-- doctor modal
-- render functions
-- send/recv config assembly
-- preference saving
+- tagged transfer frame helpers
+- resume negotiation and `.kikopart` helpers
+- transfer manifest JSON encode/decode
+- single-stream send/receive loops
 
-This is the most important architecture cleanup target. New TUI behavior should avoid adding more
-logic directly to `src/tui.cpp`.
+This is now the most important architecture cleanup target. New transfer behavior should avoid adding
+more logic directly to `src/transfer_stream.cpp`; prefer extracting resume or manifest helpers first.
 
 ### Flat source tree
 
@@ -64,6 +62,19 @@ work creates unnecessary merge friction.
 `CMakeLists.txt` now uses `kiko_add_core_test()` for test targets. Keep using helpers as tests grow;
 do not add repeated `add_executable` / `target_link_libraries` / `add_test` blocks.
 
+## Recommended transfer refactors
+
+`src/receive_plan.*` now owns receive preflight, collision detection, conflict action selection,
+manifest/header validation, and planned resume offsets. Continue splitting `src/transfer_stream.cpp`
+in this order:
+
+1. Extract `transfer_manifest.*`: manifest JSON encode/decode and manifest field validation.
+2. Extract `transfer_resume.*`: resume frames, prefix hashing, `.kikopart` helpers, completed-file fast-skip.
+3. Keep `src/transfer_stream.cpp` as the single-stream send/receive coordinator.
+
+Stop before moving directories unless a future feature needs it; small focused extractions create
+less merge noise than a full tree reshuffle.
+
 ## Recommended TUI refactors
 
 The transfer progress view has been split into `src/tui_transfer_view.*`, the network check modal
@@ -71,7 +82,7 @@ has been split into `src/tui_doctor_modal.*`, menu loading/saving helper state l
 `src/tui_menu_state.*`, transfer launch parameters live in `src/tui_transfer_spec.hpp`, and
 worker-thread transfer execution now lives in `src/tui_session.*`. Transfer completion actions
 live in `src/tui_transfer_actions.*`, and menu rendering/control layout lives in `src/tui_menu_view.*`.
-Continue splitting `src/tui.cpp` in this order:
+Only continue splitting `src/tui.cpp` if a future TUI feature needs it:
 
 1. Expand `tui_menu_state.*`: remaining menu rendering helper labels and form-only decisions.
 2. Expand `tui_session.*`: retry, return-to-menu, quit confirmation.
