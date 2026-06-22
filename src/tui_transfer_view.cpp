@@ -101,6 +101,22 @@ std::string route_phase_label(RoutePhase phase, const RoutePhaseDetail& detail) 
   return detail.message.empty() ? "starting" : detail.message;
 }
 
+void append_timing_field(std::string& line, const std::string& name, int value_ms) {
+  if (value_ms >= 0) {
+    if (!line.empty()) line += " ";
+    line += name + "=" + std::to_string(value_ms) + "ms";
+  }
+}
+
+std::string route_timing_label(const RouteTiming& timing) {
+  std::string line;
+  append_timing_field(line, "rendezvous", timing.rendezvous_ms);
+  append_timing_field(line, "direct_probe", timing.direct_probe_ms);
+  append_timing_field(line, "relay_commit", timing.relay_commit_ms);
+  append_timing_field(line, "securing", timing.securing_ms);
+  return line;
+}
+
 }  // namespace
 
 std::string human_bytes(std::uint64_t bytes) {
@@ -134,6 +150,7 @@ void reset_transfer_state(TuiState& state) {
   state.outbound_probe_summary.clear();
   state.route_plan_summary.clear();
   state.transfer_path_summary.clear();
+  state.route_timing_summary.clear();
   state.route_phase_label.clear();
   state.activity = "starting...";
   state.current_file.clear();
@@ -194,6 +211,18 @@ void TuiReporter::route_outcome(const RouteOutcome& outcome) {
     state_.activity = outcome.data_path == "direct" ? "direct TCP selected" : "relay TCP selected";
     state_.route_phase_label = outcome.data_path == "direct" ? "direct TCP selected" : "relay TCP selected";
     log_append(state_.connectivity_log, "route outcome: " + state_.transfer_path_summary);
+  }
+  wake_();
+}
+
+void TuiReporter::route_timing(const RouteTiming& timing) {
+  {
+    std::lock_guard<std::mutex> lock(state_.mutex);
+    const auto summary = route_timing_label(timing);
+    if (!summary.empty()) {
+      state_.route_timing_summary = summary;
+      log_append(state_.connectivity_log, "route timing: " + summary);
+    }
   }
   wake_();
 }
@@ -320,7 +349,8 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& co
   }
 
   if (!state.outbound_summary.empty() || !state.outbound_probe_summary.empty() ||
-      !state.route_plan_summary.empty() || !state.transfer_path_summary.empty()) {
+      !state.route_plan_summary.empty() || !state.transfer_path_summary.empty() ||
+      !state.route_timing_summary.empty()) {
     left.push_back(text("network") | underlined);
     if (!state.outbound_summary.empty()) {
       left.push_back(hbox({text("  outbound: "), text(state.outbound_summary) | color(Color::Cyan)}));
@@ -333,6 +363,9 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& co
     }
     if (!state.transfer_path_summary.empty()) {
       left.push_back(hbox({text("  path:     "), text(state.transfer_path_summary) | color(Color::GreenLight)}));
+    }
+    if (!state.route_timing_summary.empty()) {
+      left.push_back(hbox({text("  timing:   "), text(state.route_timing_summary) | dim}));
     }
   }
 

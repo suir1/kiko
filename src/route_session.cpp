@@ -103,6 +103,7 @@ RouteSelection relay_selection_from_start(TcpSocket relay, const Message& start,
   selection.outcome =
       make_route_outcome("relay", result_reason, direct_attempted, selection.allow_lan_upgrade, selection.punch_stats);
   reporter.route_outcome(selection.outcome);
+  reporter.route_timing(selection.timing);
   (void)route_plan;
   return selection;
 }
@@ -183,6 +184,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
       selection.outcome = make_route_outcome("relay", "peer_selected_relay", true, selection.allow_lan_upgrade,
                                              selection.punch_stats);
       reporter.route_outcome(selection.outcome);
+      reporter.route_timing(selection.timing);
       return selection;
     }
     if (direct_choice->type != "direct_start") {
@@ -196,6 +198,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
     report_route_detail(reporter, selection.punch_stats);
     selection.outcome = make_route_outcome("direct", "confirmed", true, false, selection.punch_stats);
     reporter.route_outcome(selection.outcome);
+    reporter.route_timing(selection.timing);
     return selection;
   }
 
@@ -219,6 +222,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
       make_route_outcome("relay", relay_reason, !route_plan.skip_direct, selection.allow_lan_upgrade,
                          selection.punch_stats);
   reporter.route_outcome(selection.outcome);
+  reporter.route_timing(selection.timing);
   return selection;
 }
 

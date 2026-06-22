@@ -23,12 +23,14 @@ struct RecordingReporter : ProgressReporter {
   std::vector<std::string> statuses;
   std::vector<RoutePhase> phases;
   std::vector<RoutePhaseDetail> phase_details;
+  std::vector<RouteTiming> timings;
 
   void status(const std::string& message) override { statuses.push_back(message); }
   void route_phase(RoutePhase phase, const RoutePhaseDetail& detail) override {
     phases.push_back(phase);
     phase_details.push_back(detail);
   }
+  void route_timing(const RouteTiming& timing) override { timings.push_back(timing); }
 };
 
 std::pair<TcpSocket, TcpSocket> connected_pair() {
@@ -138,6 +140,8 @@ int main() {
     assert(reporter.phases[1] == RoutePhase::DirectProbing);
     assert(reporter.phase_details[1].relay_fallback_ready);
     assert(selection.timing.direct_probe_ms >= 0);
+    assert(!reporter.timings.empty());
+    assert(reporter.timings.back().direct_probe_ms >= 0);
     assert(saw_status(reporter, "route result: path=direct reason=confirmed direct_attempted=true lan_upgrade=false"));
   }
 
@@ -177,6 +181,9 @@ int main() {
     assert(selection.timing.direct_probe_ms >= 0);
     assert(selection.timing.relay_commit_ms >= 0);
     assert(selection.timing.relay_commit_ms < 500);
+    assert(!reporter.timings.empty());
+    assert(reporter.timings.back().direct_probe_ms >= 0);
+    assert(reporter.timings.back().relay_commit_ms >= 0);
   }
 
   {
@@ -211,6 +218,9 @@ int main() {
     assert(selection.timing.direct_probe_ms >= 0);
     assert(selection.timing.relay_commit_ms >= 0);
     assert(selection.timing.relay_commit_ms < 500);
+    assert(!reporter.timings.empty());
+    assert(reporter.timings.back().direct_probe_ms >= 0);
+    assert(reporter.timings.back().relay_commit_ms >= 0);
   }
 
   {

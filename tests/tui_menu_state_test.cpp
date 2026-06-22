@@ -122,6 +122,24 @@ int main() {
     }
   }
 
+  {
+    TuiState transfer_state;
+    bool woke = false;
+    TuiReporter reporter(transfer_state, [&] { woke = true; });
+    RouteTiming timing;
+    timing.rendezvous_ms = 12;
+    timing.direct_probe_ms = 34;
+    timing.relay_commit_ms = 56;
+    reporter.route_timing(timing);
+    if (!woke ||
+        transfer_state.route_timing_summary != "rendezvous=12ms direct_probe=34ms relay_commit=56ms" ||
+        !contains(transfer_state.connectivity_log, "route timing: rendezvous=12ms direct_probe=34ms")) {
+      std::cerr << "FAIL: TUI reporter did not expose route timing\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
   fs::remove(send_path);
   std::cout << "tui_menu_state_test ok\n";
   return 0;
