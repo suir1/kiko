@@ -22,6 +22,7 @@ std::vector<FileEntry> collect_files(const std::filesystem::path& path, const Co
         FileEntry entry{it->path(), rel, std::filesystem::file_size(it->path()), ""};
         entry.imohash = imohash_hex(entry.absolute);
         entry.mtime_ms = detail::file_mtime_ms(entry.absolute);
+        entry.mode = detail::file_mode_bits(entry.absolute);
         entries.push_back(std::move(entry));
       } else if (it->is_directory()) {
         std::filesystem::directory_iterator dir_it(it->path(), ec);
@@ -30,6 +31,7 @@ std::vector<FileEntry> collect_files(const std::filesystem::path& path, const Co
         if (options.use_gitignore && gitignore.ignored(rel.substr(0, rel.size() - 1))) continue;
         FileEntry entry{it->path(), rel, 0, ""};
         entry.mtime_ms = detail::file_mtime_ms(entry.absolute);
+        entry.mode = detail::file_mode_bits(entry.absolute);
         entries.push_back(std::move(entry));
       }
     }
@@ -37,12 +39,14 @@ std::vector<FileEntry> collect_files(const std::filesystem::path& path, const Co
       auto rel = path.filename().string() + "/";
       FileEntry entry{path, rel, 0, ""};
       entry.mtime_ms = detail::file_mtime_ms(path);
+      entry.mode = detail::file_mode_bits(path);
       entries.push_back(std::move(entry));
     }
   } else if (std::filesystem::is_regular_file(path, ec)) {
     FileEntry entry{path, path.filename().string(), std::filesystem::file_size(path), ""};
     entry.imohash = imohash_hex(entry.absolute);
     entry.mtime_ms = detail::file_mtime_ms(entry.absolute);
+    entry.mode = detail::file_mode_bits(entry.absolute);
     entries.push_back(std::move(entry));
   } else {
     throw KikoError("not a file or directory: " + path.string());

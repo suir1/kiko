@@ -37,6 +37,10 @@ void append_mtime_field(Message& header, const FileEntry& entry) {
   if (entry.mtime_ms > 0) header.fields["mtime_ms"] = std::to_string(entry.mtime_ms);
 }
 
+void append_mode_field(Message& header, const FileEntry& entry) {
+  if (entry.mode > 0) header.fields["mode"] = std::to_string(entry.mode);
+}
+
 bool should_compress_entry(const FileEntry& entry) {
   return !is_dir_entry(entry) && should_compress_path(entry.absolute);
 }
@@ -45,6 +49,7 @@ Message make_file_header(const FileEntry& entry) {
   if (is_dir_entry(entry)) {
     Message header{"file", {{"path", entry.relative}, {"size", "0"}, {"compress", "none"}}};
     append_mtime_field(header, entry);
+    append_mode_field(header, entry);
     return header;
   }
 
@@ -54,6 +59,7 @@ Message make_file_header(const FileEntry& entry) {
                   {"imohash", entry.imohash},
                   {"compress", should_compress_entry(entry) ? "zstd" : "none"}}};
   append_mtime_field(header, entry);
+  append_mode_field(header, entry);
   return header;
 }
 
@@ -125,6 +131,7 @@ bool try_skip_existing_duplicate(TcpSocket& socket, StreamCipher& cipher, const 
   send_resume(socket, cipher, declared_size);
   const auto accepted = recv_resume_ack(socket, cipher, declared_size, declared_size, current_relative);
   if (accepted != declared_size) return false;
+  apply_file_metadata(current_path, header);
   reporter.status("skipped duplicate " + current_relative);
   reporter.file_start(current_relative, declared_size);
   return true;
@@ -372,6 +379,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
   bool skipping_file = false;
   bool is_dir_marker = false;
   std::uint64_t pending_mtime_ms = 0;
+  std::uint32_t pending_mode = 0;
   std::size_t file_count = 0;
   std::uint64_t grand_total = 0;
 
@@ -392,7 +400,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
 
         if (is_dir_header(current_relative, declared_size)) {
           std::filesystem::create_directories(current_path);
-          apply_file_mtime(current_path, header);
+          apply_file_metadata(current_path, header);
           send_resume(channel, cipher, 0);
           (void)recv_resume_ack(channel, cipher, 0, 0, current_relative);
           reporter.file_start(current_relative, 0);
@@ -400,10 +408,12 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
           current_total = 0;
           current_declared_size = 0;
           pending_mtime_ms = 0;
+          pending_mode = 0;
           break;
         }
 
         pending_mtime_ms = header.get_u64("mtime_ms", 0);
+        pending_mode = static_cast<std::uint32_t>(header.get_u64("mode", 0));
 
         if (try_skip_existing_duplicate(channel, cipher, header, current_path, current_relative, declared_size, reporter)) {
           skipping_file = true;
@@ -487,6 +497,8 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
           skipping_file = false;
           current_total = 0;
           current_declared_size = 0;
+          pending_mtime_ms = 0;
+          pending_mode = 0;
           break;
         }
         if (!hasher) throw KikoError("file end before file header");
@@ -497,8 +509,10 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         auto actual = hex_encode(hasher->finish());
         verify_received_digest(part_path, current_relative, current_total, current_declared_size, expected, actual);
         finalize_part_file(part_path, current_path, current_relative);
+        apply_file_mode_bits(current_path, pending_mode);
         apply_mtime_ms(current_path, pending_mtime_ms);
         pending_mtime_ms = 0;
+        pending_mode = 0;
         ++file_count;
         grand_total += current_total;
         reporter.file_complete(current_relative, current_total, true);

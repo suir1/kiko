@@ -165,7 +165,7 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
 
     if (is_dir_header(current_relative, declared_size)) {
       std::filesystem::create_directories(current_path);
-      apply_file_mtime(current_path, header);
+      apply_file_metadata(current_path, header);
       reporter.file_start(current_relative, 0);
       send_resume(channels[0], ciphers[0], 0);
       (void)recv_resume_ack(channels[0], ciphers[0], 0, 0, current_relative);
@@ -282,7 +282,7 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     Bytes verify_buffer(kMuxChunk);
     verify_part_file_digest(part_path, current_relative, declared_size, expected, verify_buffer);
     finalize_part_file(part_path, current_path, current_relative);
-    apply_mtime_ms(current_path, header.get_u64("mtime_ms", 0));
+    apply_file_metadata(current_path, header);
     ++file_count;
     grand_total += declared_size;
     reporter.file_complete(current_relative, declared_size, true);

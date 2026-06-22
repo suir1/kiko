@@ -50,6 +50,7 @@ void ensure_declared_space(std::uint64_t current_total, std::uint64_t declared_s
 [[nodiscard]] bool is_dir_entry(const FileEntry& entry);
 [[nodiscard]] bool is_dir_header(const std::string& path, std::uint64_t size);
 void append_mtime_field(Message& header, const FileEntry& entry);
+void append_mode_field(Message& header, const FileEntry& entry);
 [[nodiscard]] bool should_compress_entry(const FileEntry& entry);
 [[nodiscard]] Message make_file_header(const FileEntry& entry);
 void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset, const std::string& prefix_sha256 = {});

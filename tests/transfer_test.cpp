@@ -46,8 +46,16 @@ void set_mtime_ms(const fs::path& path, std::uint64_t ms) {
   kiko::detail::apply_mtime_ms(path, ms);
 }
 
+void set_mode_bits(const fs::path& path, std::uint32_t mode) {
+  kiko::detail::apply_file_mode_bits(path, mode);
+}
+
 std::uint64_t get_mtime_ms(const fs::path& path) {
   return kiko::detail::file_mtime_ms(path);
+}
+
+std::uint32_t get_mode_bits(const fs::path& path) {
+  return kiko::detail::file_mode_bits(path);
 }
 
 std::uint64_t abs_diff_u64(std::uint64_t a, std::uint64_t b) {
@@ -131,6 +139,8 @@ int main() {
 
   constexpr std::uint64_t kTestMtime = 1'600'000'000'000ULL;
   set_mtime_ms(src / "a.txt", kTestMtime);
+  set_mode_bits(src / "a.txt", 0111);
+  const auto source_exec_mode = get_mode_bits(src / "a.txt") & 0111;
 
   auto files = collect_files(src);
   if (files.size() != 4) {
@@ -202,6 +212,10 @@ int main() {
   if (abs_diff_u64(received_mtime, kTestMtime) > 2000) {
     std::cerr << "FAIL: mtime not preserved for payload/a.txt, expected " << kTestMtime << ", got "
               << received_mtime << "\n";
+    return 1;
+  }
+  if (source_exec_mode != 0 && (get_mode_bits(dst / "payload/a.txt") & source_exec_mode) != source_exec_mode) {
+    std::cerr << "FAIL: executable bits not preserved for payload/a.txt\n";
     return 1;
   }
 

@@ -6,8 +6,9 @@
 #include "proxy.hpp"
 #include "socket.hpp"
 
-#include <filesystem>
 #include <chrono>
+#include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <vector>
 
@@ -49,6 +50,7 @@ struct FileEntry {
   std::uint64_t size = 0;
   std::string imohash;
   std::uint64_t mtime_ms = 0;  // unix epoch ms; 0 = omit from wire
+  std::uint32_t mode = 0;      // POSIX execute bits to preserve; 0 = omit from wire
 };
 
 struct CollectOptions {

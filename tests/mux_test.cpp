@@ -1,3 +1,4 @@
+#include "file_metadata.hpp"
 #include "platform.hpp"
 #include "transfer.hpp"
 
@@ -34,6 +35,14 @@ std::string random_blob(std::size_t n, unsigned seed) {
   s.reserve(n);
   for (std::size_t i = 0; i < n; ++i) s.push_back(static_cast<char>(dist(rng)));
   return s;
+}
+
+void set_mode_bits(const fs::path& path, std::uint32_t mode) {
+  kiko::detail::apply_file_mode_bits(path, mode);
+}
+
+std::uint32_t get_mode_bits(const fs::path& path) {
+  return kiko::detail::file_mode_bits(path);
 }
 
 struct RecordingReporter : ProgressReporter {
@@ -104,6 +113,8 @@ int main() {
   fs::remove_all(root);
 
   write_file(src / "small.txt", "tiny\n");
+  set_mode_bits(src / "small.txt", 0111);
+  const auto source_exec_mode = get_mode_bits(src / "small.txt") & 0111;
   write_file(src / "empty.bin", "");
   std::string blob = random_blob(2 * 1024 * 1024 + 1234, 99);  // spans many chunks/channels
   write_file(src / "nested" / "blob.bin", blob);
@@ -141,6 +152,10 @@ int main() {
       std::cerr << "FAIL: content mismatch for " << c.rel << "\n";
       return 1;
     }
+  }
+  if (source_exec_mode != 0 && (get_mode_bits(dst / "payload/small.txt") & source_exec_mode) != source_exec_mode) {
+    std::cerr << "FAIL: executable bits not preserved on mux transfer\n";
+    return 1;
   }
 
   // Resume across the multiplexed path: stage a correct partial for the blob.
