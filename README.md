@@ -45,7 +45,7 @@ kiko recv <code> --out ./downloads
 - **IPv6 + IPv4 dual stack** – `AF_UNSPEC` resolve, dual-stack listeners (`::`), IPv6-first dial with IPv4 fallback. Bracketed endpoints: `[::1]:9000`.
 - **Resume** – writes to `<name>.kikopart`, renames on success. Re-run the same send/recv pair to continue; SHA-256 verifies the whole file. **imohash** fingerprints skip files you already have.
 - **Conflict policy** – receivers can `overwrite`, `skip`, or `rename` existing files with `--on-conflict`.
-- **Parallel connections** – relay path uses `--connections N` (default 4) with per-stream XChaCha20-Poly1305 subkeys.
+- **Parallel connections** – relay/direct mux uses `--connections N` (default 4), dynamic chunk scheduling, and per-stream XChaCha20-Poly1305 subkeys.
 - **LAN discovery** – UDP multicast finds local relays; sender embeds a croc-style LAN relay (`--no-local` to disable). Receiver races LAN and external relays in parallel (`--local`, `--no-local`).
 - **Relay health check** – JSON `ping`/`pong` on each relay connection before rendezvous registration.
 - **LAN upgrade** – after the relay pipe is up, the receiver can probe sender LAN addresses before E2E PAKE.

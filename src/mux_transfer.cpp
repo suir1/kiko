@@ -3,7 +3,11 @@
 #include "compression.hpp"
 #include "transfer_stream.hpp"
 
+#include <algorithm>
 #include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -36,6 +40,138 @@ std::uint32_t read_u32(const std::uint8_t* p) {
   for (int i = 0; i < 4; ++i) v = (v << 8) | p[i];
   return v;
 }
+
+struct MuxSendItem {
+  Bytes payload;
+  std::uint64_t raw_size = 0;
+};
+
+class MuxSendScheduler {
+ public:
+  MuxSendScheduler(std::vector<TcpSocket>& channels, std::vector<StreamCipher>& ciphers, ProgressReporter& reporter)
+      : channels_(channels), ciphers_(ciphers), reporter_(reporter), queues_(channels.size()), pending_(channels.size(), 0) {
+    workers_.reserve(channels_.size());
+    for (std::size_t k = 0; k < channels_.size(); ++k) workers_.emplace_back([this, k] { worker(k); });
+  }
+
+  MuxSendScheduler(const MuxSendScheduler&) = delete;
+  MuxSendScheduler& operator=(const MuxSendScheduler&) = delete;
+
+  ~MuxSendScheduler() {
+    if (!joined_) {
+      try {
+        finish();
+      } catch (...) {
+      }
+    }
+  }
+
+  void enqueue(Bytes payload, std::uint64_t raw_size) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [&] { return error_ || min_pending_locked() <= kMaxPendingPerChannel; });
+    if (error_) std::rethrow_exception(error_);
+
+    const auto channel_index = choose_channel_locked();
+    pending_[channel_index] += payload.size();
+    queues_[channel_index].push_back(MuxSendItem{std::move(payload), raw_size});
+    cv_.notify_all();
+  }
+
+  void finish() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      finishing_ = true;
+    }
+    cv_.notify_all();
+    for (auto& worker : workers_) {
+      if (worker.joinable()) worker.join();
+    }
+    joined_ = true;
+    if (error_) std::rethrow_exception(error_);
+  }
+
+ private:
+  static constexpr std::uint64_t kMaxPendingPerChannel = 4 * kMuxChunk;
+
+  std::uint64_t min_pending_locked() const {
+    std::uint64_t best = pending_.empty() ? 0 : pending_.front();
+    for (const auto pending : pending_) {
+      if (pending < best) best = pending;
+    }
+    return best;
+  }
+
+  std::size_t choose_channel_locked() {
+    std::size_t best = next_channel_;
+    for (std::size_t step = 1; step < pending_.size(); ++step) {
+      const auto k = (next_channel_ + step) % pending_.size();
+      if (pending_[k] < pending_[best]) best = k;
+    }
+    next_channel_ = (best + 1) % pending_.size();
+    return best;
+  }
+
+  void set_error(std::exception_ptr error) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!error_) error_ = error;
+    cv_.notify_all();
+  }
+
+  void worker(std::size_t channel_index) {
+    while (true) {
+      MuxSendItem item;
+      {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [&] { return error_ || finishing_ || !queues_[channel_index].empty(); });
+        if (error_) return;
+        if (queues_[channel_index].empty()) {
+          if (finishing_) break;
+          continue;
+        }
+        item = std::move(queues_[channel_index].front());
+        queues_[channel_index].pop_front();
+      }
+
+      try {
+        send_tagged(channels_[channel_index], ciphers_[channel_index], StreamTag::Data, item.payload);
+        {
+          std::lock_guard<std::mutex> lock(report_mutex_);
+          reporter_.file_advance(item.raw_size);
+        }
+      } catch (...) {
+        set_error(std::current_exception());
+        return;
+      }
+
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        pending_[channel_index] -= std::min<std::uint64_t>(pending_[channel_index], item.payload.size());
+      }
+      cv_.notify_all();
+    }
+
+    try {
+      send_tagged(channels_[channel_index], ciphers_[channel_index], StreamTag::ChunkEnd,
+                  std::span<const std::uint8_t>());
+    } catch (...) {
+      set_error(std::current_exception());
+    }
+  }
+
+  std::vector<TcpSocket>& channels_;
+  std::vector<StreamCipher>& ciphers_;
+  ProgressReporter& reporter_;
+  std::vector<std::deque<MuxSendItem>> queues_;
+  std::vector<std::uint64_t> pending_;
+  std::vector<std::thread> workers_;
+  std::mutex mutex_;
+  std::mutex report_mutex_;
+  std::condition_variable cv_;
+  std::exception_ptr error_;
+  std::size_t next_channel_ = 0;
+  bool finishing_ = false;
+  bool joined_ = false;
+};
 
 }  // namespace
 
@@ -106,7 +242,7 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
     if (offset > 0) reporter.file_advance(offset);
 
     const bool use_zstd = should_compress_entry(entry);
-    std::size_t rr = 0;
+    MuxSendScheduler scheduler(channels, ciphers, reporter);
     while (input) {
       input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
       auto got = input.gcount();
@@ -124,16 +260,12 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
       } else {
         payload.insert(payload.end(), chunk.begin(), chunk.end());
       }
-      send_tagged(channels[rr], ciphers[rr], StreamTag::Data, payload);
+      scheduler.enqueue(std::move(payload), static_cast<std::uint64_t>(got));
 
-      reporter.file_advance(static_cast<std::uint64_t>(got));
       total += static_cast<std::uint64_t>(got);
-      rr = (rr + 1) % n;
     }
 
-    for (std::size_t k = 0; k < n; ++k) {
-      send_tagged(channels[k], ciphers[k], StreamTag::ChunkEnd, std::span<const std::uint8_t>());
-    }
+    scheduler.finish();
 
     auto digest = hasher->finish();
     Message end{"end", {{"sha256", hex_encode(digest)}}};
