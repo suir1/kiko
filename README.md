@@ -196,6 +196,27 @@ Flags: `--relay-pass`, `--remember`, `--auto-connections`, `--debug-route`, `--n
 ctest --preset local-vcpkg --output-on-failure
 ```
 
+Route smoke checks:
+
+```sh
+# Relay data path: default, deterministic, same as CI smoke.
+python3 scripts/relay_transfer_smoke.py ./build/kiko
+
+# Same-machine direct path: useful before testing two real devices.
+python3 scripts/relay_transfer_smoke.py ./build/kiko \
+  --allow-direct --allow-lan --allow-local \
+  --expect-data-path direct
+
+# Public relay / IPv6 direct expectation: use on hosts that both advertise global IPv6.
+python3 scripts/relay_transfer_smoke.py ./build/kiko \
+  --relay 106.53.170.243:9000 \
+  --allow-direct --allow-lan --allow-local \
+  --expect-data-path direct \
+  --expect-candidate ipv6_global \
+  --expect-family ipv6 \
+  --expect-scope global
+```
+
 Docker network labs:
 
 ```sh
