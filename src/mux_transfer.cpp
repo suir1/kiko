@@ -224,6 +224,20 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
     reporter.file_start(entry.relative, entry.size);
 
     const auto resume = recv_resume_request(channels[0], ciphers[0], entry);
+    if (resume.complete_skip && resume.offset == entry.size) {
+      send_resume_ack(channels[0], ciphers[0], entry.size);
+      reporter.status("skipped already-complete " + entry.relative);
+      reporter.file_resume(entry.relative, entry.size, entry.size);
+      reporter.file_advance(entry.size);
+      for (std::size_t k = 0; k < n; ++k) {
+        send_tagged(channels[k], ciphers[k], StreamTag::ChunkEnd, std::span<const std::uint8_t>());
+      }
+      Message end{"end", {{"sha256", kEmptySha256}}};
+      send_tagged_text(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end));
+      grand_total += entry.size;
+      reporter.file_complete(entry.relative, entry.size, false);
+      continue;
+    }
 
     std::optional<Sha256Hasher> hasher;
     hasher.emplace();
@@ -275,7 +289,7 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
     Message end{"end", {{"sha256", hex_encode(digest)}}};
     send_tagged_text(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end));
     grand_total += total;
-    reporter.file_complete(entry.relative, total, offset > 0);
+    reporter.file_complete(entry.relative, total, false);
   }
 
   send_tagged(channels[0], ciphers[0], StreamTag::Done, std::span<const std::uint8_t>());
@@ -370,10 +384,11 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     if ((planned != nullptr && planned->action == ReceivePlanAction::Skip) ||
         (planned == nullptr && conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path))) {
       reporter.status("skipped existing " + current_relative);
-      send_resume(channels[0], ciphers[0], declared_size);
+      send_resume(channels[0], ciphers[0], declared_size, {}, true);
       const auto accepted = recv_resume_ack(channels[0], ciphers[0], declared_size, declared_size, current_relative);
       if (accepted != declared_size) throw KikoError("sender rejected conflict skip for " + current_relative);
       reporter.file_start(current_relative, declared_size);
+      reporter.file_advance(declared_size);
       for (std::size_t k = 0; k < n; ++k) {
         auto chunk_end = recv_tagged(channels[k], ciphers[k]);
         if (!chunk_end || chunk_end->tag != StreamTag::ChunkEnd) throw KikoError("expected mux chunk end");

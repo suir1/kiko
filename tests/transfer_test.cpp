@@ -151,16 +151,17 @@ bool saw_status_containing(const StatusReporter& reporter, const std::string& ne
 bool run_stream_round(TcpListener& listener, const Endpoint& endpoint, const SessionKey& key,
                       const std::vector<FileEntry>& files, const fs::path& dst,
                       ConflictPolicy conflict_policy = ConflictPolicy::Overwrite,
-                      ProgressReporter* receiver_reporter = nullptr) {
-  ProgressReporter sender_reporter;
+                      ProgressReporter* receiver_reporter = nullptr, ProgressReporter* sender_reporter = nullptr) {
+  ProgressReporter default_sender_reporter;
   ProgressReporter default_receiver_reporter;
+  auto& send_reporter = sender_reporter ? *sender_reporter : default_sender_reporter;
   auto& recv_reporter = receiver_reporter ? *receiver_reporter : default_receiver_reporter;
   bool sender_failed = false;
   std::thread sender([&] {
     try {
       auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
       if (!socket.valid()) throw std::runtime_error("connect failed");
-      send_files(socket, key, files, sender_reporter);
+      send_files(socket, key, files, send_reporter);
     } catch (const std::exception& e) {
       std::cerr << "sender(stream round) error: " << e.what() << "\n";
       sender_failed = true;
@@ -367,6 +368,19 @@ int main() {
     }
     if (fs::exists(part_blob)) {
       std::cerr << "FAIL: corrupt partial not finalized after restart\n";
+      return 1;
+    }
+  }
+
+  {
+    StatusReporter sender_skip_reporter;
+    if (!run_stream_round(listener, endpoint, key, files, dst, ConflictPolicy::Overwrite, nullptr,
+                          &sender_skip_reporter)) {
+      std::cerr << "FAIL: duplicate fast-skip transfer raised an error\n";
+      return 1;
+    }
+    if (!saw_status_containing(sender_skip_reporter, "skipped already-complete payload/nested/blob.bin")) {
+      std::cerr << "FAIL: sender did not fast-skip completed duplicate file\n";
       return 1;
     }
   }

@@ -44,6 +44,7 @@ struct TaggedFrame {
 struct ResumeRequest {
   std::uint64_t offset = 0;
   std::string prefix_sha256;
+  bool complete_skip = false;
 };
 
 struct TransferManifestEntry {
@@ -99,7 +100,8 @@ void append_mtime_field(Message& header, const FileEntry& entry);
 void append_mode_field(Message& header, const FileEntry& entry);
 [[nodiscard]] bool should_compress_entry(const FileEntry& entry);
 [[nodiscard]] Message make_file_header(const FileEntry& entry);
-void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset, const std::string& prefix_sha256 = {});
+void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset,
+                 const std::string& prefix_sha256 = {}, bool complete_skip = false);
 [[nodiscard]] ResumeRequest recv_resume_request(TcpSocket& socket, StreamCipher& cipher, const FileEntry& entry);
 void send_resume_ack(TcpSocket& socket, StreamCipher& cipher, std::uint64_t accepted_offset);
 [[nodiscard]] std::uint64_t recv_resume_ack(TcpSocket& socket, StreamCipher& cipher, std::uint64_t requested_offset,

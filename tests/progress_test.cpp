@@ -126,6 +126,25 @@ int main() {
     return 1;
   }
 
+  auto duplicate_listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+  auto duplicate_endpoint = duplicate_listener.local_endpoint();
+
+  std::thread duplicate_sender([&] {
+    auto socket = connect_tcp(duplicate_endpoint, std::chrono::seconds(2));
+    if (socket.valid()) send_files(socket, key, files, sender_sink);
+  });
+
+  RecordingReporter duplicate_rec;
+  auto duplicate_accepted = duplicate_listener.accept(std::chrono::seconds(2));
+  receive_files(duplicate_accepted, key, dst, duplicate_rec);
+  duplicate_sender.join();
+
+  if (duplicate_rec.advanced != expected_bytes) {
+    std::cerr << "FAIL: duplicate-skip file_advance sum=" << duplicate_rec.advanced << " (expected "
+              << expected_bytes << ")\n";
+    return 1;
+  }
+
   fs::remove_all(root);
   std::cout << "PASS: reporter emits file_start/advance/complete and transfer_complete with correct totals\n";
   return 0;

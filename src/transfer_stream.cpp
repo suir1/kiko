@@ -91,9 +91,11 @@ Message make_file_header(const FileEntry& entry) {
   return header;
 }
 
-void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset, const std::string& prefix_sha256) {
+void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset, const std::string& prefix_sha256,
+                 bool complete_skip) {
   Message resume{"resume", {{"offset", std::to_string(offset)}}};
   if (!prefix_sha256.empty()) resume.fields["prefix_sha256"] = prefix_sha256;
+  if (complete_skip) resume.fields["complete_skip"] = "1";
   send_tagged_text(socket, cipher, StreamTag::Resume, encode_message(resume));
 }
 
@@ -102,7 +104,9 @@ ResumeRequest recv_resume_request(TcpSocket& socket, StreamCipher& cipher, const
   if (!resume || resume->tag != StreamTag::Resume) throw KikoError("expected resume frame");
   auto resume_msg = decode_message(std::string(resume->payload.begin(), resume->payload.end()));
   auto offset = resume_msg.get_u64("offset", 0);
-  return ResumeRequest{offset > entry.size ? 0 : offset, resume_msg.get("prefix_sha256")};
+  if (offset > entry.size) offset = 0;
+  const bool complete_skip = offset == entry.size && resume_msg.get("complete_skip") == "1";
+  return ResumeRequest{offset, resume_msg.get("prefix_sha256"), complete_skip};
 }
 
 void send_resume_ack(TcpSocket& socket, StreamCipher& cipher, std::uint64_t accepted_offset) {
@@ -156,12 +160,13 @@ bool try_skip_existing_duplicate(TcpSocket& socket, StreamCipher& cipher, const 
     return false;
   }
 
-  send_resume(socket, cipher, declared_size);
+  send_resume(socket, cipher, declared_size, {}, true);
   const auto accepted = recv_resume_ack(socket, cipher, declared_size, declared_size, current_relative);
   if (accepted != declared_size) return false;
   apply_file_metadata(current_path, header);
   reporter.status("skipped duplicate " + current_relative);
   reporter.file_start(current_relative, declared_size);
+  reporter.file_advance(declared_size);
   return true;
 }
 
@@ -697,6 +702,17 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
     // The receiver replies with how many leading bytes it already has so we can
     // resume an interrupted transfer instead of resending the whole file.
     const auto resume = recv_resume_request(channel, cipher, entry);
+    if (resume.complete_skip && resume.offset == entry.size) {
+      send_resume_ack(channel, cipher, entry.size);
+      reporter.status("skipped already-complete " + entry.relative);
+      reporter.file_resume(entry.relative, entry.size, entry.size);
+      reporter.file_advance(entry.size);
+      Message end{"end", {{"sha256", kEmptySha256}}};
+      send_tagged_text(channel, cipher, StreamTag::FileEnd, encode_message(end));
+      grand_total += entry.size;
+      reporter.file_complete(entry.relative, entry.size, false);
+      continue;
+    }
 
     std::optional<Sha256Hasher> hasher;
     hasher.emplace();
@@ -749,7 +765,7 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
     Message end{"end", {{"sha256", hex_encode(digest)}}};
     send_tagged_text(channel, cipher, StreamTag::FileEnd, encode_message(end));
     grand_total += total;
-    reporter.file_complete(entry.relative, total, offset > 0);
+    reporter.file_complete(entry.relative, total, false);
   }
 
   send_tagged(channel, cipher, StreamTag::Done, std::span<const std::uint8_t>());
@@ -858,10 +874,11 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         if ((planned != nullptr && planned->action == ReceivePlanAction::Skip) ||
             (planned == nullptr && conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path))) {
           reporter.status("skipped existing " + current_relative);
-          send_resume(channel, cipher, declared_size);
+          send_resume(channel, cipher, declared_size, {}, true);
           const auto accepted = recv_resume_ack(channel, cipher, declared_size, declared_size, current_relative);
           if (accepted != declared_size) throw KikoError("sender rejected conflict skip for " + current_relative);
           reporter.file_start(current_relative, declared_size);
+          reporter.file_advance(declared_size);
           skipping_file = true;
           current_total = declared_size;
           break;
