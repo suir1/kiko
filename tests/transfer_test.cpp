@@ -81,6 +81,7 @@ enum class TestStreamTag : std::uint8_t {
   Done = 4,
   Resume = 5,
   ResumeAck = 8,
+  Manifest = 9,
 };
 
 struct TestTaggedFrame {
@@ -541,6 +542,47 @@ int main() {
 
     if (attacker_failed || !rejected_symlink) {
       std::cerr << "FAIL: receiver did not reject unsafe symlink target\n";
+      return 1;
+    }
+  }
+
+  // Manifest preflight should reject unsafe paths before any file body is
+  // exchanged or written.
+  {
+    auto attack_dst = root / "manifest-attack-out";
+    bool attacker_failed = false;
+    std::thread attacker([&] {
+      try {
+        auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+        if (!socket.valid()) throw std::runtime_error("connect failed");
+        StreamCipher cipher(key, /*sender_originates=*/true);
+        const std::string manifest =
+            R"({"version":1,"count":1,"total_size":1,"entries":[{"path":"../evil.bin","kind":"file","size":1}]})";
+        send_test_tagged_text(socket, cipher, TestStreamTag::Manifest, manifest);
+      } catch (const std::exception& e) {
+        std::cerr << "manifest attacker error: " << e.what() << "\n";
+        attacker_failed = true;
+      }
+    });
+
+    bool rejected_manifest_path = false;
+    try {
+      auto accepted = listener.accept(std::chrono::seconds(2));
+      if (!accepted.valid()) throw std::runtime_error("accept failed");
+      receive_files(accepted, key, attack_dst, null_reporter);
+    } catch (const std::exception& e) {
+      const std::string error = e.what();
+      rejected_manifest_path = error.find("path traversal") != std::string::npos;
+      if (!rejected_manifest_path) std::cerr << "manifest receiver error: " << error << "\n";
+    }
+    attacker.join();
+
+    if (attacker_failed || !rejected_manifest_path) {
+      std::cerr << "FAIL: receiver did not reject unsafe manifest path\n";
+      return 1;
+    }
+    if (fs::exists(root / "evil.bin") || fs::exists(attack_dst / "evil.bin")) {
+      std::cerr << "FAIL: unsafe manifest path created a file\n";
       return 1;
     }
   }

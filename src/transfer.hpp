@@ -78,8 +78,8 @@ struct CollectOptions {
                                                    const CollectOptions& options = {});
 
 // Post-handshake transfer primitives over an established, key-agreed channel.
-// Each file is framed with a header, zstd-compressed XChaCha20-Poly1305 data chunks,
-// and a trailer carrying its SHA-256 for integrity verification.
+// A manifest preflight is followed by per-file headers, zstd-compressed
+// XChaCha20-Poly1305 data chunks, and SHA-256 trailers for integrity.
 void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<FileEntry>& files,
                 ProgressReporter& reporter);
 void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesystem::path& output_dir,

@@ -13,6 +13,8 @@
 #include <iosfwd>
 #include <optional>
 #include <span>
+#include <string_view>
+#include <vector>
 
 namespace kiko::detail {
 
@@ -30,6 +32,7 @@ enum class StreamTag : std::uint8_t {
   ChunkEnd = 6,
   Ack = 7,
   ResumeAck = 8,
+  Manifest = 9,
 };
 
 struct TaggedFrame {
@@ -40,6 +43,21 @@ struct TaggedFrame {
 struct ResumeRequest {
   std::uint64_t offset = 0;
   std::string prefix_sha256;
+};
+
+struct TransferManifestEntry {
+  std::string path;
+  std::uint64_t size = 0;
+  std::string kind;
+  std::string target;
+  std::string imohash;
+  std::uint64_t mtime_ms = 0;
+  std::uint32_t mode = 0;
+};
+
+struct TransferManifest {
+  std::vector<TransferManifestEntry> entries;
+  std::uint64_t total_size = 0;
 };
 
 void ensure_declared_space(std::uint64_t current_total, std::uint64_t declared_size, std::uint64_t next_size,
@@ -85,6 +103,11 @@ void finalize_part_file(const std::filesystem::path& part_path, const std::files
 void validate_safe_symlink_target(const std::string& relative, const std::string& target);
 void create_safe_symlink(const std::filesystem::path& current_path, const std::string& relative,
                          const std::string& target);
+[[nodiscard]] std::string encode_transfer_manifest(const std::vector<FileEntry>& files);
+[[nodiscard]] TransferManifest decode_transfer_manifest(std::string_view text);
+void send_transfer_manifest(TcpSocket& socket, StreamCipher& cipher, const std::vector<FileEntry>& files);
+void preflight_transfer_manifest(const TransferManifest& manifest, const std::filesystem::path& output_dir,
+                                 ConflictPolicy conflict_policy, ProgressReporter& reporter);
 
 void send_tagged(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, std::span<const std::uint8_t> payload);
 void send_tagged_text(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, const std::string& text);

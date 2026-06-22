@@ -185,6 +185,7 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
 
   Bytes buffer(kMuxChunk);
   std::uint64_t grand_total = 0;
+  send_transfer_manifest(channels[0], ciphers[0], files);
 
   for (const auto& entry : files) {
     if (is_symlink_entry(entry)) {
@@ -278,9 +279,9 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
   }
 
   send_tagged(channels[0], ciphers[0], StreamTag::Done, std::span<const std::uint8_t>());
-  reporter.transfer_complete(files.size(), grand_total);
   auto ack = recv_tagged(channels[0], ciphers[0]);
   if (!ack || ack->tag != StreamTag::Ack) throw KikoError("expected transfer ack");
+  reporter.transfer_complete(files.size(), grand_total);
 }
 
 void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, const std::filesystem::path& output_dir,
@@ -293,16 +294,27 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
 
   std::size_t file_count = 0;
   std::uint64_t grand_total = 0;
+  bool saw_manifest = false;
+  bool saw_file_header = false;
 
   while (true) {
     auto frame = recv_tagged(channels[0], ciphers[0]);
     if (!frame) throw KikoError("transfer stream ended unexpectedly");
+    if (frame->tag == StreamTag::Manifest) {
+      if (saw_file_header) throw KikoError("transfer manifest arrived after file headers");
+      if (saw_manifest) throw KikoError("duplicate transfer manifest");
+      const auto text = std::string(frame->payload.begin(), frame->payload.end());
+      preflight_transfer_manifest(decode_transfer_manifest(text), output_dir, conflict_policy, reporter);
+      saw_manifest = true;
+      continue;
+    }
     if (frame->tag == StreamTag::Done) {
-      reporter.transfer_complete(file_count, grand_total);
       send_tagged(channels[0], ciphers[0], StreamTag::Ack, std::span<const std::uint8_t>());
+      reporter.transfer_complete(file_count, grand_total);
       return;
     }
     if (frame->tag != StreamTag::FileHeader) throw KikoError("expected file header on control channel");
+    saw_file_header = true;
 
     auto header = decode_message(std::string(frame->payload.begin(), frame->payload.end()));
     auto current_relative = header.get("path");
