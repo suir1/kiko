@@ -33,6 +33,7 @@ xattr -d com.apple.quarantine ~/.local/bin/kiko
 Quick check:
 
 ```sh
+kiko --version
 kiko doctor
 kiko send ./file-or-folder
 kiko recv <code> --out ./downloads

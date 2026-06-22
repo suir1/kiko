@@ -51,6 +51,7 @@ kiko::ConflictPolicy parse_conflict_policy_option(const std::string& value) {
 
 int main(int argc, char** argv) {
   CLI::App app{"croc-like encrypted file transfer", "kiko"};
+  app.set_version_flag("--version", std::string("kiko ") + kiko::kVersion);
   app.require_subcommand(1);
 
   const kiko::UserConfig user_config = kiko::load_user_config();

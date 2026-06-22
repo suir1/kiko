@@ -170,6 +170,7 @@ set(KIKO_APP_SOURCES
 
 add_executable(kiko ${KIKO_APP_SOURCES})
 target_link_libraries(kiko PRIVATE kiko_core ftxui::component CLI11::CLI11)
+target_compile_definitions(kiko PRIVATE "KIKO_VERSION=\"${PROJECT_VERSION}\"")
 
 set(KIKO_RELAYD_SOURCES
   src/relayd_main.cpp
@@ -191,6 +192,9 @@ if(WIN32)
 endif()
 
 enable_testing()
+add_test(NAME cli_version COMMAND $<TARGET_FILE:kiko> --version)
+set_tests_properties(cli_version PROPERTIES DEPENDS kiko PASS_REGULAR_EXPRESSION "kiko ${PROJECT_VERSION}")
+
 function(kiko_add_core_test name source)
   add_executable(kiko_${name}_test ${source})
   target_link_libraries(kiko_${name}_test PRIVATE kiko_core)
