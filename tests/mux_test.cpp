@@ -90,7 +90,8 @@ void make_channels(TcpListener& listener, const Endpoint& endpoint, int n,
 }
 
 bool run_round(TcpListener& listener, const Endpoint& endpoint, int n, const SessionKey& key,
-               const std::vector<FileEntry>& files, const fs::path& dst, ProgressReporter* receiver_reporter = nullptr) {
+               const std::vector<FileEntry>& files, const fs::path& dst, ProgressReporter* receiver_reporter = nullptr,
+               ConflictPolicy conflict_policy = ConflictPolicy::Overwrite) {
   std::vector<TcpSocket> sc, rc;
   make_channels(listener, endpoint, n, sc, rc);
   ProgressReporter sender_reporter;
@@ -107,7 +108,7 @@ bool run_round(TcpListener& listener, const Endpoint& endpoint, int n, const Ses
   });
   bool receiver_failed = false;
   try {
-    receive_files_mux(rc, key, dst, recv_reporter);
+    receive_files_mux(rc, key, dst, recv_reporter, conflict_policy);
   } catch (const std::exception& e) {
     std::cerr << "receiver error: " << e.what() << "\n";
     receiver_failed = true;
@@ -232,6 +233,38 @@ int main() {
     }
     if (!saw_blob_skip) {
       std::cerr << "FAIL: mux duplicate file was not skipped\n";
+      return 1;
+    }
+  }
+
+  {
+    auto conflict_src = root / "mux-conflict-src" / "payload";
+    write_file(conflict_src / "same.txt", "mux new contents\n");
+    auto conflict_files = collect_files(conflict_src);
+
+    auto skip_dst = root / "mux-conflict-skip-out";
+    write_file(skip_dst / "payload/same.txt", "mux keep me\n");
+    if (!run_round(listener, endpoint, N, key, conflict_files, skip_dst, nullptr, ConflictPolicy::Skip)) {
+      std::cerr << "FAIL: mux skip conflict transfer raised an error\n";
+      return 1;
+    }
+    if (read_file(skip_dst / "payload/same.txt") != "mux keep me\n") {
+      std::cerr << "FAIL: mux skip conflict overwrote existing file\n";
+      return 1;
+    }
+
+    auto rename_dst = root / "mux-conflict-rename-out";
+    write_file(rename_dst / "payload/same.txt", "mux keep me\n");
+    if (!run_round(listener, endpoint, N, key, conflict_files, rename_dst, nullptr, ConflictPolicy::Rename)) {
+      std::cerr << "FAIL: mux rename conflict transfer raised an error\n";
+      return 1;
+    }
+    if (read_file(rename_dst / "payload/same.txt") != "mux keep me\n") {
+      std::cerr << "FAIL: mux rename conflict changed original file\n";
+      return 1;
+    }
+    if (read_file(rename_dst / "payload/same (1).txt") != "mux new contents\n") {
+      std::cerr << "FAIL: mux rename conflict did not write renamed file\n";
       return 1;
     }
   }

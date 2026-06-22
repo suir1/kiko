@@ -44,6 +44,7 @@ kiko recv <code> --out ./downloads
 - **Terminal QR code** – when sending from a TTY, a QR code for the pairing code is printed (disable with `--no-qrcode`).
 - **IPv6 + IPv4 dual stack** – `AF_UNSPEC` resolve, dual-stack listeners (`::`), IPv6-first dial with IPv4 fallback. Bracketed endpoints: `[::1]:9000`.
 - **Resume** – writes to `<name>.kikopart`, renames on success. Re-run the same send/recv pair to continue; SHA-256 verifies the whole file. **imohash** fingerprints skip files you already have.
+- **Conflict policy** – receivers can `overwrite`, `skip`, or `rename` existing files with `--on-conflict`.
 - **Parallel connections** – relay path uses `--connections N` (default 4) with per-stream XChaCha20-Poly1305 subkeys.
 - **LAN discovery** – UDP multicast finds local relays; sender embeds a croc-style LAN relay (`--no-local` to disable). Receiver races LAN and external relays in parallel (`--local`, `--no-local`).
 - **Relay health check** – JSON `ping`/`pong` on each relay connection before rendezvous registration.
@@ -138,6 +139,7 @@ Receive:
 
 ```sh
 ./build/kiko recv <code> --out ./downloads
+./build/kiko recv <code> --out ./downloads --on-conflict rename
 ```
 
 Network diagnostics:
@@ -183,7 +185,7 @@ export KIKO_AI_BASE_URL=https://api.openai.com/v1   # or http://localhost:11434/
 export KIKO_AI_MODEL=gpt-4o-mini
 ```
 
-Flags: `--relay-pass`, `--remember`, `--auto-connections`, `--debug-route`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--symlinks`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
+Flags: `--relay-pass`, `--remember`, `--auto-connections`, `--debug-route`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--symlinks`, `--on-conflict`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
 
 `--ip` overrides the relay target (port from `--relay`) and the addresses advertised to the peer for direct/punch paths. When set, LAN relay discovery is skipped.
 

@@ -519,7 +519,7 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
                                 config.no_direct);
     }
     receive_files_over_relay(std::move(relay_channel), active_relay, config.code, connections, connect_options,
-                             config.relay_pass, config.output_dir, reporter, timing);
+                             config.relay_pass, config.output_dir, reporter, timing, config.conflict_policy);
     if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats, profile_relay_path);
     else save_profile_success(network_fingerprint(), "relay", profile_relay_path);
     return 0;
@@ -565,13 +565,13 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
                                                room_token(config.code), connect_options, kDirectMuxSetupTimeout);
       if (mux.mux_enabled) {
         reporter.status("opening " + std::to_string(connections) + " parallel direct connections");
-        receive_files_mux(mux.channels, key, config.output_dir, reporter);
+        receive_files_mux(mux.channels, key, config.output_dir, reporter, config.conflict_policy);
       } else {
         reporter.status("parallel direct unavailable, using single direct connection (" + mux.fallback_reason + ")");
-        receive_files(mux.channels[0], key, config.output_dir, reporter);
+        receive_files(mux.channels[0], key, config.output_dir, reporter, config.conflict_policy);
       }
     } else {
-      receive_files(direct_channel, key, config.output_dir, reporter);
+      receive_files(direct_channel, key, config.output_dir, reporter, config.conflict_policy);
     }
     return 0;
   }

@@ -67,6 +67,10 @@ void send_resume_ack(TcpSocket& socket, StreamCipher& cipher, std::uint64_t acce
                                                const std::filesystem::path& current_path,
                                                const std::string& current_relative, std::uint64_t declared_size,
                                                ProgressReporter& reporter);
+[[nodiscard]] bool path_exists_no_follow(const std::filesystem::path& path);
+[[nodiscard]] std::filesystem::path unique_conflict_path(const std::filesystem::path& path);
+void report_renamed_conflict(const std::string& relative, const std::filesystem::path& renamed,
+                             ProgressReporter& reporter);
 [[nodiscard]] std::filesystem::path part_path_for(const std::filesystem::path& current_path);
 [[nodiscard]] std::uint64_t resumable_part_size(const std::filesystem::path& part_path, std::uint64_t declared_size);
 [[nodiscard]] bool hash_existing_part_prefix(const std::filesystem::path& part_path, std::uint64_t have, Bytes& buffer,

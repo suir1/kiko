@@ -149,7 +149,7 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
 }
 
 void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, const std::filesystem::path& output_dir,
-                       ProgressReporter& reporter) {
+                       ProgressReporter& reporter, ConflictPolicy conflict_policy) {
   if (channels.empty()) throw KikoError("mux receive requires at least one channel");
   const std::size_t n = channels.size();
   std::vector<StreamCipher> ciphers;
@@ -180,12 +180,20 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     if (is_symlink_header(header)) {
       const auto symlink_target = header.get("target");
       validate_safe_symlink_target(current_relative, symlink_target);
+      bool skip_symlink = false;
+      if (conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+        reporter.status("skipped existing " + current_relative);
+        skip_symlink = true;
+      } else if (conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
+        current_path = unique_conflict_path(current_path);
+        report_renamed_conflict(current_relative, current_path, reporter);
+      }
       reporter.file_start(current_relative, 0);
       send_resume(channels[0], ciphers[0], 0);
       (void)recv_resume_ack(channels[0], ciphers[0], 0, 0, current_relative);
       auto endframe = recv_tagged(channels[0], ciphers[0]);
       if (!endframe || endframe->tag != StreamTag::FileEnd) throw KikoError("expected file end");
-      create_safe_symlink(current_path, current_relative, symlink_target);
+      if (!skip_symlink) create_safe_symlink(current_path, current_relative, symlink_target);
       ++file_count;
       reporter.file_complete(current_relative, 0, false);
       continue;
@@ -204,6 +212,24 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       continue;
     }
 
+    if (conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+      reporter.status("skipped existing " + current_relative);
+      send_resume(channels[0], ciphers[0], declared_size);
+      const auto accepted = recv_resume_ack(channels[0], ciphers[0], declared_size, declared_size, current_relative);
+      if (accepted != declared_size) throw KikoError("sender rejected conflict skip for " + current_relative);
+      reporter.file_start(current_relative, declared_size);
+      for (std::size_t k = 0; k < n; ++k) {
+        auto chunk_end = recv_tagged(channels[k], ciphers[k]);
+        if (!chunk_end || chunk_end->tag != StreamTag::ChunkEnd) throw KikoError("expected mux chunk end");
+      }
+      auto endframe = recv_tagged(channels[0], ciphers[0]);
+      if (!endframe || endframe->tag != StreamTag::FileEnd) throw KikoError("expected file end");
+      ++file_count;
+      grand_total += declared_size;
+      reporter.file_complete(current_relative, declared_size, true);
+      continue;
+    }
+
     if (try_skip_existing_duplicate(channels[0], ciphers[0], header, current_path, current_relative, declared_size,
                                     reporter)) {
       for (std::size_t k = 0; k < n; ++k) {
@@ -216,6 +242,12 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       grand_total += declared_size;
       reporter.file_complete(current_relative, declared_size, true);
       continue;
+    }
+
+    if (conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
+      current_path = unique_conflict_path(current_path);
+      report_renamed_conflict(current_relative, current_path, reporter);
+      if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
     }
 
     auto part_path = part_path_for(current_path);

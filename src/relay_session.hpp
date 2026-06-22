@@ -14,6 +14,7 @@
 namespace kiko {
 
 struct FileEntry;
+enum class ConflictPolicy;
 
 void send_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay, const std::string& code,
                            int connections, const ConnectOptions& connect_options,
@@ -24,6 +25,6 @@ void receive_files_over_relay(TcpSocket relay_channel, const Endpoint& active_re
                               int connections, const ConnectOptions& connect_options,
                               const std::optional<std::string>& relay_pass,
                               const std::filesystem::path& output_dir, ProgressReporter& reporter,
-                              RouteTiming timing = {});
+                              RouteTiming timing, ConflictPolicy conflict_policy);
 
 }  // namespace kiko

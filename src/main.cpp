@@ -41,6 +41,12 @@ kiko::SymlinkMode parse_symlink_mode_option(const std::string& value) {
   return kiko::SymlinkMode::Follow;
 }
 
+kiko::ConflictPolicy parse_conflict_policy_option(const std::string& value) {
+  if (value == "skip") return kiko::ConflictPolicy::Skip;
+  if (value == "rename") return kiko::ConflictPolicy::Rename;
+  return kiko::ConflictPolicy::Overwrite;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -162,6 +168,7 @@ int main(int argc, char** argv) {
   std::string recv_proxy;
   std::string recv_ip;
   std::string recv_bind_interface;
+  std::string recv_on_conflict = "overwrite";
   int recv_reconnect_attempts = 3;
   bool recv_tui = false;
   auto* recv_cmd = app.add_subcommand("recv", "Receive files with a pairing code");
@@ -181,6 +188,8 @@ int main(int argc, char** argv) {
   recv_cmd->add_option("--ip", recv_ip, "Manual IP override for relay and advertised endpoints");
   recv_cmd->add_option("--bind-interface", recv_bind_interface,
                        "Bind outbound TCP sockets to an interface (for example en0)");
+  recv_cmd->add_option("--on-conflict", recv_on_conflict, "Existing file policy: overwrite, skip, or rename")
+      ->check(CLI::IsMember({"overwrite", "skip", "rename"}));
   recv_cmd->add_flag("--avoid-vpn", recv_avoid_vpn, "Bind outbound TCP sockets to a non-VPN physical interface when possible");
   recv_cmd->add_flag("--debug-route", recv_debug_route, "Print route diagnostics before transfer");
   recv_cmd->add_flag("--no-reconnect", recv_no_reconnect, "Disable automatic reconnect/resume after connection loss");
@@ -274,6 +283,7 @@ int main(int argc, char** argv) {
       if (!recv_proxy.empty()) config.proxy = kiko::parse_proxy_url(recv_proxy);
       if (!recv_ip.empty()) config.manual_ip = recv_ip;
       config.bind_interface = recv_bind_interface;
+      config.conflict_policy = parse_conflict_policy_option(recv_on_conflict);
       config.avoid_vpn = recv_avoid_vpn;
       config.debug_route = recv_debug_route;
       apply_relay_pass_cli(config.relay_pass, recv_relay_pass, user_config);

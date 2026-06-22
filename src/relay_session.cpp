@@ -76,7 +76,7 @@ void receive_files_over_relay(TcpSocket relay_channel, const Endpoint& active_re
                               int connections, const ConnectOptions& connect_options,
                               const std::optional<std::string>& relay_pass,
                               const std::filesystem::path& output_dir, ProgressReporter& reporter,
-                              RouteTiming timing) {
+                              RouteTiming timing, ConflictPolicy conflict_policy) {
   reporter.route_phase(RoutePhase::Securing,
                        RoutePhaseDetail{"securing relay channel", "relay", /*relay_fallback_ready=*/true});
   const auto securing_start = std::chrono::steady_clock::now();
@@ -90,11 +90,11 @@ void receive_files_over_relay(TcpSocket relay_channel, const Endpoint& active_re
     auto channels =
         open_relay_mux_channels(std::move(relay_channel), Role::Receiver, active_relay, room_token(code), connections,
                                 connect_options, relay_pass);
-    receive_files_mux(channels, key, output_dir, reporter);
+    receive_files_mux(channels, key, output_dir, reporter, conflict_policy);
     return;
   }
 
-  receive_files(relay_channel, key, output_dir, reporter);
+  receive_files(relay_channel, key, output_dir, reporter, conflict_policy);
 }
 
 }  // namespace kiko

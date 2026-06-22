@@ -161,6 +161,33 @@ bool try_skip_existing_duplicate(TcpSocket& socket, StreamCipher& cipher, const 
   return true;
 }
 
+bool path_exists_no_follow(const std::filesystem::path& path) {
+  std::error_code ec;
+  const auto status = std::filesystem::symlink_status(path, ec);
+  return !ec && std::filesystem::exists(status);
+}
+
+std::filesystem::path unique_conflict_path(const std::filesystem::path& path) {
+  const auto parent = path.parent_path();
+  auto stem = path.stem().string();
+  const auto extension = path.extension().string();
+  if (stem.empty()) stem = path.filename().string();
+  if (stem.empty()) stem = "received";
+
+  for (int i = 1; i < 10000; ++i) {
+    auto candidate = parent / (stem + " (" + std::to_string(i) + ")" + extension);
+    auto candidate_part = candidate;
+    candidate_part += ".kikopart";
+    if (!path_exists_no_follow(candidate) && !path_exists_no_follow(candidate_part)) return candidate;
+  }
+  throw KikoError("could not choose a non-conflicting filename for " + path.string());
+}
+
+void report_renamed_conflict(const std::string& relative, const std::filesystem::path& renamed,
+                             ProgressReporter& reporter) {
+  reporter.status("renamed conflict " + relative + " -> " + renamed.filename().generic_string());
+}
+
 std::filesystem::path part_path_for(const std::filesystem::path& current_path) {
   auto part_path = current_path;
   part_path += ".kikopart";
@@ -422,7 +449,7 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
 }
 
 void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesystem::path& output_dir,
-                   ProgressReporter& reporter) {
+                   ProgressReporter& reporter, ConflictPolicy conflict_policy) {
   StreamCipher cipher(key, /*sender_originates=*/false);
   Bytes buffer(kPlainChunk);
 
@@ -439,6 +466,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
   bool skipping_file = false;
   bool is_dir_marker = false;
   bool is_symlink_marker = false;
+  bool skip_symlink_marker = false;
   std::string pending_symlink_target;
   std::uint64_t pending_mtime_ms = 0;
   std::uint32_t pending_mode = 0;
@@ -463,6 +491,14 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         if (is_symlink_header(header)) {
           pending_symlink_target = header.get("target");
           validate_safe_symlink_target(current_relative, pending_symlink_target);
+          skip_symlink_marker = false;
+          if (conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+            reporter.status("skipped existing " + current_relative);
+            skip_symlink_marker = true;
+          } else if (conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
+            current_path = unique_conflict_path(current_path);
+            report_renamed_conflict(current_relative, current_path, reporter);
+          }
           send_resume(channel, cipher, 0);
           (void)recv_resume_ack(channel, cipher, 0, 0, current_relative);
           reporter.file_start(current_relative, 0);
@@ -491,10 +527,27 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         pending_mtime_ms = header.get_u64("mtime_ms", 0);
         pending_mode = static_cast<std::uint32_t>(header.get_u64("mode", 0));
 
+        if (conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+          reporter.status("skipped existing " + current_relative);
+          send_resume(channel, cipher, declared_size);
+          const auto accepted = recv_resume_ack(channel, cipher, declared_size, declared_size, current_relative);
+          if (accepted != declared_size) throw KikoError("sender rejected conflict skip for " + current_relative);
+          reporter.file_start(current_relative, declared_size);
+          skipping_file = true;
+          current_total = declared_size;
+          break;
+        }
+
         if (try_skip_existing_duplicate(channel, cipher, header, current_path, current_relative, declared_size, reporter)) {
           skipping_file = true;
           current_total = declared_size;
           break;
+        }
+
+        if (conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
+          current_path = unique_conflict_path(current_path);
+          report_renamed_conflict(current_relative, current_path, reporter);
+          if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
         }
 
         part_path = part_path_for(current_path);
@@ -561,10 +614,11 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
       }
       case StreamTag::FileEnd: {
         if (is_symlink_marker) {
-          create_safe_symlink(current_path, current_relative, pending_symlink_target);
+          if (!skip_symlink_marker) create_safe_symlink(current_path, current_relative, pending_symlink_target);
           ++file_count;
           reporter.file_complete(current_relative, 0, false);
           is_symlink_marker = false;
+          skip_symlink_marker = false;
           pending_symlink_target.clear();
           break;
         }

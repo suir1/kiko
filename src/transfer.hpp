@@ -19,6 +19,12 @@ enum class SymlinkMode {
   Preserve,
 };
 
+enum class ConflictPolicy {
+  Overwrite,
+  Skip,
+  Rename,
+};
+
 struct SendConfig {
   std::filesystem::path file;
   Endpoint relay;
@@ -77,7 +83,7 @@ struct CollectOptions {
 void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<FileEntry>& files,
                 ProgressReporter& reporter);
 void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesystem::path& output_dir,
-                   ProgressReporter& reporter);
+                   ProgressReporter& reporter, ConflictPolicy conflict_policy = ConflictPolicy::Overwrite);
 
 // Multiplexed variants spreading file chunks across several connections that
 // share one session key (each channel uses a distinct cipher stream id). Channel
@@ -85,7 +91,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
 void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, const std::vector<FileEntry>& files,
                     ProgressReporter& reporter);
 void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, const std::filesystem::path& output_dir,
-                       ProgressReporter& reporter);
+                       ProgressReporter& reporter, ConflictPolicy conflict_policy = ConflictPolicy::Overwrite);
 
 struct RecvConfig {
   std::string code;
@@ -107,6 +113,7 @@ struct RecvConfig {
   bool auto_reconnect = true;
   int reconnect_attempts = 3;
   std::chrono::milliseconds reconnect_delay{1000};
+  ConflictPolicy conflict_policy = ConflictPolicy::Overwrite;
   bool debug_route = false;
 };
 

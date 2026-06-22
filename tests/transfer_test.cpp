@@ -134,6 +134,38 @@ struct DropOnceReporter : ProgressReporter {
   void transfer_complete(std::size_t, std::uint64_t) override { finished = true; }
 };
 
+bool run_stream_round(TcpListener& listener, const Endpoint& endpoint, const SessionKey& key,
+                      const std::vector<FileEntry>& files, const fs::path& dst,
+                      ConflictPolicy conflict_policy = ConflictPolicy::Overwrite,
+                      ProgressReporter* receiver_reporter = nullptr) {
+  ProgressReporter sender_reporter;
+  ProgressReporter default_receiver_reporter;
+  auto& recv_reporter = receiver_reporter ? *receiver_reporter : default_receiver_reporter;
+  bool sender_failed = false;
+  std::thread sender([&] {
+    try {
+      auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+      if (!socket.valid()) throw std::runtime_error("connect failed");
+      send_files(socket, key, files, sender_reporter);
+    } catch (const std::exception& e) {
+      std::cerr << "sender(stream round) error: " << e.what() << "\n";
+      sender_failed = true;
+    }
+  });
+
+  bool receiver_failed = false;
+  try {
+    auto accepted = listener.accept(std::chrono::seconds(2));
+    if (!accepted.valid()) throw std::runtime_error("accept failed");
+    receive_files(accepted, key, dst, recv_reporter, conflict_policy);
+  } catch (const std::exception& e) {
+    std::cerr << "receiver(stream round) error: " << e.what() << "\n";
+    receiver_failed = true;
+  }
+  sender.join();
+  return !sender_failed && !receiver_failed;
+}
+
 }  // namespace
 
 int main() {
@@ -321,6 +353,38 @@ int main() {
     }
     if (fs::exists(part_blob)) {
       std::cerr << "FAIL: corrupt partial not finalized after restart\n";
+      return 1;
+    }
+  }
+
+  {
+    auto conflict_src = root / "conflict-src" / "payload";
+    auto conflict_dst = root / "conflict-out";
+    write_file(conflict_src / "same.txt", "new contents\n");
+    auto conflict_files = collect_files(conflict_src);
+
+    write_file(conflict_dst / "payload/same.txt", "keep me\n");
+    if (!run_stream_round(listener, endpoint, key, conflict_files, conflict_dst, ConflictPolicy::Skip)) {
+      std::cerr << "FAIL: skip conflict transfer raised an error\n";
+      return 1;
+    }
+    if (read_file(conflict_dst / "payload/same.txt") != "keep me\n") {
+      std::cerr << "FAIL: skip conflict overwrote existing file\n";
+      return 1;
+    }
+
+    fs::remove_all(conflict_dst);
+    write_file(conflict_dst / "payload/same.txt", "keep me\n");
+    if (!run_stream_round(listener, endpoint, key, conflict_files, conflict_dst, ConflictPolicy::Rename)) {
+      std::cerr << "FAIL: rename conflict transfer raised an error\n";
+      return 1;
+    }
+    if (read_file(conflict_dst / "payload/same.txt") != "keep me\n") {
+      std::cerr << "FAIL: rename conflict changed original file\n";
+      return 1;
+    }
+    if (read_file(conflict_dst / "payload/same (1).txt") != "new contents\n") {
+      std::cerr << "FAIL: rename conflict did not write renamed file\n";
       return 1;
     }
   }
