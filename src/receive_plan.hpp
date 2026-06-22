@@ -2,6 +2,7 @@
 
 #include "progress.hpp"
 #include "protocol.hpp"
+#include "transfer_manifest.hpp"
 #include "transfer.hpp"
 
 #include <cstddef>
@@ -9,24 +10,8 @@
 #include <filesystem>
 #include <map>
 #include <string>
-#include <vector>
 
 namespace kiko::detail {
-
-struct TransferManifestEntry {
-  std::string path;
-  std::uint64_t size = 0;
-  std::string kind;
-  std::string target;
-  std::string imohash;
-  std::uint64_t mtime_ms = 0;
-  std::uint32_t mode = 0;
-};
-
-struct TransferManifest {
-  std::vector<TransferManifestEntry> entries;
-  std::uint64_t total_size = 0;
-};
 
 enum class ReceivePlanAction {
   Write,

@@ -14,7 +14,6 @@
 #include <iosfwd>
 #include <optional>
 #include <span>
-#include <string_view>
 #include <vector>
 
 namespace kiko::detail {
@@ -91,8 +90,6 @@ void finalize_part_file(const std::filesystem::path& part_path, const std::files
 void validate_safe_symlink_target(const std::string& relative, const std::string& target);
 void create_safe_symlink(const std::filesystem::path& current_path, const std::string& relative,
                          const std::string& target);
-[[nodiscard]] std::string encode_transfer_manifest(const std::vector<FileEntry>& files);
-[[nodiscard]] TransferManifest decode_transfer_manifest(std::string_view text);
 void send_transfer_manifest(TcpSocket& socket, StreamCipher& cipher, const std::vector<FileEntry>& files);
 
 void send_tagged(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, std::span<const std::uint8_t> payload);

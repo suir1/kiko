@@ -56,6 +56,7 @@ set(KIKO_CORE_SOURCES
   src/socket.cpp
   src/transfer.cpp
   src/transfer_heuristics.cpp
+  src/transfer_manifest.cpp
   src/transfer_stream.cpp
   src/udp_punch.cpp
 )
