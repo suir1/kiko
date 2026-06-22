@@ -88,6 +88,15 @@ class ProgressReporter {
   // bytes_delta more plaintext bytes were processed for the current file.
   virtual void file_advance(std::uint64_t bytes_delta) { (void)bytes_delta; }
 
+  // The current file will continue from an already verified prefix. This is
+  // informational; callers still emit file_advance(offset) to account for the
+  // resumed bytes in progress totals.
+  virtual void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) {
+    (void)path;
+    (void)offset;
+    (void)size;
+  }
+
   // The current file finished; verified indicates SHA-256 match (receiver) or
   // simply that it was fully sent (sender, always true).
   virtual void file_complete(const std::string& path, std::uint64_t size, bool verified) {
@@ -120,6 +129,7 @@ class CliReporter : public ProgressReporter {
   void code_ready(const std::string& code, bool show_qrcode = true) override;
   void transfer_overview(std::size_t file_count, std::uint64_t total_bytes) override;
   void file_start(const std::string& path, std::uint64_t size) override;
+  void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override;
   void file_complete(const std::string& path, std::uint64_t size, bool verified) override;
   void transfer_complete(std::size_t file_count, std::uint64_t total_bytes) override;
   void route_outcome(const RouteOutcome& outcome) override;

@@ -280,6 +280,16 @@ void TuiReporter::file_advance(std::uint64_t bytes_delta) {
   wake_();
 }
 
+void TuiReporter::file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) {
+  {
+    std::lock_guard<std::mutex> lock(state_.mutex);
+    state_.activity = "resuming " + path;
+    log_append(state_.connectivity_log, "resume: " + path + " from " + std::to_string(offset) + "/" +
+                                            std::to_string(size) + " bytes");
+  }
+  wake_();
+}
+
 void TuiReporter::file_complete(const std::string& path, std::uint64_t size, bool verified) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);

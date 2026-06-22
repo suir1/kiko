@@ -161,6 +161,20 @@ int main() {
     }
   }
 
+  {
+    TuiState transfer_state;
+    bool woke = false;
+    TuiReporter reporter(transfer_state, [&] { woke = true; });
+    reporter.file_start("partial.bin", 200);
+    reporter.file_resume("partial.bin", 100, 200);
+    if (!woke || transfer_state.activity != "resuming partial.bin" ||
+        !contains(transfer_state.connectivity_log, "resume: partial.bin from 100/200 bytes")) {
+      std::cerr << "FAIL: TUI reporter did not expose resume progress\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
   fs::remove(send_path);
   std::cout << "tui_menu_state_test ok\n";
   return 0;

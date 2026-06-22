@@ -102,6 +102,10 @@ void CliReporter::file_start(const std::string& path, std::uint64_t size) {
   std::cout << "-> " << path << " (" << size << " bytes)\n";
 }
 
+void CliReporter::file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) {
+  std::cout << "resuming " << path << " from " << offset << "/" << size << " bytes\n";
+}
+
 void CliReporter::file_complete(const std::string& path, std::uint64_t size, bool verified) {
   if (verified) {
     std::cout << "received " << path << " (" << size << " bytes, sha256 ok)\n";

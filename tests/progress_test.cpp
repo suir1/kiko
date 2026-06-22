@@ -24,6 +24,7 @@ void write_file(const fs::path& path, const std::string& contents) {
 // Records the sequence of reporter events for assertions.
 struct RecordingReporter : ProgressReporter {
   std::vector<std::string> started;
+  std::vector<std::string> resumes;
   std::vector<std::string> completed;
   std::uint64_t advanced = 0;
   std::size_t done_files = 0;
@@ -33,6 +34,9 @@ struct RecordingReporter : ProgressReporter {
 
   void file_start(const std::string& path, std::uint64_t) override { started.push_back(path); }
   void file_advance(std::uint64_t delta) override { advanced += delta; }
+  void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override {
+    resumes.push_back(path + ":" + std::to_string(offset) + "/" + std::to_string(size));
+  }
   void file_complete(const std::string& path, std::uint64_t, bool verified) override {
     completed.push_back(path);
     if (!verified) all_verified = false;
@@ -91,6 +95,34 @@ int main() {
   }
   if (rec.advanced != expected_bytes) {
     std::cerr << "FAIL: file_advance sum=" << rec.advanced << " (expected " << expected_bytes << ")\n";
+    return 1;
+  }
+
+  auto resume_dst = root / "resume-out";
+  constexpr std::uint64_t kResumeOffset = 300;
+  write_file(resume_dst / "data/one.txt.kikopart", std::string(kResumeOffset, 'a'));
+
+  auto resume_listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+  auto resume_endpoint = resume_listener.local_endpoint();
+
+  std::thread resume_sender([&] {
+    auto socket = connect_tcp(resume_endpoint, std::chrono::seconds(2));
+    if (socket.valid()) send_files(socket, key, files, sender_sink);
+  });
+
+  RecordingReporter resume_rec;
+  auto resume_accepted = resume_listener.accept(std::chrono::seconds(2));
+  receive_files(resume_accepted, key, resume_dst, resume_rec);
+  resume_sender.join();
+
+  const auto expected_resume = std::string("data/one.txt:") + std::to_string(kResumeOffset) + "/1000";
+  if (resume_rec.resumes.size() != 1 || resume_rec.resumes[0] != expected_resume) {
+    std::cerr << "FAIL: expected resume event '" << expected_resume << "', got "
+              << (resume_rec.resumes.empty() ? std::string("<none>") : resume_rec.resumes[0]) << "\n";
+    return 1;
+  }
+  if (resume_rec.advanced != expected_bytes) {
+    std::cerr << "FAIL: resumed file_advance sum=" << resume_rec.advanced << " (expected " << expected_bytes << ")\n";
     return 1;
   }
 

@@ -412,7 +412,10 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
       offset = 0;
     }
     send_resume_ack(channel, cipher, offset);
-    if (offset > 0) reporter.file_advance(offset);
+    if (offset > 0) {
+      reporter.file_resume(entry.relative, offset, entry.size);
+      reporter.file_advance(offset);
+    }
 
     const bool use_zstd = should_compress_entry(entry);
     std::optional<ZstdStreamCompressor> compressor;
@@ -462,7 +465,6 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
   std::string current_relative;
   std::uint64_t current_total = 0;
   std::uint64_t current_declared_size = 0;
-  bool resumed = false;
   bool skipping_file = false;
   bool is_dir_marker = false;
   bool is_symlink_marker = false;
@@ -581,9 +583,11 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         if (!out) throw KikoError("failed to open output file: " + part_path.string());
         if (use_zstd) decompressor.emplace();
         current_total = have;
-        resumed = have > 0;
         reporter.file_start(current_relative, declared_size);
-        if (have > 0) reporter.file_advance(have);
+        if (have > 0) {
+          reporter.file_resume(current_relative, have, declared_size);
+          reporter.file_advance(have);
+        }
         break;
       }
       case StreamTag::Data: {
@@ -654,7 +658,6 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         ++file_count;
         grand_total += current_total;
         reporter.file_complete(current_relative, current_total, true);
-        if (resumed) reporter.status("resumed " + current_relative);
         current_total = 0;
         current_declared_size = 0;
         decompressor.reset();

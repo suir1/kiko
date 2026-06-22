@@ -239,7 +239,10 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
       offset = 0;
     }
     send_resume_ack(channels[0], ciphers[0], offset);
-    if (offset > 0) reporter.file_advance(offset);
+    if (offset > 0) {
+      reporter.file_resume(entry.relative, offset, entry.size);
+      reporter.file_advance(offset);
+    }
 
     const bool use_zstd = should_compress_entry(entry);
     MuxSendScheduler scheduler(channels, ciphers, reporter);
@@ -409,7 +412,10 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     if (!out) throw KikoError("failed to open output file: " + part_path.string());
 
     reporter.file_start(current_relative, declared_size);
-    if (have > 0) reporter.file_advance(have);
+    if (have > 0) {
+      reporter.file_resume(current_relative, have, declared_size);
+      reporter.file_advance(have);
+    }
 
     std::mutex file_mutex;
     std::mutex report_mutex;

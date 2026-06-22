@@ -58,6 +58,7 @@ class TuiReporter : public ProgressReporter {
   void transfer_overview(std::size_t file_count, std::uint64_t total_bytes) override;
   void file_start(const std::string& path, std::uint64_t size) override;
   void file_advance(std::uint64_t bytes_delta) override;
+  void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override;
   void file_complete(const std::string& path, std::uint64_t size, bool verified) override;
   void transfer_complete(std::size_t file_count, std::uint64_t total_bytes) override;
   void transfer_retry(int next_attempt, int max_attempts, const std::string& reason) override;

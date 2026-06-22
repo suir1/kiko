@@ -43,7 +43,7 @@ kiko recv <code> --out ./downloads
 - **Short pairing codes** – auto-generated 6-character codes (e.g. `x7k9m2`). Pass any custom code with `--code` (short alphanumeric, or croc-style `4827-stone-iris-lake-ruby` with `-` splitting room label and PAKE secret).
 - **Terminal QR code** – when sending from a TTY, a QR code for the pairing code is printed (disable with `--no-qrcode`).
 - **IPv6 + IPv4 dual stack** – `AF_UNSPEC` resolve, dual-stack listeners (`::`), IPv6-first dial with IPv4 fallback. Bracketed endpoints: `[::1]:9000`.
-- **Resume** – writes to `<name>.kikopart`, renames on success. Re-run the same send/recv pair to continue; SHA-256 verifies the whole file. **imohash** fingerprints skip files you already have.
+- **Resume** – writes to `<name>.kikopart`, renames on success, and reports the resume offset when continuing. Re-run the same send/recv pair to continue; SHA-256 verifies the whole file. **imohash** fingerprints skip files you already have.
 - **Conflict policy** – receivers can `overwrite`, `skip`, or `rename` existing files with `--on-conflict`.
 - **Parallel connections** – relay/direct mux uses `--connections N` (default 4), dynamic chunk scheduling, and per-stream XChaCha20-Poly1305 subkeys.
 - **LAN discovery** – UDP multicast finds local relays; sender embeds a croc-style LAN relay (`--no-local` to disable). Receiver races LAN and external relays in parallel (`--local`, `--no-local`).

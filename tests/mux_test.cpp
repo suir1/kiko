@@ -59,8 +59,12 @@ std::uint32_t get_mode_bits(const fs::path& path) {
 
 struct RecordingReporter : ProgressReporter {
   std::vector<std::string> statuses;
+  std::vector<std::string> resumes;
 
   void status(const std::string& message) override { statuses.push_back(message); }
+  void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override {
+    resumes.push_back(path + ":" + std::to_string(offset) + "/" + std::to_string(size));
+  }
 };
 
 // Builds N paired, index-ordered loopback connections.
@@ -181,8 +185,15 @@ int main() {
     fs::remove(final_blob);
     write_file(part_blob, blob.substr(0, blob.size() / 3));
 
-    if (!run_round(listener, endpoint, N, key, files, dst)) {
+    RecordingReporter reporter;
+    if (!run_round(listener, endpoint, N, key, files, dst, &reporter)) {
       std::cerr << "FAIL: mux resume transfer raised an error\n";
+      return 1;
+    }
+    const auto expected_resume = "payload/nested/blob.bin:" + std::to_string(blob.size() / 3) + "/" +
+                                 std::to_string(blob.size());
+    if (reporter.resumes.size() != 1 || reporter.resumes[0] != expected_resume) {
+      std::cerr << "FAIL: mux resume event mismatch\n";
       return 1;
     }
     if (read_file(final_blob) != blob) {
