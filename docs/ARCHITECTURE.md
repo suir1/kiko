@@ -26,15 +26,17 @@ but new work should preserve these conceptual modules even before directories ar
 ### Transfer file size
 
 `src/transfer_stream.cpp` remains the largest transfer file. It now delegates receive-plan
-preflight to `src/receive_plan.*` and manifest JSON encode/decode to `src/transfer_manifest.*`,
+preflight to `src/receive_plan.*`, manifest JSON encode/decode to `src/transfer_manifest.*`,
+and resume negotiation / `.kikopart` helpers to `src/transfer_resume.*`,
 but still carries several responsibilities:
 
 - tagged transfer frame helpers
-- resume negotiation and `.kikopart` helpers
+- receive path conflict/finalize helpers
 - single-stream send/receive loops
 
 This is now the most important architecture cleanup target. New transfer behavior should avoid adding
-more logic directly to `src/transfer_stream.cpp`; prefer extracting resume or manifest helpers first.
+more logic directly to `src/transfer_stream.cpp`; prefer extracting path/finalize helpers before
+changing the stream coordinator.
 
 ### Flat source tree
 
@@ -65,10 +67,11 @@ do not add repeated `add_executable` / `target_link_libraries` / `add_test` bloc
 ## Recommended transfer refactors
 
 `src/receive_plan.*` now owns receive preflight, collision detection, conflict action selection,
-manifest/header validation, and planned resume offsets. Continue splitting `src/transfer_stream.cpp`
-in this order:
+manifest/header validation, and planned resume offsets. `src/transfer_manifest.*` owns manifest
+encoding/decoding, and `src/transfer_resume.*` owns resume frames, prefix hashing, `.kikopart`
+helpers, and completed-file fast-skip. Continue splitting `src/transfer_stream.cpp` in this order:
 
-1. Extract `transfer_resume.*`: resume frames, prefix hashing, `.kikopart` helpers, completed-file fast-skip.
+1. Consider extracting receive path/finalize helpers only if the next transfer feature touches them.
 2. Keep `src/transfer_stream.cpp` as the single-stream send/receive coordinator.
 
 Stop before moving directories unless a future feature needs it; small focused extractions create

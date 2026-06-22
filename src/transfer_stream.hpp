@@ -7,11 +7,11 @@
 #include "receive_plan.hpp"
 #include "socket.hpp"
 #include "transfer.hpp"
+#include "transfer_resume.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <iosfwd>
 #include <optional>
 #include <span>
 #include <vector>
@@ -40,12 +40,6 @@ struct TaggedFrame {
   Bytes payload;
 };
 
-struct ResumeRequest {
-  std::uint64_t offset = 0;
-  std::string prefix_sha256;
-  bool complete_skip = false;
-};
-
 void ensure_declared_space(std::uint64_t current_total, std::uint64_t declared_size, std::uint64_t next_size,
                            const std::string& relative);
 [[nodiscard]] std::size_t declared_remaining_limit(std::uint64_t current_total, std::uint64_t declared_size,
@@ -59,27 +53,10 @@ void append_mtime_field(Message& header, const FileEntry& entry);
 void append_mode_field(Message& header, const FileEntry& entry);
 [[nodiscard]] bool should_compress_entry(const FileEntry& entry);
 [[nodiscard]] Message make_file_header(const FileEntry& entry);
-void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset,
-                 const std::string& prefix_sha256 = {}, bool complete_skip = false);
-[[nodiscard]] ResumeRequest recv_resume_request(TcpSocket& socket, StreamCipher& cipher, const FileEntry& entry);
-void send_resume_ack(TcpSocket& socket, StreamCipher& cipher, std::uint64_t accepted_offset);
-[[nodiscard]] std::uint64_t recv_resume_ack(TcpSocket& socket, StreamCipher& cipher, std::uint64_t requested_offset,
-                                            std::uint64_t declared_size, const std::string& relative);
-[[nodiscard]] std::uint64_t hash_stream_prefix(std::istream& input, Bytes& buffer, Sha256Hasher& hasher,
-                                               std::uint64_t offset, const std::string& relative,
-                                               std::string* prefix_sha256 = nullptr);
-[[nodiscard]] bool try_skip_existing_duplicate(TcpSocket& socket, StreamCipher& cipher, const Message& header,
-                                               const std::filesystem::path& current_path,
-                                               const std::string& current_relative, std::uint64_t declared_size,
-                                               ProgressReporter& reporter);
 [[nodiscard]] bool path_exists_no_follow(const std::filesystem::path& path);
 [[nodiscard]] std::filesystem::path unique_conflict_path(const std::filesystem::path& path);
 void report_renamed_conflict(const std::string& relative, const std::filesystem::path& renamed,
                              ProgressReporter& reporter);
-[[nodiscard]] std::filesystem::path part_path_for(const std::filesystem::path& current_path);
-[[nodiscard]] std::uint64_t resumable_part_size(const std::filesystem::path& part_path, std::uint64_t declared_size);
-[[nodiscard]] bool hash_existing_part_prefix(const std::filesystem::path& part_path, std::uint64_t have, Bytes& buffer,
-                                             Sha256Hasher& hasher, std::string* prefix_sha256 = nullptr);
 void verify_received_digest(const std::filesystem::path& part_path, const std::string& relative,
                             std::uint64_t received_size, std::uint64_t declared_size, const std::string& expected_sha256,
                             const std::string& actual_sha256);
