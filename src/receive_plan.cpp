@@ -1,6 +1,7 @@
 #include "receive_plan.hpp"
 
-#include "transfer_stream.hpp"
+#include "transfer_receive_paths.hpp"
+#include "transfer_resume.hpp"
 
 #include <limits>
 #include <set>
