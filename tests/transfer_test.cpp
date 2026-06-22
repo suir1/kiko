@@ -33,6 +33,18 @@ std::string read_file(const fs::path& path) {
   return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
+bool try_create_symlink(const fs::path& target, const fs::path& link_path) {
+  std::error_code ec;
+  fs::create_directories(link_path.parent_path());
+  fs::create_symlink(target, link_path, ec);
+  return !ec;
+}
+
+bool is_symlink_path(const fs::path& path) {
+  std::error_code ec;
+  return fs::is_symlink(fs::symlink_status(path, ec));
+}
+
 std::string random_blob(std::size_t n) {
   std::mt19937 rng(12345);
   std::uniform_int_distribution<int> dist(0, 255);
@@ -357,6 +369,114 @@ int main() {
     }
     if (fs::exists(attack_dst / "evil.bin")) {
       std::cerr << "FAIL: oversized data finalized a file\n";
+      return 1;
+    }
+  }
+
+  // Symlinks default to the historical behavior (follow file contents), but
+  // explicit preserve mode sends a safe relative symlink as metadata.
+  {
+    auto link_src = root / "symlink-src" / "payload";
+    auto link_dst = root / "symlink-out";
+    write_file(link_src / "target.txt", "linked target\n");
+    const bool symlink_supported = try_create_symlink("target.txt", link_src / "link.txt");
+
+    if (symlink_supported) {
+      auto follow_files = collect_files(link_src);
+      bool followed_as_file = false;
+      for (const auto& entry : follow_files) {
+        if (entry.relative == "payload/link.txt" && !entry.symlink) followed_as_file = true;
+      }
+      if (!followed_as_file) {
+        std::cerr << "FAIL: default symlink mode did not follow link contents\n";
+        return 1;
+      }
+
+      CollectOptions preserve_opts;
+      preserve_opts.symlink_mode = SymlinkMode::Preserve;
+      auto preserve_files = collect_files(link_src, preserve_opts);
+      bool saw_symlink = false;
+      for (const auto& entry : preserve_files) {
+        if (entry.relative == "payload/link.txt" && entry.symlink && entry.link_target == "target.txt") {
+          saw_symlink = true;
+        }
+      }
+      if (!saw_symlink) {
+        std::cerr << "FAIL: preserve mode did not collect symlink metadata\n";
+        return 1;
+      }
+
+      bool s_failed = false;
+      std::thread symlink_sender([&] {
+        try {
+          auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+          if (!socket.valid()) throw std::runtime_error("connect failed");
+          send_files(socket, key, preserve_files, null_reporter);
+        } catch (const std::exception& e) {
+          std::cerr << "sender(symlink preserve) error: " << e.what() << "\n";
+          s_failed = true;
+        }
+      });
+      bool r_failed = false;
+      try {
+        auto accepted = listener.accept(std::chrono::seconds(2));
+        if (!accepted.valid()) throw std::runtime_error("accept failed");
+        receive_files(accepted, key, link_dst, null_reporter);
+      } catch (const std::exception& e) {
+        std::cerr << "receiver(symlink preserve) error: " << e.what() << "\n";
+        r_failed = true;
+      }
+      symlink_sender.join();
+      if (s_failed || r_failed) {
+        std::cerr << "FAIL: symlink preserve transfer raised an error\n";
+        return 1;
+      }
+      const auto received_link = link_dst / "payload/link.txt";
+      if (!is_symlink_path(received_link) || fs::read_symlink(received_link).generic_string() != "target.txt") {
+        std::cerr << "FAIL: symlink target was not preserved\n";
+        return 1;
+      }
+    }
+  }
+
+  // Protocol hardening: preserved symlinks must not point outside the receive
+  // directory, even if a non-kiko peer sends a malicious header.
+  {
+    auto attack_dst = root / "symlink-attack-out";
+    bool attacker_failed = false;
+    std::thread attacker([&] {
+      try {
+        auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+        if (!socket.valid()) throw std::runtime_error("connect failed");
+        StreamCipher cipher(key, /*sender_originates=*/true);
+
+        Message header{"file",
+                       {{"path", "bad-link"},
+                        {"size", "0"},
+                        {"compress", "none"},
+                        {"kind", "symlink"},
+                        {"target", "../escape"}}};
+        send_test_tagged_text(socket, cipher, TestStreamTag::FileHeader, encode_message(header));
+      } catch (const std::exception& e) {
+        std::cerr << "symlink attacker error: " << e.what() << "\n";
+        attacker_failed = true;
+      }
+    });
+
+    bool rejected_symlink = false;
+    try {
+      auto accepted = listener.accept(std::chrono::seconds(2));
+      if (!accepted.valid()) throw std::runtime_error("accept failed");
+      receive_files(accepted, key, attack_dst, null_reporter);
+    } catch (const std::exception& e) {
+      const std::string error = e.what();
+      rejected_symlink = error.find("unsafe symlink target") != std::string::npos;
+      if (!rejected_symlink) std::cerr << "symlink receiver error: " << error << "\n";
+    }
+    attacker.join();
+
+    if (attacker_failed || !rejected_symlink) {
+      std::cerr << "FAIL: receiver did not reject unsafe symlink target\n";
       return 1;
     }
   }

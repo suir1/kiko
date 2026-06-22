@@ -47,7 +47,7 @@ TransferPayloadStats transfer_payload_stats(const std::vector<FileEntry>& files)
   std::size_t compressible = 0;
   for (const auto& entry : files) {
     const bool dir_marker = entry.size == 0 && !entry.relative.empty() && entry.relative.back() == '/';
-    if (dir_marker) continue;
+    if (dir_marker || entry.symlink) continue;
     ++regular_files;
     if (entry.size > stats.largest_file_bytes) stats.largest_file_bytes = entry.size;
     if (should_compress_path(entry.absolute)) ++compressible;

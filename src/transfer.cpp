@@ -165,6 +165,7 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   auto code = config.code.empty() ? random_code(3) : config.code;
   CollectOptions collect_opts;
   collect_opts.use_gitignore = config.use_gitignore;
+  collect_opts.symlink_mode = config.symlink_mode;
   auto files = collect_files(config.file, collect_opts);
   std::uint64_t total_size = 0;
   for (const auto& entry : files) total_size += entry.size;

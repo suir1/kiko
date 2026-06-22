@@ -28,6 +28,18 @@ std::string read_file(const fs::path& path) {
   return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
+bool try_create_symlink(const fs::path& target, const fs::path& link_path) {
+  std::error_code ec;
+  fs::create_directories(link_path.parent_path());
+  fs::create_symlink(target, link_path, ec);
+  return !ec;
+}
+
+bool is_symlink_path(const fs::path& path) {
+  std::error_code ec;
+  return fs::is_symlink(fs::symlink_status(path, ec));
+}
+
 std::string random_blob(std::size_t n, unsigned seed) {
   std::mt19937 rng(seed);
   std::uniform_int_distribution<int> dist(0, 255);
@@ -221,6 +233,27 @@ int main() {
     if (!saw_blob_skip) {
       std::cerr << "FAIL: mux duplicate file was not skipped\n";
       return 1;
+    }
+  }
+
+  {
+    auto link_src = root / "mux-symlink-src" / "payload";
+    auto link_dst = root / "mux-symlink-out";
+    write_file(link_src / "target.txt", "mux linked target\n");
+    const bool symlink_supported = try_create_symlink("target.txt", link_src / "link.txt");
+    if (symlink_supported) {
+      CollectOptions preserve_opts;
+      preserve_opts.symlink_mode = SymlinkMode::Preserve;
+      auto symlink_files = collect_files(link_src, preserve_opts);
+      if (!run_round(listener, endpoint, N, key, symlink_files, link_dst)) {
+        std::cerr << "FAIL: mux symlink preserve transfer raised an error\n";
+        return 1;
+      }
+      const auto received_link = link_dst / "payload/link.txt";
+      if (!is_symlink_path(received_link) || fs::read_symlink(received_link).generic_string() != "target.txt") {
+        std::cerr << "FAIL: mux symlink target was not preserved\n";
+        return 1;
+      }
     }
   }
 

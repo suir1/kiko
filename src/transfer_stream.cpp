@@ -29,8 +29,24 @@ bool is_dir_entry(const FileEntry& entry) {
   return entry.size == 0 && !entry.relative.empty() && entry.relative.back() == '/';
 }
 
+bool is_symlink_entry(const FileEntry& entry) {
+  return entry.symlink;
+}
+
 bool is_dir_header(const std::string& path, std::uint64_t size) {
   return size == 0 && !path.empty() && path.back() == '/';
+}
+
+bool is_symlink_header(const Message& header) {
+  return header.type == "symlink" || header.get("kind") == "symlink";
+}
+
+bool target_is_safe_relative_symlink(const std::filesystem::path& target) {
+  if (target.empty() || target.is_absolute()) return false;
+  for (const auto& part : target) {
+    if (part == "..") return false;
+  }
+  return true;
 }
 
 void append_mtime_field(Message& header, const FileEntry& entry) {
@@ -42,10 +58,18 @@ void append_mode_field(Message& header, const FileEntry& entry) {
 }
 
 bool should_compress_entry(const FileEntry& entry) {
-  return !is_dir_entry(entry) && should_compress_path(entry.absolute);
+  return !is_dir_entry(entry) && !is_symlink_entry(entry) && should_compress_path(entry.absolute);
 }
 
 Message make_file_header(const FileEntry& entry) {
+  if (is_symlink_entry(entry)) {
+    return Message{"file",
+                   {{"path", entry.relative},
+                    {"size", "0"},
+                    {"compress", "none"},
+                    {"kind", "symlink"},
+                    {"target", entry.link_target}}};
+  }
   if (is_dir_entry(entry)) {
     Message header{"file", {{"path", entry.relative}, {"size", "0"}, {"compress", "none"}}};
     append_mtime_field(header, entry);
@@ -235,6 +259,28 @@ void finalize_part_file(const std::filesystem::path& part_path, const std::files
   (void)relative;
 }
 
+void validate_safe_symlink_target(const std::string& relative, const std::string& target) {
+  if (relative.empty() || relative.back() == '/') {
+    throw KikoError("refusing invalid symlink path: " + relative);
+  }
+  const std::filesystem::path link_target(target);
+  if (!target_is_safe_relative_symlink(link_target)) {
+    throw KikoError("refusing unsafe symlink target for " + relative + ": " + target);
+  }
+}
+
+void create_safe_symlink(const std::filesystem::path& current_path, const std::string& relative,
+                         const std::string& target) {
+  validate_safe_symlink_target(relative, target);
+  const std::filesystem::path link_target(target);
+  std::error_code ec;
+  if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
+  std::filesystem::remove(current_path, ec);
+  ec.clear();
+  std::filesystem::create_symlink(link_target, current_path, ec);
+  if (ec) throw KikoError("failed to create symlink: " + current_path.string());
+}
+
 void send_tagged(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, std::span<const std::uint8_t> payload) {
   Bytes plain;
   plain.reserve(payload.size() + 1);
@@ -281,6 +327,20 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
   std::uint64_t grand_total = 0;
 
   for (const auto& entry : files) {
+    if (is_symlink_entry(entry)) {
+      auto header = make_file_header(entry);
+      send_tagged_text(channel, cipher, StreamTag::FileHeader, encode_message(header));
+      reporter.file_start(entry.relative, 0);
+
+      const auto resume = recv_resume_request(channel, cipher, entry);
+      send_resume_ack(channel, cipher, resume.offset);
+
+      Message end{"end", {{"sha256", kEmptySha256}}};
+      send_tagged_text(channel, cipher, StreamTag::FileEnd, encode_message(end));
+      reporter.file_complete(entry.relative, 0, false);
+      continue;
+    }
+
     if (is_dir_entry(entry)) {
       auto header = make_file_header(entry);
       send_tagged_text(channel, cipher, StreamTag::FileHeader, encode_message(header));
@@ -378,6 +438,8 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
   bool resumed = false;
   bool skipping_file = false;
   bool is_dir_marker = false;
+  bool is_symlink_marker = false;
+  std::string pending_symlink_target;
   std::uint64_t pending_mtime_ms = 0;
   std::uint32_t pending_mode = 0;
   std::size_t file_count = 0;
@@ -397,6 +459,20 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         use_zstd = header.get("compress", "zstd") != "none";
         current_path = safe_join(output_dir, current_relative);
         if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
+
+        if (is_symlink_header(header)) {
+          pending_symlink_target = header.get("target");
+          validate_safe_symlink_target(current_relative, pending_symlink_target);
+          send_resume(channel, cipher, 0);
+          (void)recv_resume_ack(channel, cipher, 0, 0, current_relative);
+          reporter.file_start(current_relative, 0);
+          is_symlink_marker = true;
+          current_total = 0;
+          current_declared_size = 0;
+          pending_mtime_ms = 0;
+          pending_mode = 0;
+          break;
+        }
 
         if (is_dir_header(current_relative, declared_size)) {
           std::filesystem::create_directories(current_path);
@@ -484,6 +560,14 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         break;
       }
       case StreamTag::FileEnd: {
+        if (is_symlink_marker) {
+          create_safe_symlink(current_path, current_relative, pending_symlink_target);
+          ++file_count;
+          reporter.file_complete(current_relative, 0, false);
+          is_symlink_marker = false;
+          pending_symlink_target.clear();
+          break;
+        }
         if (is_dir_marker) {
           ++file_count;
           reporter.file_complete(current_relative, 0, false);

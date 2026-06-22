@@ -48,7 +48,9 @@ void ensure_declared_space(std::uint64_t current_total, std::uint64_t declared_s
                                                    const std::string& relative);
 
 [[nodiscard]] bool is_dir_entry(const FileEntry& entry);
+[[nodiscard]] bool is_symlink_entry(const FileEntry& entry);
 [[nodiscard]] bool is_dir_header(const std::string& path, std::uint64_t size);
+[[nodiscard]] bool is_symlink_header(const Message& header);
 void append_mtime_field(Message& header, const FileEntry& entry);
 void append_mode_field(Message& header, const FileEntry& entry);
 [[nodiscard]] bool should_compress_entry(const FileEntry& entry);
@@ -76,6 +78,9 @@ void verify_part_file_digest(const std::filesystem::path& part_path, const std::
                              std::uint64_t declared_size, const std::string& expected_sha256, Bytes& buffer);
 void finalize_part_file(const std::filesystem::path& part_path, const std::filesystem::path& current_path,
                         const std::string& relative);
+void validate_safe_symlink_target(const std::string& relative, const std::string& target);
+void create_safe_symlink(const std::filesystem::path& current_path, const std::string& relative,
+                         const std::string& target);
 
 void send_tagged(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, std::span<const std::uint8_t> payload);
 void send_tagged_text(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, const std::string& text);

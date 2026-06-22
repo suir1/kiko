@@ -14,6 +14,11 @@
 
 namespace kiko {
 
+enum class SymlinkMode {
+  Follow,
+  Preserve,
+};
+
 struct SendConfig {
   std::filesystem::path file;
   Endpoint relay;
@@ -38,6 +43,7 @@ struct SendConfig {
   bool auto_reconnect = true;
   int reconnect_attempts = 3;
   std::chrono::milliseconds reconnect_delay{1000};
+  SymlinkMode symlink_mode = SymlinkMode::Follow;
   bool debug_route = false;
   // Number of parallel TCP connections to use on the relay path (1 = single
   // stream). The sender controls this; the receiver mirrors it.
@@ -51,10 +57,13 @@ struct FileEntry {
   std::string imohash;
   std::uint64_t mtime_ms = 0;  // unix epoch ms; 0 = omit from wire
   std::uint32_t mode = 0;      // POSIX execute bits to preserve; 0 = omit from wire
+  bool symlink = false;
+  std::string link_target;
 };
 
 struct CollectOptions {
   bool use_gitignore = true;
+  SymlinkMode symlink_mode = SymlinkMode::Follow;
 };
 
 // Enumerates the files to send. A directory is walked recursively with the

@@ -36,6 +36,11 @@ void apply_relay_pass_cli(std::optional<std::string>& pass, const std::string& c
   else if (!pass) pass = default_relay_pass(user_config);
 }
 
+kiko::SymlinkMode parse_symlink_mode_option(const std::string& value) {
+  if (value == "preserve") return kiko::SymlinkMode::Preserve;
+  return kiko::SymlinkMode::Follow;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -101,6 +106,7 @@ int main(int argc, char** argv) {
   std::string send_proxy;
   std::string send_ip;
   std::string send_bind_interface;
+  std::string send_symlinks = "follow";
   int send_connections = 4;
   int send_reconnect_attempts = 3;
   bool send_tui = false;
@@ -112,6 +118,8 @@ int main(int argc, char** argv) {
   send_cmd->add_option("--listen", send_listen, "Local listen address for direct connections");
   send_cmd->add_flag("--no-direct", send_no_direct, "Force relay path");
   send_cmd->add_flag("--no-gitignore", send_no_gitignore, "Do not apply .gitignore when sending directories");
+  send_cmd->add_option("--symlinks", send_symlinks, "Symlink handling: follow or preserve")
+      ->check(CLI::IsMember({"follow", "preserve"}));
   send_cmd->add_flag("--no-lan", send_no_lan, "Disable LAN multicast discovery");
   send_cmd->add_flag("--no-local", send_no_local, "Disable embedded LAN relay on sender");
   send_cmd->add_flag("--local", send_only_local, "Use only embedded LAN relay (no external relay)");
@@ -221,6 +229,7 @@ int main(int argc, char** argv) {
       config.listen = parse_bind_endpoint_option(send_listen, 0);
       config.no_direct = send_no_direct;
       config.use_gitignore = !send_no_gitignore;
+      config.symlink_mode = parse_symlink_mode_option(send_symlinks);
       config.lan_discover = !send_no_lan;
       config.disable_local = send_no_local;
       config.only_local = send_only_local;

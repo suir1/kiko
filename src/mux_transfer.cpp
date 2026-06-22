@@ -51,6 +51,20 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
   std::uint64_t grand_total = 0;
 
   for (const auto& entry : files) {
+    if (is_symlink_entry(entry)) {
+      auto header = make_file_header(entry);
+      send_tagged_text(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header));
+      reporter.file_start(entry.relative, 0);
+
+      const auto resume = recv_resume_request(channels[0], ciphers[0], entry);
+      send_resume_ack(channels[0], ciphers[0], resume.offset);
+
+      Message end{"end", {{"sha256", kEmptySha256}}};
+      send_tagged_text(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end));
+      reporter.file_complete(entry.relative, 0, false);
+      continue;
+    }
+
     if (is_dir_entry(entry)) {
       auto header = make_file_header(entry);
       send_tagged_text(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header));
@@ -162,6 +176,20 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     const bool use_zstd = header.get("compress", "zstd") != "none";
     auto current_path = safe_join(output_dir, current_relative);
     if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
+
+    if (is_symlink_header(header)) {
+      const auto symlink_target = header.get("target");
+      validate_safe_symlink_target(current_relative, symlink_target);
+      reporter.file_start(current_relative, 0);
+      send_resume(channels[0], ciphers[0], 0);
+      (void)recv_resume_ack(channels[0], ciphers[0], 0, 0, current_relative);
+      auto endframe = recv_tagged(channels[0], ciphers[0]);
+      if (!endframe || endframe->tag != StreamTag::FileEnd) throw KikoError("expected file end");
+      create_safe_symlink(current_path, current_relative, symlink_target);
+      ++file_count;
+      reporter.file_complete(current_relative, 0, false);
+      continue;
+    }
 
     if (is_dir_header(current_relative, declared_size)) {
       std::filesystem::create_directories(current_path);

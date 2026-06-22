@@ -49,6 +49,7 @@ kiko recv <code> --out ./downloads
 - **Relay health check** – JSON `ping`/`pong` on each relay connection before rendezvous registration.
 - **LAN upgrade** – after the relay pipe is up, the receiver can probe sender LAN addresses before E2E PAKE.
 - **`.gitignore` support** – directory sends respect `.gitignore` rules (`--no-gitignore` to disable).
+- **File metadata** – executable bits are preserved, and `--symlinks preserve` can send safe relative symlinks as links.
 - **Proxy** – `--proxy http://host:port` or `socks5://host:port` for relay connections.
 - **NAT awareness** – LAN candidates first, then reflexive addresses; adaptive punch timing before relay fallback.
 - **Connectivity planning** – STUN NAT probe (`--udp-probe`), rule-based `RoutePlan`, VPN-filtered LAN candidates, relay outbound path probing, and `~/.config/kiko/profile.json` success memory.
@@ -129,6 +130,7 @@ Send:
 ./build/kiko send ./file.bin
 ./build/kiko send ./my-folder --relay [::1]:9000 --connections 8
 ./build/kiko send ./repo --proxy socks5://127.0.0.1:1080
+./build/kiko send ./repo --symlinks preserve
 ./build/kiko send ./file.bin --debug-route
 ```
 
@@ -181,7 +183,7 @@ export KIKO_AI_BASE_URL=https://api.openai.com/v1   # or http://localhost:11434/
 export KIKO_AI_MODEL=gpt-4o-mini
 ```
 
-Flags: `--relay-pass`, `--remember`, `--auto-connections`, `--debug-route`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
+Flags: `--relay-pass`, `--remember`, `--auto-connections`, `--debug-route`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--symlinks`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
 
 `--ip` overrides the relay target (port from `--relay`) and the addresses advertised to the peer for direct/punch paths. When set, LAN relay discovery is skipped.
 
