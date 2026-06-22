@@ -105,3 +105,7 @@ jobs:
         run: ./build/kiko doctor --relay "${{ vars.KIKO_RELAY_SMOKE }}"
         env:
           KIKO_RELAY_PASS: ${{ secrets.KIKO_RELAY_PASS }}
+      - name: Smoke transfer through public relay
+        run: python3 scripts/relay_transfer_smoke.py ./build/kiko --relay "${{ vars.KIKO_RELAY_SMOKE }}"
+        env:
+          KIKO_RELAY_PASS: ${{ secrets.KIKO_RELAY_PASS }}

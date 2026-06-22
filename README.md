@@ -229,7 +229,7 @@ ctest --test-dir build -L netlab --output-on-failure
 
 `CI Fast` runs automatically on pushes and pull requests with Ubuntu x64, macOS ARM, and Windows. Use it for normal development feedback.
 
-`CI Full` is manual (`workflow_dispatch`) and runs the full platform matrix: Ubuntu x64/ARM, macOS ARM/Intel, and Windows. It also keeps the optional public relay smoke test when `KIKO_RELAY_SMOKE` is set. Run it before releases or large networking/relay changes.
+`CI Full` is manual (`workflow_dispatch`) and runs the full platform matrix: Ubuntu x64/ARM, macOS ARM/Intel, and Windows. It also keeps the optional public relay doctor + send/recv smoke test when `KIKO_RELAY_SMOKE` is set. Run it before releases or large networking/relay changes.
 
 ## Releases
 

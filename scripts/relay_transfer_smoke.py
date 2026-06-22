@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end smoke test: local relay + CLI send/recv + content check."""
+"""End-to-end smoke test: relay + CLI send/recv + content check."""
 
 from __future__ import annotations
 
@@ -66,6 +66,25 @@ def terminate(proc: subprocess.Popen[str] | None) -> str:
     return (stdout or "") + (stderr or "")
 
 
+def parse_args(argv: list[str]) -> tuple[Path, str | None]:
+    kiko = Path(os.environ.get("KIKO_BIN", DEFAULT_KIKO))
+    relay: str | None = None
+    i = 1
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--relay":
+            if i + 1 >= len(argv):
+                fail("--relay requires HOST:PORT")
+            relay = argv[i + 1]
+            i += 2
+        elif arg.startswith("--"):
+            fail(f"unknown option: {arg}")
+        else:
+            kiko = Path(arg)
+            i += 1
+    return kiko, relay
+
+
 def run_pair(kiko: Path, work: Path, relay: str) -> None:
     source_dir = work / "source"
     recv_dir = work / "received"
@@ -80,7 +99,7 @@ def run_pair(kiko: Path, work: Path, relay: str) -> None:
         encoding="utf-8",
     )
 
-    code = "smoke123"
+    code = f"smoke{os.getpid()}{int(time.time())}"
     env = os.environ.copy()
     env["KIKO_RELAY"] = relay
 
@@ -174,25 +193,27 @@ def run_pair(kiko: Path, work: Path, relay: str) -> None:
 
 
 def main() -> None:
-    kiko = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(os.environ.get("KIKO_BIN", DEFAULT_KIKO))
+    kiko, external_relay = parse_args(sys.argv)
     if not kiko.is_file():
         fail(f"kiko binary not found: {kiko}")
 
     work = Path(tempfile.mkdtemp(prefix="kiko-relay-transfer-smoke-"))
     relay_proc: subprocess.Popen[str] | None = None
     try:
-        port = free_tcp_port()
-        relay = f"127.0.0.1:{port}"
-        relay_proc = subprocess.Popen(
-            [str(kiko), "relay", "--listen", relay],
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if not wait_for_port(port):
-            relay_log = terminate(relay_proc)
-            fail(f"relay did not listen on {relay}", ("relay", relay_log))
+        relay = external_relay
+        if relay is None:
+            port = free_tcp_port()
+            relay = f"127.0.0.1:{port}"
+            relay_proc = subprocess.Popen(
+                [str(kiko), "relay", "--listen", relay],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if not wait_for_port(port):
+                relay_log = terminate(relay_proc)
+                fail(f"relay did not listen on {relay}", ("relay", relay_log))
         run_pair(kiko, work, relay)
     finally:
         terminate(relay_proc)
