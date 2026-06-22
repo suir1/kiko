@@ -58,6 +58,7 @@ enum class TestStreamTag : std::uint8_t {
   FileEnd = 3,
   Done = 4,
   Resume = 5,
+  ResumeAck = 8,
 };
 
 struct TestTaggedFrame {
@@ -227,6 +228,53 @@ int main() {
     }
   }
 
+  // Corrupt partials should be rejected before resuming. The sender verifies
+  // the receiver's prefix digest and asks it to restart this file from byte 0.
+  {
+    auto blob_rel = fs::path("payload/nested/blob.bin");
+    auto final_blob = dst / blob_rel;
+    auto part_blob = dst;
+    part_blob /= blob_rel;
+    part_blob += ".kikopart";
+    fs::remove(final_blob);
+    write_file(part_blob, std::string(blob.size() / 2, 'x'));
+
+    bool s_failed = false;
+    std::thread sender3([&] {
+      try {
+        auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+        if (!socket.valid()) throw std::runtime_error("connect failed");
+        send_files(socket, key, files, null_reporter);
+      } catch (const std::exception& e) {
+        std::cerr << "sender(corrupt resume) error: " << e.what() << "\n";
+        s_failed = true;
+      }
+    });
+    bool r_failed = false;
+    try {
+      auto accepted = listener.accept(std::chrono::seconds(2));
+      if (!accepted.valid()) throw std::runtime_error("accept failed");
+      receive_files(accepted, key, dst, null_reporter);
+    } catch (const std::exception& e) {
+      std::cerr << "receiver(corrupt resume) error: " << e.what() << "\n";
+      r_failed = true;
+    }
+    sender3.join();
+
+    if (s_failed || r_failed) {
+      std::cerr << "FAIL: corrupt partial restart raised an error\n";
+      return 1;
+    }
+    if (read_file(final_blob) != blob) {
+      std::cerr << "FAIL: corrupt partial was not restarted correctly\n";
+      return 1;
+    }
+    if (fs::exists(part_blob)) {
+      std::cerr << "FAIL: corrupt partial not finalized after restart\n";
+      return 1;
+    }
+  }
+
   // Protocol hardening: a peer must not be able to write more bytes than the
   // size declared in the file header.
   {
@@ -242,6 +290,8 @@ int main() {
         send_test_tagged_text(socket, cipher, TestStreamTag::FileHeader, encode_message(header));
         auto resume = recv_test_tagged(socket, cipher);
         if (!resume || resume->tag != TestStreamTag::Resume) throw std::runtime_error("expected resume");
+        Message ack{"resume_ack", {{"offset", "0"}}};
+        send_test_tagged_text(socket, cipher, TestStreamTag::ResumeAck, encode_message(ack));
 
         Bytes payload{'a', 'b'};
         send_test_tagged(socket, cipher, TestStreamTag::Data, payload);

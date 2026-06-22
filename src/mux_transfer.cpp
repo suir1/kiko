@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <thread>
 
@@ -55,7 +56,8 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
       send_tagged_text(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header));
       reporter.file_start(entry.relative, 0);
 
-      (void)recv_resume_offset(channels[0], ciphers[0], entry);
+      const auto resume = recv_resume_request(channels[0], ciphers[0], entry);
+      send_resume_ack(channels[0], ciphers[0], resume.offset);
 
       Message end{"end", {{"sha256", kEmptySha256}}};
       send_tagged_text(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end));
@@ -70,10 +72,23 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
     send_tagged_text(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header));
     reporter.file_start(entry.relative, entry.size);
 
-    const auto offset = recv_resume_offset(channels[0], ciphers[0], entry);
+    const auto resume = recv_resume_request(channels[0], ciphers[0], entry);
 
-    Sha256Hasher hasher;
-    std::uint64_t total = hash_stream_prefix(input, buffer, hasher, offset, entry.relative);
+    std::optional<Sha256Hasher> hasher;
+    hasher.emplace();
+    std::string source_prefix_sha256;
+    std::uint64_t total = hash_stream_prefix(input, buffer, *hasher, resume.offset, entry.relative,
+                                             resume.offset > 0 ? &source_prefix_sha256 : nullptr);
+    std::uint64_t offset = resume.offset;
+    if (offset > 0 && !resume.prefix_sha256.empty() && resume.prefix_sha256 != source_prefix_sha256) {
+      reporter.status("resume prefix mismatch, restarting " + entry.relative);
+      input.clear();
+      input.seekg(0);
+      hasher.emplace();
+      total = 0;
+      offset = 0;
+    }
+    send_resume_ack(channels[0], ciphers[0], offset);
     if (offset > 0) reporter.file_advance(offset);
 
     const bool use_zstd = should_compress_entry(entry);
@@ -83,7 +98,7 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
       auto got = input.gcount();
       if (got <= 0) break;
       std::span<const std::uint8_t> chunk(buffer.data(), static_cast<std::size_t>(got));
-      hasher.update(chunk);
+      hasher->update(chunk);
 
       Bytes payload;
       payload.reserve(12 + chunk.size());
@@ -106,7 +121,7 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
       send_tagged(channels[k], ciphers[k], StreamTag::ChunkEnd, std::span<const std::uint8_t>());
     }
 
-    auto digest = hasher.finish();
+    auto digest = hasher->finish();
     Message end{"end", {{"sha256", hex_encode(digest)}}};
     send_tagged_text(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end));
     grand_total += total;
@@ -153,6 +168,7 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       apply_file_mtime(current_path, header);
       reporter.file_start(current_relative, 0);
       send_resume(channels[0], ciphers[0], 0);
+      (void)recv_resume_ack(channels[0], ciphers[0], 0, 0, current_relative);
       auto endframe = recv_tagged(channels[0], ciphers[0]);
       if (!endframe || endframe->tag != StreamTag::FileEnd) throw KikoError("expected file end");
       ++file_count;
@@ -176,7 +192,24 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
 
     auto part_path = part_path_for(current_path);
 
-    const auto have = resumable_part_size(part_path, declared_size);
+    auto have = resumable_part_size(part_path, declared_size);
+    std::string prefix_sha256;
+    if (have > 0) {
+      Bytes prefix_buffer(kMuxChunk);
+      Sha256Hasher prefix_hasher;
+      if (!hash_existing_part_prefix(part_path, have, prefix_buffer, prefix_hasher, &prefix_sha256)) {
+        have = 0;
+        prefix_sha256.clear();
+      }
+    }
+
+    send_resume(channels[0], ciphers[0], have, prefix_sha256);
+    const auto accepted = recv_resume_ack(channels[0], ciphers[0], have, declared_size, current_relative);
+    if (accepted != have) {
+      reporter.status("resume rejected, restarting " + current_relative);
+      have = accepted;
+    }
+
     if (have == 0) {
       std::ofstream create(part_path, std::ios::binary | std::ios::trunc);
     }
@@ -185,8 +218,6 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
 
     reporter.file_start(current_relative, declared_size);
     if (have > 0) reporter.file_advance(have);
-
-    send_resume(channels[0], ciphers[0], have);
 
     std::mutex file_mutex;
     std::mutex report_mutex;

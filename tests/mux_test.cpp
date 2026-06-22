@@ -167,6 +167,30 @@ int main() {
     }
   }
 
+  // Corrupt partials should be rejected before resuming on the mux path too.
+  {
+    auto blob_rel = fs::path("payload/nested/blob.bin");
+    auto final_blob = dst / blob_rel;
+    auto part_blob = dst;
+    part_blob /= blob_rel;
+    part_blob += ".kikopart";
+    fs::remove(final_blob);
+    write_file(part_blob, std::string(blob.size() / 3, 'x'));
+
+    if (!run_round(listener, endpoint, N, key, files, dst)) {
+      std::cerr << "FAIL: mux corrupt partial restart raised an error\n";
+      return 1;
+    }
+    if (read_file(final_blob) != blob) {
+      std::cerr << "FAIL: mux corrupt partial was not restarted correctly\n";
+      return 1;
+    }
+    if (fs::exists(part_blob)) {
+      std::cerr << "FAIL: mux corrupt partial not finalized after restart\n";
+      return 1;
+    }
+  }
+
   // Existing complete files should be skipped on the mux path, matching the
   // single-channel imohash fast path.
   {

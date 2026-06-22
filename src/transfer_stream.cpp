@@ -57,30 +57,53 @@ Message make_file_header(const FileEntry& entry) {
   return header;
 }
 
-void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset) {
+void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset, const std::string& prefix_sha256) {
   Message resume{"resume", {{"offset", std::to_string(offset)}}};
+  if (!prefix_sha256.empty()) resume.fields["prefix_sha256"] = prefix_sha256;
   send_tagged_text(socket, cipher, StreamTag::Resume, encode_message(resume));
 }
 
-std::uint64_t recv_resume_offset(TcpSocket& socket, StreamCipher& cipher, const FileEntry& entry) {
+ResumeRequest recv_resume_request(TcpSocket& socket, StreamCipher& cipher, const FileEntry& entry) {
   auto resume = recv_tagged(socket, cipher);
   if (!resume || resume->tag != StreamTag::Resume) throw KikoError("expected resume frame");
   auto resume_msg = decode_message(std::string(resume->payload.begin(), resume->payload.end()));
   auto offset = resume_msg.get_u64("offset", 0);
-  return offset > entry.size ? 0 : offset;
+  return ResumeRequest{offset > entry.size ? 0 : offset, resume_msg.get("prefix_sha256")};
+}
+
+void send_resume_ack(TcpSocket& socket, StreamCipher& cipher, std::uint64_t accepted_offset) {
+  Message ack{"resume_ack", {{"offset", std::to_string(accepted_offset)}}};
+  send_tagged_text(socket, cipher, StreamTag::ResumeAck, encode_message(ack));
+}
+
+std::uint64_t recv_resume_ack(TcpSocket& socket, StreamCipher& cipher, std::uint64_t requested_offset,
+                              std::uint64_t declared_size, const std::string& relative) {
+  auto ack = recv_tagged(socket, cipher);
+  if (!ack || ack->tag != StreamTag::ResumeAck) throw KikoError("expected resume ack");
+  auto ack_msg = decode_message(std::string(ack->payload.begin(), ack->payload.end()));
+  auto accepted = ack_msg.get_u64("offset", 0);
+  if (accepted > declared_size || accepted > requested_offset) {
+    throw KikoError("invalid resume ack for " + relative);
+  }
+  return accepted;
 }
 
 std::uint64_t hash_stream_prefix(std::istream& input, Bytes& buffer, Sha256Hasher& hasher, std::uint64_t offset,
-                                 const std::string& relative) {
+                                 const std::string& relative, std::string* prefix_sha256) {
+  std::optional<Sha256Hasher> prefix_hasher;
+  if (prefix_sha256 != nullptr) prefix_hasher.emplace();
   std::uint64_t total = 0;
   while (total < offset) {
     auto want = std::min<std::uint64_t>(buffer.size(), offset - total);
     input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(want));
     auto got = input.gcount();
     if (got <= 0) throw KikoError("source shorter than resume offset: " + relative);
-    hasher.update(std::span<const std::uint8_t>(buffer.data(), static_cast<std::size_t>(got)));
+    std::span<const std::uint8_t> chunk(buffer.data(), static_cast<std::size_t>(got));
+    hasher.update(chunk);
+    if (prefix_hasher) prefix_hasher->update(chunk);
     total += static_cast<std::uint64_t>(got);
   }
+  if (prefix_hasher) *prefix_sha256 = hex_encode(prefix_hasher->finish());
   return total;
 }
 
@@ -100,6 +123,8 @@ bool try_skip_existing_duplicate(TcpSocket& socket, StreamCipher& cipher, const 
   }
 
   send_resume(socket, cipher, declared_size);
+  const auto accepted = recv_resume_ack(socket, cipher, declared_size, declared_size, current_relative);
+  if (accepted != declared_size) return false;
   reporter.status("skipped duplicate " + current_relative);
   reporter.file_start(current_relative, declared_size);
   return true;
@@ -120,19 +145,24 @@ std::uint64_t resumable_part_size(const std::filesystem::path& part_path, std::u
 }
 
 bool hash_existing_part_prefix(const std::filesystem::path& part_path, std::uint64_t have, Bytes& buffer,
-                               Sha256Hasher& hasher) {
+                               Sha256Hasher& hasher, std::string* prefix_sha256) {
   std::ifstream partial(part_path, std::ios::binary);
   if (!partial) return false;
 
+  std::optional<Sha256Hasher> prefix_hasher;
+  if (prefix_sha256 != nullptr) prefix_hasher.emplace();
   std::uint64_t hashed = 0;
   while (partial && hashed < have) {
     auto want = std::min<std::uint64_t>(buffer.size(), have - hashed);
     partial.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(want));
     auto got = partial.gcount();
     if (got <= 0) break;
-    hasher.update(std::span<const std::uint8_t>(buffer.data(), static_cast<std::size_t>(got)));
+    std::span<const std::uint8_t> chunk(buffer.data(), static_cast<std::size_t>(got));
+    hasher.update(chunk);
+    if (prefix_hasher) prefix_hasher->update(chunk);
     hashed += static_cast<std::uint64_t>(got);
   }
+  if (hashed == have && prefix_hasher) *prefix_sha256 = hex_encode(prefix_hasher->finish());
   return hashed == have;
 }
 
@@ -249,7 +279,8 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
       send_tagged_text(channel, cipher, StreamTag::FileHeader, encode_message(header));
       reporter.file_start(entry.relative, 0);
 
-      (void)recv_resume_offset(channel, cipher, entry);
+      const auto resume = recv_resume_request(channel, cipher, entry);
+      send_resume_ack(channel, cipher, resume.offset);
 
       Message end{"end", {{"sha256", kEmptySha256}}};
       send_tagged_text(channel, cipher, StreamTag::FileEnd, encode_message(end));
@@ -266,12 +297,27 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
 
     // The receiver replies with how many leading bytes it already has so we can
     // resume an interrupted transfer instead of resending the whole file.
-    const auto offset = recv_resume_offset(channel, cipher, entry);
+    const auto resume = recv_resume_request(channel, cipher, entry);
 
-    Sha256Hasher hasher;
+    std::optional<Sha256Hasher> hasher;
+    hasher.emplace();
     // Hash (without resending) the prefix the receiver already holds so the
-    // final digest still covers the whole file.
-    std::uint64_t total = hash_stream_prefix(input, buffer, hasher, offset, entry.relative);
+    // final digest still covers the whole file. If the receiver provided a
+    // prefix digest and it does not match the local source, restart this file
+    // from byte 0 instead of wasting the rest of the transfer.
+    std::string source_prefix_sha256;
+    std::uint64_t total = hash_stream_prefix(input, buffer, *hasher, resume.offset, entry.relative,
+                                             resume.offset > 0 ? &source_prefix_sha256 : nullptr);
+    std::uint64_t offset = resume.offset;
+    if (offset > 0 && !resume.prefix_sha256.empty() && resume.prefix_sha256 != source_prefix_sha256) {
+      reporter.status("resume prefix mismatch, restarting " + entry.relative);
+      input.clear();
+      input.seekg(0);
+      hasher.emplace();
+      total = 0;
+      offset = 0;
+    }
+    send_resume_ack(channel, cipher, offset);
     if (offset > 0) reporter.file_advance(offset);
 
     const bool use_zstd = should_compress_entry(entry);
@@ -282,7 +328,7 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
       auto got = input.gcount();
       if (got <= 0) break;
       std::span<const std::uint8_t> chunk(buffer.data(), static_cast<std::size_t>(got));
-      hasher.update(chunk);
+      hasher->update(chunk);
       total += static_cast<std::uint64_t>(got);
       if (use_zstd) {
         auto compressed = compressor->compress(chunk, false);
@@ -297,7 +343,7 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
       if (!trailer.empty()) send_tagged(channel, cipher, StreamTag::Data, trailer);
     }
 
-    auto digest = hasher.finish();
+    auto digest = hasher->finish();
     Message end{"end", {{"sha256", hex_encode(digest)}}};
     send_tagged_text(channel, cipher, StreamTag::FileEnd, encode_message(end));
     grand_total += total;
@@ -348,6 +394,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
           std::filesystem::create_directories(current_path);
           apply_file_mtime(current_path, header);
           send_resume(channel, cipher, 0);
+          (void)recv_resume_ack(channel, cipher, 0, 0, current_relative);
           reporter.file_start(current_relative, 0);
           is_dir_marker = true;
           current_total = 0;
@@ -370,9 +417,25 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         // the file we are about to receive.
         std::uint64_t have = resumable_part_size(part_path, declared_size);
         hasher.emplace();
-        if (have > 0 && !hash_existing_part_prefix(part_path, have, buffer, *hasher)) {
-          have = 0;
+        std::string prefix_sha256;
+        if (have > 0) {
+          if (!hash_existing_part_prefix(part_path, have, buffer, *hasher, &prefix_sha256)) {
+            have = 0;
+            prefix_sha256.clear();
+            hasher.emplace();
+          }
+        }
+
+        send_resume(channel, cipher, have, prefix_sha256);
+        const auto accepted = recv_resume_ack(channel, cipher, have, declared_size, current_relative);
+        if (accepted != have) {
+          reporter.status("resume rejected, restarting " + current_relative);
+          have = accepted;
           hasher.emplace();
+          if (have > 0 && !hash_existing_part_prefix(part_path, have, buffer, *hasher)) {
+            have = 0;
+            hasher.emplace();
+          }
         }
 
         out = std::ofstream(part_path, std::ios::binary | (have > 0 ? std::ios::app : std::ios::trunc));
@@ -382,8 +445,6 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         resumed = have > 0;
         reporter.file_start(current_relative, declared_size);
         if (have > 0) reporter.file_advance(have);
-
-        send_resume(channel, cipher, have);
         break;
       }
       case StreamTag::Data: {
