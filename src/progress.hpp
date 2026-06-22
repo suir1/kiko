@@ -114,8 +114,8 @@ class ProgressReporter {
   // The current connection failed but the transfer will reconnect and rely on
   // the normal resume protocol to continue any partial files.
   virtual void transfer_retry(int next_attempt, int max_attempts, const std::string& reason) {
-    status("auto reconnect: retry " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts) +
-           " after " + reason);
+    status("connection lost, retrying " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts) +
+           "; resume will continue verified partial files; reason: " + reason);
   }
 };
 

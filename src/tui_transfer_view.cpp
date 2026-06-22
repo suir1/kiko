@@ -327,8 +327,9 @@ void TuiReporter::transfer_retry(int next_attempt, int max_attempts, const std::
     state_.failed = false;
     state_.route_phase_label = "reconnecting";
     state_.activity = "reconnecting " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts);
-    log_append(state_.connectivity_log, "auto reconnect: attempt " + std::to_string(next_attempt) + "/" +
-                                            std::to_string(max_attempts) + " after " + reason);
+    log_append(state_.connectivity_log, "connection lost, retrying " + std::to_string(next_attempt) + "/" +
+                                            std::to_string(max_attempts) +
+                                            "; resume will continue verified partial files; reason: " + reason);
   }
   wake_();
 }

@@ -23,6 +23,7 @@ void write_file(const fs::path& path, const std::string& contents) {
 
 // Records the sequence of reporter events for assertions.
 struct RecordingReporter : ProgressReporter {
+  std::vector<std::string> statuses;
   std::vector<std::string> started;
   std::vector<std::string> resumes;
   std::vector<std::string> completed;
@@ -32,6 +33,7 @@ struct RecordingReporter : ProgressReporter {
   bool finished = false;
   bool all_verified = true;
 
+  void status(const std::string& message) override { statuses.push_back(message); }
   void file_start(const std::string& path, std::uint64_t) override { started.push_back(path); }
   void file_advance(std::uint64_t delta) override { advanced += delta; }
   void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override {
@@ -142,6 +144,16 @@ int main() {
   if (duplicate_rec.advanced != expected_bytes) {
     std::cerr << "FAIL: duplicate-skip file_advance sum=" << duplicate_rec.advanced << " (expected "
               << expected_bytes << ")\n";
+    return 1;
+  }
+
+  RecordingReporter retry_rec;
+  retry_rec.transfer_retry(2, 3, "connection reset by peer");
+  if (retry_rec.statuses.size() != 1 ||
+      retry_rec.statuses[0].find("connection lost, retrying 2/3") == std::string::npos ||
+      retry_rec.statuses[0].find("resume will continue verified partial files") == std::string::npos ||
+      retry_rec.statuses[0].find("connection reset by peer") == std::string::npos) {
+    std::cerr << "FAIL: retry status did not explain reconnect/resume semantics\n";
     return 1;
   }
 

@@ -154,7 +154,7 @@ int main() {
     if (!woke || transfer_state.current_done != 0 || transfer_state.overall_done != 0 ||
         transfer_state.files_done != 0 || transfer_state.handshake ||
         transfer_state.route_phase_label != "reconnecting" ||
-        !contains(transfer_state.connectivity_log, "auto reconnect: attempt 2/3")) {
+        !contains(transfer_state.connectivity_log, "connection lost, retrying 2/3")) {
       std::cerr << "FAIL: TUI reporter did not reset progress for auto reconnect\n";
       fs::remove(send_path);
       return 1;

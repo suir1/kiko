@@ -87,6 +87,8 @@ bool is_retryable_transfer_error_message(std::string_view message) {
                           "recv failed",
                           "send failed",
                           "data channel closed",
+                          "mux receive failed: data channel closed early",
+                          "expected mux chunk end",
                           "transfer stream ended unexpectedly",
                           "expected transfer ack",
                           "interrupted",
