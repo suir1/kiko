@@ -58,6 +58,12 @@ struct RouteDecision {
   std::string relay_reason;
 };
 
+struct RouteChoiceRead {
+  enum class Kind { None, Message, Closed };
+  Kind kind = Kind::None;
+  Message message;
+};
+
 bool has_route_presence(RouteChoiceState state) { return state != RouteChoiceState::Waiting && state != RouteChoiceState::Invalid; }
 
 bool route_choice_final(RouteChoiceState state) {
@@ -79,11 +85,15 @@ void merge_route_choice(RouteChoiceState& state, RouteChoiceState next) {
   }
 }
 
-std::optional<Message> recv_route_choice_if_ready(TcpSocket& socket) {
+RouteChoiceRead recv_route_choice_if_ready(TcpSocket& socket) {
   const int fd = socket.fd();
-  if (fd < 0) return std::nullopt;
-  if (net_poll(fd, /*want_read=*/true, /*want_write=*/false, 0) <= 0) return std::nullopt;
-  return recv_message_timeout(socket, kRouteFrameReadTimeout);
+  if (fd < 0) return {RouteChoiceRead::Kind::Closed, {}};
+  const int poll = net_poll(fd, /*want_read=*/true, /*want_write=*/false, 0);
+  if (poll == 0) return {};
+  if (poll < 0) return {RouteChoiceRead::Kind::Closed, {}};
+  auto message = recv_message_timeout(socket, kRouteFrameReadTimeout);
+  if (!message) return {RouteChoiceRead::Kind::Closed, {}};
+  return {RouteChoiceRead::Kind::Message, std::move(*message)};
 }
 
 RouteDecision route_decision_for(RouteChoiceState first, RouteChoiceState second, bool deadline_expired) {
@@ -116,11 +126,17 @@ RouteDecision wait_route_decision(TcpSocket& first, TcpSocket& second) {
   const auto deadline = std::chrono::steady_clock::now() + kRouteChoiceTimeout;
 
   while (std::chrono::steady_clock::now() < deadline) {
-    if (auto msg = recv_route_choice_if_ready(first)) {
-      merge_route_choice(first_choice, route_choice_from(*msg));
+    const auto first_read = recv_route_choice_if_ready(first);
+    if (first_read.kind == RouteChoiceRead::Kind::Message) {
+      merge_route_choice(first_choice, route_choice_from(first_read.message));
+    } else if (first_read.kind == RouteChoiceRead::Kind::Closed) {
+      merge_route_choice(first_choice, RouteChoiceState::Invalid);
     }
-    if (auto msg = recv_route_choice_if_ready(second)) {
-      merge_route_choice(second_choice, route_choice_from(*msg));
+    const auto second_read = recv_route_choice_if_ready(second);
+    if (second_read.kind == RouteChoiceRead::Kind::Message) {
+      merge_route_choice(second_choice, route_choice_from(second_read.message));
+    } else if (second_read.kind == RouteChoiceRead::Kind::Closed) {
+      merge_route_choice(second_choice, RouteChoiceState::Invalid);
     }
 
     auto decision = route_decision_for(first_choice, second_choice, /*deadline_expired=*/false);
@@ -386,6 +402,13 @@ void reject_client(TcpSocket& socket, const std::string& code) {
   send_message(socket, Message{"error", {{"code", code}}});
 }
 
+void send_message_best_effort(TcpSocket& socket, const Message& message) {
+  try {
+    if (socket.valid()) send_message(socket, message);
+  } catch (...) {
+  }
+}
+
 void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& state) {
   std::string active_room;
   try {
@@ -510,8 +533,9 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
       return;
     }
 
-    send_message(other->socket, Message{"done", {}});
-    send_message(self.socket, Message{"done", {}});
+    Message done{"done", {}};
+    send_message_best_effort(other->socket, done);
+    send_message_best_effort(self.socket, done);
   } catch (const std::exception& error) {
     std::cerr << "relay client error: " << error.what() << "\n";
   }
