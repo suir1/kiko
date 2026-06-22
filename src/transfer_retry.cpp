@@ -69,6 +69,7 @@ bool is_retryable_transfer_error_message(std::string_view message) {
                           "connection lost",
                           "connection interrupted",
                           "connection attempt failed",
+                          "connection was aborted",
                           "forcibly closed",
                           "actively refused",
                           "operation aborted",

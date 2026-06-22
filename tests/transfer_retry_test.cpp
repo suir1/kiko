@@ -38,6 +38,7 @@ int main() {
       {"send failed: connection closed", true},
       {"simulated connection interrupted", true},
       {"write: An existing connection was forcibly closed by the remote host.", true},
+      {"write: An established connection was aborted by the software in your host machine.", true},
       {"connect: No connection could be made because the target machine actively refused it.", true},
       {"write: The network name is no longer available.", true},
       {"read: The I/O operation has been aborted because of either a thread exit or an application request.", true},
