@@ -7,6 +7,7 @@
 #include <cassert>
 #include <chrono>
 #include <iostream>
+#include <string>
 #include <thread>
 
 namespace {
@@ -60,6 +61,10 @@ int main() {
   {
     assert(ip_address_family("[2001:4860:4860::8888]") == IpAddressFamily::IPv6);
     assert(ip_address_scope("2001:4860:4860::8888") == IpAddressScope::Global);
+    assert(std::string(ip_address_family_name(ip_address_family("2001:4860:4860::8888"))) == "ipv6");
+    assert(std::string(ip_address_scope_name(ip_address_scope("2001:4860:4860::8888"))) == "global");
+    assert(std::string(ip_address_scope_name(ip_address_scope("fd00::1"))) == "unique_local");
+    assert(std::string(ip_address_scope_name(ip_address_scope("fe80::1"))) == "link_local");
     assert(is_global_ipv6_address("2001:4860:4860::8888"));
     assert(!is_global_ipv6_address("fd00::1"));
     assert(!is_global_ipv6_address("fe80::1"));

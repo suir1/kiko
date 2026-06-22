@@ -112,6 +112,15 @@ std::string connectivity_snapshot_to_json(const ConnectivitySnapshot& snapshot) 
     }
     if (!snapshot.punch.successful_candidate_kind.empty()) {
       punch["successful_candidate_kind"] = snapshot.punch.successful_candidate_kind;
+      if (!snapshot.punch.successful_candidate_endpoint.empty()) {
+        punch["successful_candidate_endpoint"] = snapshot.punch.successful_candidate_endpoint;
+      }
+      if (!snapshot.punch.successful_candidate_family.empty()) {
+        punch["successful_candidate_family"] = snapshot.punch.successful_candidate_family;
+      }
+      if (!snapshot.punch.successful_candidate_scope.empty()) {
+        punch["successful_candidate_scope"] = snapshot.punch.successful_candidate_scope;
+      }
       punch["successful_candidate_priority"] = snapshot.punch.successful_candidate_priority;
       if (snapshot.punch.successful_elapsed_ms >= 0) punch["successful_elapsed_ms"] = snapshot.punch.successful_elapsed_ms;
     }

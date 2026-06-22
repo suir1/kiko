@@ -76,6 +76,10 @@ std::string route_outcome_label(const RouteOutcome& outcome) {
   if (!outcome.reason.empty()) label += " (" + outcome.reason + ")";
   if (outcome.data_path == "direct" && !outcome.direct_candidate_kind.empty()) {
     label += " via " + outcome.direct_candidate_kind;
+    if (!outcome.direct_candidate_endpoint.empty()) label += " " + outcome.direct_candidate_endpoint;
+    if (!outcome.direct_candidate_family.empty() && !outcome.direct_candidate_scope.empty()) {
+      label += " " + outcome.direct_candidate_family + "/" + outcome.direct_candidate_scope;
+    }
     if (outcome.direct_elapsed_ms >= 0) label += " " + std::to_string(outcome.direct_elapsed_ms) + "ms";
   } else if (outcome.data_path == "relay" && !outcome.direct_attempted) {
     label += " direct=not_attempted";

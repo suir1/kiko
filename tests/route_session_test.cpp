@@ -23,6 +23,7 @@ struct RecordingReporter : ProgressReporter {
   std::vector<std::string> statuses;
   std::vector<RoutePhase> phases;
   std::vector<RoutePhaseDetail> phase_details;
+  std::vector<RouteOutcome> outcomes;
   std::vector<RouteTiming> timings;
 
   void status(const std::string& message) override { statuses.push_back(message); }
@@ -30,6 +31,7 @@ struct RecordingReporter : ProgressReporter {
     phases.push_back(phase);
     phase_details.push_back(detail);
   }
+  void route_outcome(const RouteOutcome& outcome) override { outcomes.push_back(outcome); }
   void route_timing(const RouteTiming& timing) override { timings.push_back(timing); }
 };
 
@@ -102,6 +104,36 @@ int main() {
     assert(selection.direct);
     assert(saw_status(reporter, "route result: path=direct reason=confirmed direct_attempted=true lan_upgrade=false"));
     assert(saw_status(reporter, "route detail: direct_success kind=lan priority=90 elapsed_ms=7"));
+  }
+
+  {
+    auto relay_pair = connected_pair();
+    auto direct_pair = connected_pair();
+    std::optional<TcpSocket> direct;
+    direct.emplace(std::move(direct_pair.first));
+
+    std::thread peer([relay = std::move(relay_pair.second)]() mutable {
+      auto msg = recv_message(relay);
+      assert(msg);
+      assert(msg->type == "direct_ok");
+      send_message(relay, Message{"direct_start", {}});
+    });
+
+    RecordingReporter reporter;
+    AdaptivePuncher puncher;
+    puncher.observe(PunchObservation{"receiver-active", "[2001:4860:4860::8888]:5000", "ipv6_global", 82, true, 11, ""});
+    RoutePlan plan;
+    auto selection = select_transfer_route(std::move(relay_pair.first), std::move(direct), puncher, plan, reporter,
+                                           std::chrono::seconds(2));
+    peer.join();
+
+    assert(selection.path == RoutePath::Direct);
+    assert(!reporter.outcomes.empty());
+    assert(reporter.outcomes.back().direct_candidate_kind == "ipv6_global");
+    assert(reporter.outcomes.back().direct_candidate_endpoint == "[2001:4860:4860::8888]:5000");
+    assert(reporter.outcomes.back().direct_candidate_family == "ipv6");
+    assert(reporter.outcomes.back().direct_candidate_scope == "global");
+    assert(saw_status(reporter, "route detail: direct_success kind=ipv6_global priority=82 endpoint=[2001:4860:4860::8888]:5000 family=ipv6 scope=global elapsed_ms=11"));
   }
 
   {

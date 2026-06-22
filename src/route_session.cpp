@@ -51,6 +51,9 @@ void report_route_detail(ProgressReporter& reporter, const PunchStats& stats) {
     if (!stats.successful_candidate_kind.empty()) {
       line += " kind=" + stats.successful_candidate_kind;
       line += " priority=" + std::to_string(stats.successful_candidate_priority);
+      if (!stats.successful_candidate_endpoint.empty()) line += " endpoint=" + stats.successful_candidate_endpoint;
+      if (!stats.successful_candidate_family.empty()) line += " family=" + stats.successful_candidate_family;
+      if (!stats.successful_candidate_scope.empty()) line += " scope=" + stats.successful_candidate_scope;
       if (stats.successful_elapsed_ms >= 0) line += " elapsed_ms=" + std::to_string(stats.successful_elapsed_ms);
     }
     reporter.status(line);
@@ -145,6 +148,9 @@ RouteOutcome make_route_outcome(const std::string& data_path, const std::string&
   outcome.lan_upgrade = lan_upgrade;
   if (stats.direct_ok) {
     outcome.direct_candidate_kind = stats.successful_candidate_kind;
+    outcome.direct_candidate_endpoint = stats.successful_candidate_endpoint;
+    outcome.direct_candidate_family = stats.successful_candidate_family;
+    outcome.direct_candidate_scope = stats.successful_candidate_scope;
     outcome.direct_candidate_priority = stats.successful_candidate_priority;
     outcome.direct_elapsed_ms = stats.successful_elapsed_ms;
   } else {

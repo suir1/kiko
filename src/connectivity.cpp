@@ -255,14 +255,19 @@ std::optional<TcpSocket> accept_direct_candidate(TcpListener& listener, std::chr
   if (!accepted.valid()) return std::nullopt;
 
   try {
+    std::string accepted_endpoint = "listener";
+    try {
+      accepted_endpoint = accepted.peer_endpoint().to_string();
+    } catch (const std::exception&) {
+    }
     auto hello = recv_message_timeout(accepted, kDirectPreflightTimeout);
     const bool ok = hello && direct_hello_ok(*hello, room, expected_role);
     if (ok) {
       send_message(accepted, Message{"direct_ack", {{"room", room}}});
-      puncher.observe(PunchObservation{phase, "listener", "accept", 0, true, 0, ""});
+      puncher.observe(PunchObservation{phase, accepted_endpoint, "accept", 0, true, 0, ""});
       return accepted;
     }
-    puncher.observe(PunchObservation{phase, "listener", "accept", 0, false, 0, "direct_hello_mismatch"});
+    puncher.observe(PunchObservation{phase, accepted_endpoint, "accept", 0, false, 0, "direct_hello_mismatch"});
   } catch (const std::exception& e) {
     puncher.observe(PunchObservation{phase, "listener", "accept", 0, false, 0, e.what()});
   }
@@ -389,6 +394,18 @@ std::optional<TcpSocket> try_direct_with_plan(Role role, TcpListener& listener, 
   return std::nullopt;
 }
 
+void fill_success_address(PunchStats& stats, const std::string& candidate) {
+  stats.successful_candidate_endpoint = candidate;
+  try {
+    const auto endpoint = parse_endpoint(candidate);
+    stats.successful_candidate_family = ip_address_family_name(ip_address_family(endpoint.host));
+    stats.successful_candidate_scope = ip_address_scope_name(ip_address_scope(endpoint.host));
+  } catch (const KikoError&) {
+    stats.successful_candidate_family = "unknown";
+    stats.successful_candidate_scope = "unknown";
+  }
+}
+
 PunchStats punch_stats_from(const AdaptivePuncher& puncher, bool direct_ok, bool attempted) {
   PunchStats stats;
   stats.attempted = attempted;
@@ -399,6 +416,7 @@ PunchStats punch_stats_from(const AdaptivePuncher& puncher, bool direct_ok, bool
     if (observation.success) {
       if (stats.successful_candidate_kind.empty() || stats.successful_candidate_kind == "accept") {
         stats.successful_candidate_kind = observation.kind;
+        fill_success_address(stats, observation.candidate);
         stats.successful_candidate_priority = observation.priority;
         stats.successful_elapsed_ms = static_cast<std::int64_t>(observation.elapsed_ms);
       }

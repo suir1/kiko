@@ -42,6 +42,9 @@ std::string route_outcome_summary(const RouteOutcome& outcome) {
     if (outcome.direct_candidate_priority >= 0) {
       line += "#" + std::to_string(outcome.direct_candidate_priority);
     }
+    if (!outcome.direct_candidate_endpoint.empty()) line += " endpoint=" + outcome.direct_candidate_endpoint;
+    if (!outcome.direct_candidate_family.empty()) line += " family=" + outcome.direct_candidate_family;
+    if (!outcome.direct_candidate_scope.empty()) line += " scope=" + outcome.direct_candidate_scope;
     if (outcome.direct_elapsed_ms >= 0) line += " elapsed=" + std::to_string(outcome.direct_elapsed_ms) + "ms";
   }
   if (outcome.data_path == "relay" && !outcome.direct_attempted) {

@@ -21,6 +21,9 @@ struct PunchStats {
   bool direct_ok = false;
   std::map<std::string, int> failures;
   std::string successful_candidate_kind;
+  std::string successful_candidate_endpoint;
+  std::string successful_candidate_family;
+  std::string successful_candidate_scope;
   int successful_candidate_priority = 0;
   std::int64_t successful_elapsed_ms = -1;
   std::map<std::string, int> candidate_failures_by_kind;

@@ -321,6 +321,30 @@ int main() {
 
   {
     auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    Message peer{"peer", {{"peer_public_host", "fd00::1"}, {"peer_public_port", "5000"}}};
+    RoutePlan plan;
+    plan.direct_timeout = std::chrono::milliseconds(20);
+    plan.direct_connect = std::chrono::milliseconds(5);
+
+    AdaptivePuncher puncher;
+    RecordingReporter reporter;
+    const auto direct = attempt_direct(Role::Receiver, listener, peer, {}, puncher, NatProfile{}, NatProfile{}, plan,
+                                       "ula-public-direct-room", ConnectOptions{}, &reporter);
+    assert(!direct);
+    bool saw_lan_scoped_ipv6 = false;
+    bool mislabeled_public = false;
+    for (const auto& status : reporter.statuses) {
+      if (status.find("lan@[fd00::1]:5000") != std::string::npos) saw_lan_scoped_ipv6 = true;
+      if (status.find("public@[fd00::1]:5000") != std::string::npos) mislabeled_public = true;
+    }
+    if (!saw_lan_scoped_ipv6 || mislabeled_public) {
+      std::cerr << "FAIL: non-global IPv6 relay observation was not scoped as a LAN candidate\n";
+      return 1;
+    }
+  }
+
+  {
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
     Message peer{"peer", {{"peer_public_host", "127.0.0.1"}, {"peer_public_port", "1"}}};
     RoutePlan plan;
     plan.direct_timeout = std::chrono::milliseconds(2500);

@@ -140,6 +140,36 @@ IpAddressScope ip_address_scope(std::string_view host) {
   return IpAddressScope::Global;
 }
 
+const char* ip_address_family_name(IpAddressFamily family) {
+  switch (family) {
+    case IpAddressFamily::IPv4:
+      return "ipv4";
+    case IpAddressFamily::IPv6:
+      return "ipv6";
+    case IpAddressFamily::Unknown:
+      return "unknown";
+  }
+  return "unknown";
+}
+
+const char* ip_address_scope_name(IpAddressScope scope) {
+  switch (scope) {
+    case IpAddressScope::Loopback:
+      return "loopback";
+    case IpAddressScope::LinkLocal:
+      return "link_local";
+    case IpAddressScope::Private:
+      return "private";
+    case IpAddressScope::UniqueLocal:
+      return "unique_local";
+    case IpAddressScope::Global:
+      return "global";
+    case IpAddressScope::Unknown:
+      return "unknown";
+  }
+  return "unknown";
+}
+
 bool is_ipv6_address(std::string_view host) { return ip_address_family(host) == IpAddressFamily::IPv6; }
 
 bool is_global_ipv6_address(std::string_view host) {

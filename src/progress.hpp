@@ -27,6 +27,9 @@ struct RouteOutcome {
   bool direct_attempted = false;
   bool lan_upgrade = false;
   std::string direct_candidate_kind;
+  std::string direct_candidate_endpoint;
+  std::string direct_candidate_family;
+  std::string direct_candidate_scope;
   int direct_candidate_priority = -1;
   int direct_elapsed_ms = -1;
   std::string direct_failure_summary;

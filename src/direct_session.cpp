@@ -49,7 +49,10 @@ std::vector<DirectCandidate> peer_candidates(const Message& peer, const std::vec
     return host == "0.0.0.0" || host == "::" || host == "[::]";
   };
   auto classify_kind = [](const Endpoint& e, const std::string& base_kind) {
-    if (is_global_ipv6_address(e.host)) return std::string("ipv6_global");
+    const auto family = ip_address_family(e.host);
+    const auto scope = ip_address_scope(e.host);
+    if (family == IpAddressFamily::IPv6 && scope == IpAddressScope::Global) return std::string("ipv6_global");
+    if (family == IpAddressFamily::IPv6 && base_kind == "public") return std::string("lan");
     return base_kind;
   };
   auto classify_priority = [](const std::string& kind, int priority) {
