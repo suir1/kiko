@@ -59,6 +59,7 @@ set(KIKO_CORE_SOURCES
   src/transfer_manifest.cpp
   src/transfer_receive_paths.cpp
   src/transfer_resume.cpp
+  src/transfer_retry.cpp
   src/transfer_stream.cpp
   src/udp_punch.cpp
 )
@@ -218,6 +219,7 @@ kiko_add_core_test(route_session tests/route_session_test.cpp)
 kiko_add_core_test(route_scenarios tests/route_scenarios_test.cpp)
 kiko_add_core_test(outbound_policy tests/outbound_policy_test.cpp)
 kiko_add_core_test(relay tests/relay_test.cpp)
+kiko_add_core_test(transfer_retry tests/transfer_retry_test.cpp)
 kiko_add_core_test(transfer_heuristics tests/transfer_heuristics_test.cpp)
 kiko_add_core_test(ai tests/ai_test.cpp)
 kiko_add_core_test(udp_punch tests/udp_punch_test.cpp)
