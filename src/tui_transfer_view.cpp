@@ -304,6 +304,25 @@ void TuiReporter::transfer_complete(std::size_t file_count, std::uint64_t total_
   wake_();
 }
 
+void TuiReporter::transfer_retry(int next_attempt, int max_attempts, const std::string& reason) {
+  {
+    std::lock_guard<std::mutex> lock(state_.mutex);
+    state_.current_file.clear();
+    state_.current_done = 0;
+    state_.current_size = 0;
+    state_.overall_done = 0;
+    state_.files_done = 0;
+    state_.handshake = false;
+    state_.finished = false;
+    state_.failed = false;
+    state_.route_phase_label = "reconnecting";
+    state_.activity = "reconnecting " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts);
+    log_append(state_.connectivity_log, "auto reconnect: attempt " + std::to_string(next_attempt) + "/" +
+                                            std::to_string(max_attempts) + " after " + reason);
+  }
+  wake_();
+}
+
 void TuiReporter::update_network_summary(const std::string& message) {
   if (starts_with(message, "outbound probe:")) {
     state_.outbound_probe_summary = text_after_prefix(message, "outbound probe:");

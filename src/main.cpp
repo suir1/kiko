@@ -97,10 +97,12 @@ int main(int argc, char** argv) {
   bool send_avoid_vpn = false;
   bool send_debug_route = false;
   bool send_remember = false;
+  bool send_no_reconnect = false;
   std::string send_proxy;
   std::string send_ip;
   std::string send_bind_interface;
   int send_connections = 4;
+  int send_reconnect_attempts = 3;
   bool send_tui = false;
   auto* send_cmd = app.add_subcommand("send", "Send a file or directory");
   send_cmd->add_option("path", send_path, "File or directory to send")->required();
@@ -127,6 +129,9 @@ int main(int argc, char** argv) {
   send_cmd->add_flag("--debug-route", send_debug_route, "Print route diagnostics before transfer");
   send_cmd->add_option("--connections", send_connections, "Parallel relay connections")->check(CLI::PositiveNumber);
   send_cmd->add_flag("--auto-connections", send_auto_connections, "Pick connection count from relay RTT and file size");
+  send_cmd->add_flag("--no-reconnect", send_no_reconnect, "Disable automatic reconnect/resume after connection loss");
+  send_cmd->add_option("--reconnect-attempts", send_reconnect_attempts, "Total transfer attempts including the first")
+      ->check(CLI::PositiveNumber);
   send_cmd->add_flag("--remember", send_remember, "Save relay and path to ~/.config/kiko/config.json");
   send_cmd->add_flag("--tui", send_tui, "Show live progress UI");
 
@@ -145,9 +150,11 @@ int main(int argc, char** argv) {
   bool recv_avoid_vpn = false;
   bool recv_debug_route = false;
   bool recv_remember = false;
+  bool recv_no_reconnect = false;
   std::string recv_proxy;
   std::string recv_ip;
   std::string recv_bind_interface;
+  int recv_reconnect_attempts = 3;
   bool recv_tui = false;
   auto* recv_cmd = app.add_subcommand("recv", "Receive files with a pairing code");
   recv_cmd->add_option("code", recv_code, "Pairing code from sender")->required();
@@ -168,6 +175,9 @@ int main(int argc, char** argv) {
                        "Bind outbound TCP sockets to an interface (for example en0)");
   recv_cmd->add_flag("--avoid-vpn", recv_avoid_vpn, "Bind outbound TCP sockets to a non-VPN physical interface when possible");
   recv_cmd->add_flag("--debug-route", recv_debug_route, "Print route diagnostics before transfer");
+  recv_cmd->add_flag("--no-reconnect", recv_no_reconnect, "Disable automatic reconnect/resume after connection loss");
+  recv_cmd->add_option("--reconnect-attempts", recv_reconnect_attempts, "Total transfer attempts including the first")
+      ->check(CLI::PositiveNumber);
   recv_cmd->add_flag("--remember", recv_remember, "Save relay and output directory to ~/.config/kiko/config.json");
   recv_cmd->add_flag("--tui", recv_tui, "Show live progress UI");
 
@@ -227,6 +237,8 @@ int main(int argc, char** argv) {
       config.ai_route_connectivity_only = send_ai_route_connectivity_only;
       config.connections = send_connections;
       config.auto_connections = send_auto_connections;
+      config.auto_reconnect = !send_no_reconnect;
+      config.reconnect_attempts = send_reconnect_attempts;
       int rc = 0;
       if (send_tui) {
         rc = kiko::run_tui_send(config);
@@ -259,6 +271,8 @@ int main(int argc, char** argv) {
       config.udp_probe = recv_udp_probe;
       config.ai_route = recv_ai_route;
       config.ai_route_plan_only = recv_ai_route_plan_only;
+      config.auto_reconnect = !recv_no_reconnect;
+      config.reconnect_attempts = recv_reconnect_attempts;
       int rc = 0;
       if (recv_tui) {
         rc = kiko::run_tui_recv(config);

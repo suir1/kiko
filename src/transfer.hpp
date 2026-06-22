@@ -7,6 +7,7 @@
 #include "socket.hpp"
 
 #include <filesystem>
+#include <chrono>
 #include <optional>
 #include <vector>
 
@@ -33,6 +34,9 @@ struct SendConfig {
   std::string bind_interface;
   bool avoid_vpn = false;
   bool auto_connections = false;
+  bool auto_reconnect = true;
+  int reconnect_attempts = 3;
+  std::chrono::milliseconds reconnect_delay{1000};
   bool debug_route = false;
   // Number of parallel TCP connections to use on the relay path (1 = single
   // stream). The sender controls this; the receiver mirrors it.
@@ -89,6 +93,9 @@ struct RecvConfig {
   std::optional<std::string> relay_pass;
   std::string bind_interface;
   bool avoid_vpn = false;
+  bool auto_reconnect = true;
+  int reconnect_attempts = 3;
+  std::chrono::milliseconds reconnect_delay{1000};
   bool debug_route = false;
 };
 

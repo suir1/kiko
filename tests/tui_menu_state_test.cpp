@@ -140,6 +140,27 @@ int main() {
     }
   }
 
+  {
+    TuiState transfer_state;
+    bool woke = false;
+    transfer_state.current_file = "partial.bin";
+    transfer_state.current_done = 100;
+    transfer_state.current_size = 200;
+    transfer_state.overall_done = 100;
+    transfer_state.files_done = 1;
+    transfer_state.handshake = true;
+    TuiReporter reporter(transfer_state, [&] { woke = true; });
+    reporter.transfer_retry(2, 3, "connection reset");
+    if (!woke || transfer_state.current_done != 0 || transfer_state.overall_done != 0 ||
+        transfer_state.files_done != 0 || transfer_state.handshake ||
+        transfer_state.route_phase_label != "reconnecting" ||
+        !contains(transfer_state.connectivity_log, "auto reconnect: attempt 2/3")) {
+      std::cerr << "FAIL: TUI reporter did not reset progress for auto reconnect\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
   fs::remove(send_path);
   std::cout << "tui_menu_state_test ok\n";
   return 0;

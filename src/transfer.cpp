@@ -24,6 +24,8 @@
 #include "transfer_stream.hpp"
 
 #include <atomic>
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <future>
@@ -114,9 +116,52 @@ int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
   return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
+std::string lowercase(std::string text) {
+  for (char& ch : text) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  return text;
+}
+
+bool contains_any(const std::string& text, std::initializer_list<const char*> needles) {
+  for (const char* needle : needles) {
+    if (text.find(needle) != std::string::npos) return true;
+  }
+  return false;
+}
+
+bool retryable_transfer_error(const std::exception& error) {
+  const auto message = lowercase(error.what());
+  if (contains_any(message, {"bad_password", "invalid_hello", "not a file or directory", "invalid relay",
+                             "sha256 mismatch", "hash mismatch", "invalid resume ack",
+                             "control message field", "pairing code"})) {
+    return false;
+  }
+  return contains_any(message, {"connection", "closed", "reset", "broken pipe", "timed out", "timeout",
+                                "ended unexpectedly", "closed early", "failed to connect", "relay did not",
+                                "relay route error", "recv failed", "send failed", "write failed",
+                                "data channel closed", "transfer stream ended unexpectedly", "interrupted"});
+}
+
+int total_transfer_attempts(bool auto_reconnect, int reconnect_attempts) {
+  if (!auto_reconnect) return 1;
+  return std::max(1, reconnect_attempts);
+}
+
+template <typename Fn>
+int run_with_auto_reconnect(int max_attempts, std::chrono::milliseconds delay, ProgressReporter& reporter, Fn&& fn) {
+  for (int attempt = 1;; ++attempt) {
+    try {
+      return fn();
+    } catch (const std::exception& error) {
+      if (attempt >= max_attempts || !retryable_transfer_error(error)) throw;
+      reporter.transfer_retry(attempt + 1, max_attempts, error.what());
+      if (delay.count() > 0) std::this_thread::sleep_for(delay);
+    }
+  }
+}
+
 }  // namespace
 
-int run_send(const SendConfig& config, ProgressReporter& reporter) {
+int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   auto code = config.code.empty() ? random_code(3) : config.code;
   CollectOptions collect_opts;
   collect_opts.use_gitignore = config.use_gitignore;
@@ -341,7 +386,7 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   throw KikoError("route selection did not produce a usable channel");
 }
 
-int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
+int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   auto listener = TcpListener::bind(config.listen);
   auto local_listen = listener.local_endpoint();
   reporter.status("listening for direct peer on " + local_listen.to_string());
@@ -531,6 +576,20 @@ int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
   }
 
   throw KikoError("route selection did not produce a usable channel");
+}
+
+int run_send(const SendConfig& config, ProgressReporter& reporter) {
+  SendConfig attempt_config = config;
+  if (attempt_config.code.empty()) attempt_config.code = random_code(3);
+  return run_with_auto_reconnect(
+      total_transfer_attempts(attempt_config.auto_reconnect, attempt_config.reconnect_attempts),
+      attempt_config.reconnect_delay, reporter, [&]() { return run_send_once(attempt_config, reporter); });
+}
+
+int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
+  return run_with_auto_reconnect(total_transfer_attempts(config.auto_reconnect, config.reconnect_attempts),
+                                 config.reconnect_delay, reporter,
+                                 [&]() { return run_recv_once(config, reporter); });
 }
 
 }  // namespace kiko
