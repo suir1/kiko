@@ -10,6 +10,7 @@
 #include <fstream>
 #include <limits>
 #include <set>
+#include <sstream>
 
 namespace kiko::detail {
 
@@ -357,6 +358,75 @@ void ensure_manifest_total(std::uint64_t& total, std::uint64_t size, const std::
   total += size;
 }
 
+std::string target_key(const std::filesystem::path& path) {
+  auto key = path.lexically_normal().generic_string();
+  while (key.size() > 1 && key.back() == '/') key.pop_back();
+  return key;
+}
+
+bool key_is_parent_of(const std::string& parent, const std::string& child) {
+  return child.size() > parent.size() && child.compare(0, parent.size(), parent) == 0 && child[parent.size()] == '/';
+}
+
+void ensure_no_plan_collision(const std::string& key, bool directory, const std::set<std::string>& reserved_targets,
+                              const std::set<std::string>& reserved_files, const std::string& relative) {
+  if (reserved_targets.contains(key)) throw KikoError("receive plan target collision for " + relative);
+
+  for (const auto& file_key : reserved_files) {
+    if (key_is_parent_of(file_key, key)) {
+      throw KikoError("receive plan parent is already a file for " + relative);
+    }
+    if (!directory && key_is_parent_of(key, file_key)) {
+      throw KikoError("receive plan target would replace a planned directory for " + relative);
+    }
+  }
+}
+
+void ensure_existing_parents_are_directories(const std::filesystem::path& path, const std::string& relative) {
+  auto parent = path.parent_path();
+  while (!parent.empty()) {
+    std::error_code ec;
+    const auto status = std::filesystem::status(parent, ec);
+    if (!ec && std::filesystem::exists(status) && !std::filesystem::is_directory(status)) {
+      throw KikoError("receive plan parent is not a directory for " + relative + ": " + parent.string());
+    }
+    const auto next = parent.parent_path();
+    if (next == parent) break;
+    parent = next;
+  }
+}
+
+std::filesystem::path unique_conflict_path_reserved(const std::filesystem::path& path,
+                                                    const std::set<std::string>& reserved_targets) {
+  const auto parent = path.parent_path();
+  auto stem = path.stem().string();
+  const auto extension = path.extension().string();
+  if (stem.empty()) stem = path.filename().string();
+  if (stem.empty()) stem = "received";
+
+  for (int i = 1; i < 10000; ++i) {
+    auto candidate = parent / (stem + " (" + std::to_string(i) + ")" + extension);
+    auto candidate_part = candidate;
+    candidate_part += ".kikopart";
+    if (!reserved_targets.contains(target_key(candidate)) && !path_exists_no_follow(candidate) &&
+        !path_exists_no_follow(candidate_part)) {
+      return candidate;
+    }
+  }
+  throw KikoError("could not choose a non-conflicting filename for " + path.string());
+}
+
+std::string receive_plan_summary(const ReceivePlan& plan) {
+  std::ostringstream out;
+  out << "receive plan: " << plan.entries.size() << " item(s), " << plan.total_size << " bytes";
+  if (plan.skip_count > 0) out << ", skip=" << plan.skip_count;
+  if (plan.rename_count > 0) out << ", rename=" << plan.rename_count;
+  if (plan.overwrite_count > 0) out << ", overwrite=" << plan.overwrite_count;
+  if (plan.resume_count > 0) out << ", resume=" << plan.resume_count << " (" << plan.resume_bytes << " bytes)";
+  if (plan.skip_bytes > 0) out << ", skipped-bytes=" << plan.skip_bytes;
+  return out.str();
+}
+
 }  // namespace
 
 std::string encode_transfer_manifest(const std::vector<FileEntry>& files) {
@@ -429,10 +499,13 @@ void send_transfer_manifest(TcpSocket& socket, StreamCipher& cipher, const std::
   send_tagged_text(socket, cipher, StreamTag::Manifest, encode_transfer_manifest(files));
 }
 
-void preflight_transfer_manifest(const TransferManifest& manifest, const std::filesystem::path& output_dir,
-                                 ConflictPolicy conflict_policy, ProgressReporter& reporter) {
+ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const std::filesystem::path& output_dir,
+                                        ConflictPolicy conflict_policy, ProgressReporter& reporter) {
   std::set<std::string> seen_paths;
+  std::set<std::string> reserved_targets;
+  std::set<std::string> reserved_files;
   std::uint64_t computed_total = 0;
+  ReceivePlan plan;
 
   for (const auto& entry : manifest.entries) {
     if (entry.path.empty()) throw KikoError("transfer manifest entry missing path");
@@ -441,6 +514,9 @@ void preflight_transfer_manifest(const TransferManifest& manifest, const std::fi
     }
 
     auto current_path = safe_join(output_dir, entry.path);
+    auto target_path = current_path;
+    auto action = ReceivePlanAction::Write;
+    const bool existing_target = path_exists_no_follow(current_path);
 
     if (entry.kind == "symlink") {
       if (entry.size != 0) throw KikoError("transfer manifest symlink must have size 0: " + entry.path);
@@ -455,14 +531,85 @@ void preflight_transfer_manifest(const TransferManifest& manifest, const std::fi
       throw KikoError("transfer manifest contains unknown entry kind: " + entry.kind);
     }
 
-    if (conflict_policy == ConflictPolicy::Rename && entry.kind != "dir" && path_exists_no_follow(current_path)) {
-      (void)unique_conflict_path(current_path);
+    if (entry.kind == "dir") {
+      std::error_code ec;
+      const auto status = std::filesystem::symlink_status(current_path, ec);
+      if (!ec && std::filesystem::exists(status) && !std::filesystem::is_directory(status)) {
+        throw KikoError("receive plan directory target is not a directory: " + entry.path);
+      }
+    } else if (existing_target && conflict_policy == ConflictPolicy::Skip) {
+      action = ReceivePlanAction::Skip;
+    } else if (existing_target && conflict_policy == ConflictPolicy::Rename) {
+      action = ReceivePlanAction::Rename;
+      target_path = unique_conflict_path_reserved(current_path, reserved_targets);
+    } else if (existing_target) {
+      std::error_code ec;
+      const auto status = std::filesystem::symlink_status(current_path, ec);
+      if (!ec && std::filesystem::is_directory(status)) {
+        throw KikoError("receive plan file target is a directory: " + entry.path);
+      }
+      ++plan.overwrite_count;
     }
+
+    ensure_existing_parents_are_directories(target_path, entry.path);
+
+    std::uint64_t planned_resume = 0;
+    if (action == ReceivePlanAction::Write && entry.kind == "file") {
+      planned_resume = resumable_part_size(part_path_for(target_path), entry.size);
+      if (planned_resume > 0) {
+        ++plan.resume_count;
+        plan.resume_bytes += planned_resume;
+      }
+    }
+
+    if (action == ReceivePlanAction::Skip) {
+      ++plan.skip_count;
+      plan.skip_bytes += entry.kind == "file" ? entry.size : 0;
+    } else {
+      const auto key = target_key(target_path);
+      const bool directory = entry.kind == "dir";
+      ensure_no_plan_collision(key, directory, reserved_targets, reserved_files, entry.path);
+      reserved_targets.insert(key);
+      if (!directory) reserved_files.insert(key);
+      ++plan.write_count;
+      if (action == ReceivePlanAction::Rename) ++plan.rename_count;
+    }
+
+    plan.entries.emplace(entry.path, ReceivePlanEntry{entry, target_path, action, planned_resume});
   }
 
   if (computed_total != manifest.total_size) throw KikoError("transfer manifest total size changed during preflight");
   reporter.status("manifest: " + std::to_string(manifest.entries.size()) + " item(s), " +
                   std::to_string(manifest.total_size) + " bytes");
+  plan.total_size = manifest.total_size;
+  reporter.status(receive_plan_summary(plan));
+  return plan;
+}
+
+const ReceivePlanEntry* find_receive_plan_entry(const ReceivePlan* plan, const std::string& relative) {
+  if (plan == nullptr) return nullptr;
+  auto it = plan->entries.find(relative);
+  return it == plan->entries.end() ? nullptr : &it->second;
+}
+
+void validate_receive_plan_header(const ReceivePlanEntry& planned, const Message& header, const std::string& relative,
+                                  std::uint64_t declared_size) {
+  std::string header_kind = "file";
+  if (is_symlink_header(header)) {
+    header_kind = "symlink";
+  } else if (is_dir_header(relative, declared_size)) {
+    header_kind = "dir";
+  }
+
+  if (planned.manifest.kind != header_kind) {
+    throw KikoError("file header kind does not match manifest for " + relative);
+  }
+  if (planned.manifest.size != declared_size) {
+    throw KikoError("file header size does not match manifest for " + relative);
+  }
+  if (header_kind == "symlink" && planned.manifest.target != header.get("target")) {
+    throw KikoError("file header symlink target does not match manifest for " + relative);
+  }
 }
 
 void send_tagged(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, std::span<const std::uint8_t> payload) {
@@ -636,6 +783,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
   std::uint64_t grand_total = 0;
   bool saw_manifest = false;
   bool saw_file_header = false;
+  std::optional<ReceivePlan> receive_plan;
 
   while (true) {
     auto frame = recv_tagged(channel, cipher);
@@ -646,7 +794,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         if (saw_file_header) throw KikoError("transfer manifest arrived after file headers");
         if (saw_manifest) throw KikoError("duplicate transfer manifest");
         const auto text = std::string(frame->payload.begin(), frame->payload.end());
-        preflight_transfer_manifest(decode_transfer_manifest(text), output_dir, conflict_policy, reporter);
+        receive_plan = preflight_transfer_manifest(decode_transfer_manifest(text), output_dir, conflict_policy, reporter);
         saw_manifest = true;
         break;
       }
@@ -658,17 +806,24 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         auto declared_size = header.get_u64("size", 0);
         current_declared_size = declared_size;
         use_zstd = header.get("compress", "zstd") != "none";
-        current_path = safe_join(output_dir, current_relative);
-        if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
+        const auto* planned = receive_plan ? find_receive_plan_entry(&*receive_plan, current_relative) : nullptr;
+        if (receive_plan && planned == nullptr) throw KikoError("file header was not listed in manifest: " + current_relative);
+        if (planned != nullptr) validate_receive_plan_header(*planned, header, current_relative, declared_size);
+        current_path = planned != nullptr ? planned->target_path : safe_join(output_dir, current_relative);
 
         if (is_symlink_header(header)) {
           pending_symlink_target = header.get("target");
           validate_safe_symlink_target(current_relative, pending_symlink_target);
           skip_symlink_marker = false;
-          if (conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+          if (planned != nullptr && planned->action == ReceivePlanAction::Skip) {
             reporter.status("skipped existing " + current_relative);
             skip_symlink_marker = true;
-          } else if (conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
+          } else if (planned != nullptr && planned->action == ReceivePlanAction::Rename) {
+            report_renamed_conflict(current_relative, current_path, reporter);
+          } else if (planned == nullptr && conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+            reporter.status("skipped existing " + current_relative);
+            skip_symlink_marker = true;
+          } else if (planned == nullptr && conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
             current_path = unique_conflict_path(current_path);
             report_renamed_conflict(current_relative, current_path, reporter);
           }
@@ -700,7 +855,8 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         pending_mtime_ms = header.get_u64("mtime_ms", 0);
         pending_mode = static_cast<std::uint32_t>(header.get_u64("mode", 0));
 
-        if (conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+        if ((planned != nullptr && planned->action == ReceivePlanAction::Skip) ||
+            (planned == nullptr && conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path))) {
           reporter.status("skipped existing " + current_relative);
           send_resume(channel, cipher, declared_size);
           const auto accepted = recv_resume_ack(channel, cipher, declared_size, declared_size, current_relative);
@@ -717,12 +873,14 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
           break;
         }
 
-        if (conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
+        if (planned != nullptr && planned->action == ReceivePlanAction::Rename) {
+          report_renamed_conflict(current_relative, current_path, reporter);
+        } else if (planned == nullptr && conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
           current_path = unique_conflict_path(current_path);
           report_renamed_conflict(current_relative, current_path, reporter);
-          if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
         }
 
+        if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
         part_path = part_path_for(current_path);
 
         // Resume from an existing partial file when present and not larger than

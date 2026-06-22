@@ -296,6 +296,7 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
   std::uint64_t grand_total = 0;
   bool saw_manifest = false;
   bool saw_file_header = false;
+  std::optional<ReceivePlan> receive_plan;
 
   while (true) {
     auto frame = recv_tagged(channels[0], ciphers[0]);
@@ -304,7 +305,7 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       if (saw_file_header) throw KikoError("transfer manifest arrived after file headers");
       if (saw_manifest) throw KikoError("duplicate transfer manifest");
       const auto text = std::string(frame->payload.begin(), frame->payload.end());
-      preflight_transfer_manifest(decode_transfer_manifest(text), output_dir, conflict_policy, reporter);
+      receive_plan = preflight_transfer_manifest(decode_transfer_manifest(text), output_dir, conflict_policy, reporter);
       saw_manifest = true;
       continue;
     }
@@ -321,17 +322,24 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     if (current_relative.empty()) throw KikoError("file header missing path");
     auto declared_size = header.get_u64("size", 0);
     const bool use_zstd = header.get("compress", "zstd") != "none";
-    auto current_path = safe_join(output_dir, current_relative);
-    if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
+    const auto* planned = receive_plan ? find_receive_plan_entry(&*receive_plan, current_relative) : nullptr;
+    if (receive_plan && planned == nullptr) throw KikoError("file header was not listed in manifest: " + current_relative);
+    if (planned != nullptr) validate_receive_plan_header(*planned, header, current_relative, declared_size);
+    auto current_path = planned != nullptr ? planned->target_path : safe_join(output_dir, current_relative);
 
     if (is_symlink_header(header)) {
       const auto symlink_target = header.get("target");
       validate_safe_symlink_target(current_relative, symlink_target);
       bool skip_symlink = false;
-      if (conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+      if (planned != nullptr && planned->action == ReceivePlanAction::Skip) {
         reporter.status("skipped existing " + current_relative);
         skip_symlink = true;
-      } else if (conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
+      } else if (planned != nullptr && planned->action == ReceivePlanAction::Rename) {
+        report_renamed_conflict(current_relative, current_path, reporter);
+      } else if (planned == nullptr && conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+        reporter.status("skipped existing " + current_relative);
+        skip_symlink = true;
+      } else if (planned == nullptr && conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
         current_path = unique_conflict_path(current_path);
         report_renamed_conflict(current_relative, current_path, reporter);
       }
@@ -359,7 +367,8 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       continue;
     }
 
-    if (conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path)) {
+    if ((planned != nullptr && planned->action == ReceivePlanAction::Skip) ||
+        (planned == nullptr && conflict_policy == ConflictPolicy::Skip && path_exists_no_follow(current_path))) {
       reporter.status("skipped existing " + current_relative);
       send_resume(channels[0], ciphers[0], declared_size);
       const auto accepted = recv_resume_ack(channels[0], ciphers[0], declared_size, declared_size, current_relative);
@@ -391,12 +400,14 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       continue;
     }
 
-    if (conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
+    if (planned != nullptr && planned->action == ReceivePlanAction::Rename) {
+      report_renamed_conflict(current_relative, current_path, reporter);
+    } else if (planned == nullptr && conflict_policy == ConflictPolicy::Rename && path_exists_no_follow(current_path)) {
       current_path = unique_conflict_path(current_path);
       report_renamed_conflict(current_relative, current_path, reporter);
-      if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
     }
 
+    if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
     auto part_path = part_path_for(current_path);
 
     auto have = resumable_part_size(part_path, declared_size);

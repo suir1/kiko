@@ -135,6 +135,19 @@ struct DropOnceReporter : ProgressReporter {
   void transfer_complete(std::size_t, std::uint64_t) override { finished = true; }
 };
 
+struct StatusReporter : ProgressReporter {
+  std::vector<std::string> statuses;
+
+  void status(const std::string& message) override { statuses.push_back(message); }
+};
+
+bool saw_status_containing(const StatusReporter& reporter, const std::string& needle) {
+  for (const auto& status : reporter.statuses) {
+    if (status.find(needle) != std::string::npos) return true;
+  }
+  return false;
+}
+
 bool run_stream_round(TcpListener& listener, const Endpoint& endpoint, const SessionKey& key,
                       const std::vector<FileEntry>& files, const fs::path& dst,
                       ConflictPolicy conflict_policy = ConflictPolicy::Overwrite,
@@ -365,7 +378,8 @@ int main() {
     auto conflict_files = collect_files(conflict_src);
 
     write_file(conflict_dst / "payload/same.txt", "keep me\n");
-    if (!run_stream_round(listener, endpoint, key, conflict_files, conflict_dst, ConflictPolicy::Skip)) {
+    StatusReporter skip_reporter;
+    if (!run_stream_round(listener, endpoint, key, conflict_files, conflict_dst, ConflictPolicy::Skip, &skip_reporter)) {
       std::cerr << "FAIL: skip conflict transfer raised an error\n";
       return 1;
     }
@@ -373,10 +387,15 @@ int main() {
       std::cerr << "FAIL: skip conflict overwrote existing file\n";
       return 1;
     }
+    if (!saw_status_containing(skip_reporter, "receive plan:") || !saw_status_containing(skip_reporter, "skip=1")) {
+      std::cerr << "FAIL: skip conflict was not included in receive plan\n";
+      return 1;
+    }
 
     fs::remove_all(conflict_dst);
     write_file(conflict_dst / "payload/same.txt", "keep me\n");
-    if (!run_stream_round(listener, endpoint, key, conflict_files, conflict_dst, ConflictPolicy::Rename)) {
+    StatusReporter rename_reporter;
+    if (!run_stream_round(listener, endpoint, key, conflict_files, conflict_dst, ConflictPolicy::Rename, &rename_reporter)) {
       std::cerr << "FAIL: rename conflict transfer raised an error\n";
       return 1;
     }
@@ -386,6 +405,10 @@ int main() {
     }
     if (read_file(conflict_dst / "payload/same (1).txt") != "new contents\n") {
       std::cerr << "FAIL: rename conflict did not write renamed file\n";
+      return 1;
+    }
+    if (!saw_status_containing(rename_reporter, "receive plan:") || !saw_status_containing(rename_reporter, "rename=1")) {
+      std::cerr << "FAIL: rename conflict was not included in receive plan\n";
       return 1;
     }
   }

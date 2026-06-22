@@ -138,7 +138,8 @@ bool retryable_transfer_error(const std::exception& error) {
   return contains_any(message, {"connection", "closed", "reset", "broken pipe", "timed out", "timeout",
                                 "ended unexpectedly", "closed early", "failed to connect", "relay did not",
                                 "relay route error", "recv failed", "send failed", "write failed",
-                                "data channel closed", "transfer stream ended unexpectedly", "interrupted"});
+                                "data channel closed", "transfer stream ended unexpectedly", "expected transfer ack",
+                                "interrupted"});
 }
 
 int total_transfer_attempts(bool auto_reconnect, int reconnect_attempts) {
