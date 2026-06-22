@@ -448,6 +448,8 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
   }
 
   send_tagged(channel, cipher, StreamTag::Done, std::span<const std::uint8_t>());
+  auto ack = recv_tagged(channel, cipher);
+  if (!ack || ack->tag != StreamTag::Ack) throw KikoError("expected transfer ack");
   reporter.transfer_complete(files.size(), grand_total);
 }
 
@@ -665,6 +667,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         break;
       }
       case StreamTag::Done:
+        send_tagged(channel, cipher, StreamTag::Ack, std::span<const std::uint8_t>());
         reporter.transfer_complete(file_count, grand_total);
         return;
       default:
