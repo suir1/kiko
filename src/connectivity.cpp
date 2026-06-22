@@ -18,6 +18,23 @@ constexpr auto kRelayStandbyConnectWindow = std::chrono::milliseconds(220);
 
 bool direct_cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
 
+void push_unique_kind(std::vector<std::string>& kinds, const std::string& kind) {
+  if (kind.empty()) return;
+  if (std::find(kinds.begin(), kinds.end(), kind) == kinds.end()) kinds.push_back(kind);
+}
+
+void prefer_global_ipv6(RoutePlan& plan) {
+  std::vector<std::string> order;
+  push_unique_kind(order, "discovered");
+  push_unique_kind(order, "lan");
+  push_unique_kind(order, "ipv6_global");
+  push_unique_kind(order, "listen");
+  push_unique_kind(order, "manual");
+  push_unique_kind(order, "public");
+  for (const auto& kind : plan.direct_candidate_order) push_unique_kind(order, kind);
+  plan.direct_candidate_order = std::move(order);
+}
+
 }  // namespace
 
 ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local, std::size_t lan_discovered_count,
@@ -29,6 +46,7 @@ ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_loc
   s.total_bytes = total_bytes;
   s.vpn_detected = detect_vpn_interfaces();
   s.lan_candidates = local_lan_candidate_addresses();
+  s.self_global_ipv6_count = count_global_ipv6_addresses(s.lan_candidates);
   return s;
 }
 
@@ -66,7 +84,15 @@ RoutePlan RuleScheduler::plan(const ConnectivitySnapshot& snapshot, const std::o
     }
   }
 
-  if (snapshot.self_nat == NatType::BehindNat && snapshot.peer_nat == NatType::BehindNat) {
+  const bool both_global_ipv6 = snapshot.self_global_ipv6_count > 0 && snapshot.peer_global_ipv6_count > 0;
+  if (both_global_ipv6) {
+    plan.direct_timeout = std::chrono::milliseconds(3500);
+    plan.direct_connect = std::chrono::milliseconds(450);
+    plan.reason = "ipv6_global_direct";
+    prefer_global_ipv6(plan);
+  }
+
+  if (!both_global_ipv6 && snapshot.self_nat == NatType::BehindNat && snapshot.peer_nat == NatType::BehindNat) {
     if (plan.direct_timeout > kRelayStandbyDirectWindow) {
       plan.direct_timeout = kRelayStandbyDirectWindow;
     }

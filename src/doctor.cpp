@@ -136,6 +136,9 @@ std::string diagnose(const DoctorReport& report) {
   if (plan.reason == "stun_symmetric_short_direct") {
     return "STUN indicates symmetric NAT. kiko will still try a short direct probe, then fall back to relay if needed.";
   }
+  if (plan.reason == "ipv6_global_direct") {
+    return "Both peers advertised global IPv6 candidates. kiko will prefer direct IPv6/LAN paths before falling back to relay.";
+  }
   if (plan.reason == "vpn_lan_short_direct") {
     return "VPN interface detected with LAN relays available. kiko will try direct briefly; --local may be faster on the same LAN.";
   }
@@ -249,6 +252,8 @@ std::string doctor_report_to_json(const DoctorReport& report) {
   j["vpn_detected"] = report.snapshot.vpn_detected;
   j["lan_discovered_count"] = report.snapshot.lan_discovered_count;
   j["stun_nat"] = stun_nat_class_name(report.snapshot.stun_nat);
+  j["ipv6"] = {{"self_global_count", report.snapshot.self_global_ipv6_count},
+               {"peer_global_count", report.snapshot.peer_global_ipv6_count}};
   j["relay_reachable"] = relay_reachable(report);
   j["recommendation"] = recommendation_for(report);
   j["route_result_hint"] = route_result_hint_json(report);
@@ -319,6 +324,8 @@ std::vector<std::string> doctor_debug_lines(const DoctorReport& report) {
                   " timeout=" + std::to_string(report.plan.direct_timeout.count()) +
                   "ms connect=" + std::to_string(report.plan.direct_connect.count()) +
                   "ms udp_assist=" + (report.plan.udp_punch_enabled ? "true" : "false"));
+  lines.push_back("debug route: ipv6 self_global=" + std::to_string(report.snapshot.self_global_ipv6_count) +
+                  " peer_global=" + std::to_string(report.snapshot.peer_global_ipv6_count));
   lines.push_back("debug route: hint path=" + hint.value("path", std::string{}) +
                   " reason=" + hint.value("reason", std::string{}) +
                   " data_relay_required=" + (hint.value("data_relay_required", false) ? "true" : "false"));
@@ -335,6 +342,8 @@ int run_doctor_cli(const DoctorOptions& options) {
     std::cout << "  vpn: " << (report.snapshot.vpn_detected ? "yes" : "no") << "\n";
     std::cout << "  lan ips: " << join_strings(interface_addresses_by_kind(report.interfaces, false)) << "\n";
     std::cout << "  vpn ips: " << join_strings(interface_addresses_by_kind(report.interfaces, true)) << "\n";
+    std::cout << "  ipv6 global candidates: self=" << report.snapshot.self_global_ipv6_count
+              << " peer=" << report.snapshot.peer_global_ipv6_count << "\n";
     if (!report.outbound_path.empty()) {
       std::cout << "  outbound: " << report.outbound_path << " (" << report.outbound_reason << ")\n";
     }

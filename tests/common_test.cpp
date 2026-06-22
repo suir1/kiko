@@ -58,6 +58,15 @@ int main() {
   }
 
   {
+    assert(ip_address_family("[2001:4860:4860::8888]") == IpAddressFamily::IPv6);
+    assert(ip_address_scope("2001:4860:4860::8888") == IpAddressScope::Global);
+    assert(is_global_ipv6_address("2001:4860:4860::8888"));
+    assert(!is_global_ipv6_address("fd00::1"));
+    assert(!is_global_ipv6_address("fe80::1"));
+    assert(count_global_ipv6_addresses({"2001:4860:4860::8888", "fd00::1", "2001:4860:4860::8888"}) == 1);
+  }
+
+  {
     const auto ep = parse_bind_endpoint("127.0.0.1");
     assert(ep.host == "127.0.0.1");
     assert(ep.port == 0);

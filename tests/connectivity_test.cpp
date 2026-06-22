@@ -56,6 +56,21 @@ int main() {
     ConnectivitySnapshot snap;
     snap.self_nat = NatType::BehindNat;
     snap.peer_nat = NatType::BehindNat;
+    snap.self_global_ipv6_count = 1;
+    snap.peer_global_ipv6_count = 1;
+    auto plan = scheduler.plan(snap, std::nullopt, false, 4);
+    assert(!plan.skip_direct);
+    assert(plan.direct_timeout.count() == 3500);
+    assert(plan.direct_connect.count() == 450);
+    assert(plan.reason == "ipv6_global_direct");
+    assert(plan.direct_candidate_order.size() >= 3);
+    assert(plan.direct_candidate_order[2] == "ipv6_global");
+  }
+
+  {
+    ConnectivitySnapshot snap;
+    snap.self_nat = NatType::BehindNat;
+    snap.peer_nat = NatType::BehindNat;
     auto plan = scheduler.plan(snap, std::nullopt, false, 4);
     assert(!plan.skip_direct);
     assert(plan.direct_timeout.count() == 500);

@@ -18,9 +18,15 @@ bool is_high_confidence_direct_candidate(const DirectCandidate& candidate) {
          candidate.kind == "manual";
 }
 
-void apply_relay_fallback_guard(PunchPlan& punch) {
+bool has_ipv6_global_candidate(const PunchPlan& punch) {
+  return std::any_of(punch.candidates.begin(), punch.candidates.end(),
+                     [](const DirectCandidate& candidate) { return candidate.kind == "ipv6_global"; });
+}
+
+void apply_relay_fallback_guard(PunchPlan& punch, const RoutePlan& route_plan) {
   if (punch.candidates.empty()) return;
   if (std::any_of(punch.candidates.begin(), punch.candidates.end(), is_high_confidence_direct_candidate)) return;
+  if (route_plan.reason == "ipv6_global_direct" && has_ipv6_global_candidate(punch)) return;
 
   bool changed = false;
   if (punch.total_timeout > kPublicOnlyDirectWindow) {
@@ -42,11 +48,21 @@ std::vector<DirectCandidate> peer_candidates(const Message& peer, const std::vec
   auto unspecified_host = [](const std::string& host) {
     return host == "0.0.0.0" || host == "::" || host == "[::]";
   };
+  auto classify_kind = [](const Endpoint& e, const std::string& base_kind) {
+    if (is_global_ipv6_address(e.host)) return std::string("ipv6_global");
+    return base_kind;
+  };
+  auto classify_priority = [](const std::string& kind, int priority) {
+    if (kind == "ipv6_global") return std::max(priority, 82);
+    return priority;
+  };
   auto push_unique = [&](Endpoint e, std::string kind, int priority) {
     if (e.port == 0 || e.host.empty() || unspecified_host(e.host)) return;
     for (const auto& existing : out) {
       if (existing.endpoint.host == e.host && existing.endpoint.port == e.port) return;
     }
+    kind = classify_kind(e, kind);
+    priority = classify_priority(kind, priority);
     out.push_back(make_direct_candidate(std::move(e), std::move(kind), priority));
   };
 
@@ -170,7 +186,7 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
   auto candidates = peer_candidates(peer, lan_extra);
   if (auto profile = load_profile(network_fingerprint())) apply_profile_candidate_bias(*profile, candidates);
   apply_route_plan_to_adaptive(route_plan, role, puncher, candidates, self, peer_nat, punch);
-  apply_relay_fallback_guard(punch);
+  apply_relay_fallback_guard(punch, route_plan);
   if (reporter) reporter->status(describe_direct_plan(route_plan, punch));
   if (route_plan.udp_punch_enabled) {
     Endpoint peer_wan{peer.get("peer_public_host"), message_port_or(peer, "peer_public_port", 0, true)};

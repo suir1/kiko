@@ -12,7 +12,8 @@ namespace kiko {
 namespace {
 
 bool route_reason_allows_profile_shortening(const RoutePlan& plan) {
-  return !plan.skip_direct && (plan.reason == "default" || plan.reason == "stun_cone_direct_probe");
+  return !plan.skip_direct && (plan.reason == "default" || plan.reason == "stun_cone_direct_probe" ||
+                               plan.reason == "ipv6_global_direct");
 }
 
 int failure_count_for_kind(const NetworkProfileEntry& profile, const std::string& kind) {
@@ -22,7 +23,10 @@ int failure_count_for_kind(const NetworkProfileEntry& profile, const std::string
 
 std::string normalized_direct_kind(std::string kind) {
   if (kind == "public-same-port") return "public";
-  if (kind == "manual" || kind == "discovered" || kind == "lan" || kind == "listen" || kind == "public") return kind;
+  if (kind == "manual" || kind == "discovered" || kind == "lan" || kind == "listen" ||
+      kind == "ipv6_global" || kind == "public") {
+    return kind;
+  }
   return {};
 }
 
@@ -44,6 +48,7 @@ void prefer_local_before_public(RoutePlan& plan) {
   push_unique_kind(order, "listen");
   push_unique_kind(order, "manual");
   push_unique_kind(order, "discovered");
+  push_unique_kind(order, "ipv6_global");
   push_unique_kind(order, "public");
   for (const auto& kind : plan.direct_candidate_order) push_unique_kind(order, kind);
   plan.direct_candidate_order = std::move(order);
@@ -53,6 +58,16 @@ void apply_profile_route_history(RoutePlan& plan, const NetworkProfileEntry& pro
   if (!profile.last_direct_candidate_kind.empty()) prefer_prior_direct_kind(plan, profile);
 
   if (profile.last_path == "direct") return;
+
+  const int ipv6_failures = failure_count_for_kind(profile, "ipv6_global");
+  if (ipv6_failures >= 2 && route_reason_allows_profile_shortening(plan)) {
+    if (plan.direct_timeout > std::chrono::milliseconds(900)) {
+      plan.direct_timeout = std::chrono::milliseconds(900);
+      plan.direct_connect = std::chrono::milliseconds(250);
+    }
+    plan.reason = "profile_ipv6_failures_short_direct";
+    prefer_local_before_public(plan);
+  }
 
   const int public_failures = failure_count_for_kind(profile, "public") + failure_count_for_kind(profile, "public-same-port");
   if (public_failures >= 2 && route_reason_allows_profile_shortening(plan)) {

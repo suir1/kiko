@@ -2,6 +2,8 @@
 
 #include "wordlist.hpp"
 
+#include <asio/ip/address.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -75,6 +77,32 @@ Endpoint parse_endpoint_impl(const std::string& value, std::uint16_t default_por
   return Endpoint{host, checked_endpoint_port(port, value, allow_zero_port)};
 }
 
+std::string normalize_ip_host(std::string_view host) {
+  if (host.size() >= 2 && host.front() == '[' && host.back() == ']') host = host.substr(1, host.size() - 2);
+  const auto zone = host.find('%');
+  if (zone != std::string_view::npos) host = host.substr(0, zone);
+  return std::string(host);
+}
+
+std::optional<asio::ip::address> parse_ip_address(std::string_view host) {
+  asio::error_code ec;
+  auto address = asio::ip::make_address(normalize_ip_host(host), ec);
+  if (ec) return std::nullopt;
+  return address;
+}
+
+bool ipv4_private(std::uint32_t value) {
+  const auto a = static_cast<std::uint8_t>((value >> 24) & 0xff);
+  const auto b = static_cast<std::uint8_t>((value >> 16) & 0xff);
+  return a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168);
+}
+
+bool ipv4_link_local(std::uint32_t value) {
+  const auto a = static_cast<std::uint8_t>((value >> 24) & 0xff);
+  const auto b = static_cast<std::uint8_t>((value >> 16) & 0xff);
+  return a == 169 && b == 254;
+}
+
 }  // namespace
 
 Endpoint parse_endpoint(const std::string& value, std::uint16_t default_port) {
@@ -83,6 +111,51 @@ Endpoint parse_endpoint(const std::string& value, std::uint16_t default_port) {
 
 Endpoint parse_bind_endpoint(const std::string& value, std::uint16_t default_port) {
   return parse_endpoint_impl(value, default_port, true, false);
+}
+
+IpAddressFamily ip_address_family(std::string_view host) {
+  const auto address = parse_ip_address(host);
+  if (!address) return IpAddressFamily::Unknown;
+  return address->is_v6() ? IpAddressFamily::IPv6 : IpAddressFamily::IPv4;
+}
+
+IpAddressScope ip_address_scope(std::string_view host) {
+  const auto address = parse_ip_address(host);
+  if (!address) return IpAddressScope::Unknown;
+  if (address->is_unspecified()) return IpAddressScope::Unknown;
+  if (address->is_loopback()) return IpAddressScope::Loopback;
+
+  if (address->is_v4()) {
+    const auto value = address->to_v4().to_uint();
+    if (ipv4_link_local(value)) return IpAddressScope::LinkLocal;
+    if (ipv4_private(value)) return IpAddressScope::Private;
+    if (address->is_multicast()) return IpAddressScope::Unknown;
+    return IpAddressScope::Global;
+  }
+
+  const auto bytes = address->to_v6().to_bytes();
+  if (bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80) return IpAddressScope::LinkLocal;
+  if ((bytes[0] & 0xfe) == 0xfc) return IpAddressScope::UniqueLocal;
+  if (address->is_multicast()) return IpAddressScope::Unknown;
+  return IpAddressScope::Global;
+}
+
+bool is_ipv6_address(std::string_view host) { return ip_address_family(host) == IpAddressFamily::IPv6; }
+
+bool is_global_ipv6_address(std::string_view host) {
+  return ip_address_family(host) == IpAddressFamily::IPv6 && ip_address_scope(host) == IpAddressScope::Global;
+}
+
+std::size_t count_global_ipv6_addresses(const std::vector<std::string>& hosts) {
+  std::size_t count = 0;
+  std::vector<std::string> seen;
+  for (const auto& host : hosts) {
+    if (!is_global_ipv6_address(host)) continue;
+    if (std::find(seen.begin(), seen.end(), host) != seen.end()) continue;
+    seen.push_back(host);
+    ++count;
+  }
+  return count;
 }
 
 std::string random_code(std::size_t bytes) {

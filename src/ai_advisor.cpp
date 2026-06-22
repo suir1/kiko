@@ -43,7 +43,8 @@ bool valid_relay_kind(const std::string& kind) {
 }
 
 bool valid_direct_candidate_kind(const std::string& kind) {
-  return kind == "manual" || kind == "discovered" || kind == "lan" || kind == "listen" || kind == "public";
+  return kind == "manual" || kind == "discovered" || kind == "lan" || kind == "listen" ||
+         kind == "ipv6_global" || kind == "public";
 }
 
 }  // namespace
@@ -58,6 +59,8 @@ std::string connectivity_snapshot_to_json(const ConnectivitySnapshot& snapshot) 
   j["only_local"] = snapshot.only_local;
   j["no_direct_config"] = snapshot.no_direct_config;
   j["lan_candidate_count"] = snapshot.lan_candidates.size();
+  j["ipv6"] = {{"self_global_count", snapshot.self_global_ipv6_count},
+               {"peer_global_count", snapshot.peer_global_ipv6_count}};
   j["transfer"] = {{"total_bytes", snapshot.total_bytes},
                    {"file_count", snapshot.file_count},
                    {"largest_file_bytes", snapshot.largest_file_bytes},
@@ -285,7 +288,7 @@ AiAdvisorResult ai_suggest_route_plan(const ConnectivitySnapshot& snapshot, cons
        {"content",
         "You suggest a kiko RoutePlan JSON object with ONLY these keys: skip_direct (bool), udp_punch_enabled (bool), "
         "direct_timeout_ms (integer 0-10000), direct_connect_ms (integer 0-5000), connections (integer 1-32), "
-        "direct_candidate_order (optional array of strings: manual, discovered, lan, listen, public), "
+        "direct_candidate_order (optional array of strings: manual, discovered, lan, listen, ipv6_global, public), "
         "relay_order (optional array of strings: embedded, lan, external — prefer lower RTT kinds first when multiple "
         "relays exist), reason (short string). Use transfer.connections_hint as a baseline unless you have strong "
         "reason to change it. kiko is direct-preferred: do not set skip_direct true unless no_direct_config is true. "

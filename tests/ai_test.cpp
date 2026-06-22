@@ -64,7 +64,7 @@ int main() {
                         {"direct_connect_ms", 400},
                         {"connections", 6},
                         {"reason", "vpn_lan"},
-                        {"direct_candidate_order", nlohmann::json::array({"public", "lan", "public", "bad"})},
+                        {"direct_candidate_order", nlohmann::json::array({"public", "ipv6_global", "lan", "public", "bad"})},
                         {"relay_order", nlohmann::json::array({"ignored"})}};
     const auto plan = validate_ai_route_plan(j);
     assert(plan.skip_direct);
@@ -73,9 +73,10 @@ int main() {
     assert(plan.direct_connect.count() == 400);
     assert(plan.connections == 6);
     assert(plan.reason == "vpn_lan");
-    assert(plan.direct_candidate_order.size() == 2);
+    assert(plan.direct_candidate_order.size() == 3);
     assert(plan.direct_candidate_order[0] == "public");
-    assert(plan.direct_candidate_order[1] == "lan");
+    assert(plan.direct_candidate_order[1] == "ipv6_global");
+    assert(plan.direct_candidate_order[2] == "lan");
   }
 
   {
@@ -112,6 +113,8 @@ int main() {
     snap.profile_direct_candidate_kind = "lan";
     snap.profile_direct_rtt_ms = 4;
     snap.profile_candidate_failures_by_kind["public"] = 2;
+    snap.self_global_ipv6_count = 1;
+    snap.peer_global_ipv6_count = 1;
     snap.punch.attempted = true;
     snap.punch.failures["connect_failed"] = 2;
     snap.punch.successful_candidate_kind = "lan";
@@ -128,6 +131,7 @@ int main() {
     assert(json.find("physical_lower_rtt") != std::string::npos);
     assert(json.find("successful_candidate_kind") != std::string::npos);
     assert(json.find("candidate_failures_by_kind") != std::string::npos);
+    assert(json.find("\"ipv6\"") != std::string::npos);
     assert(json.find("pairing") == std::string::npos);
   }
 

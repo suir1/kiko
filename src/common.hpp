@@ -1,10 +1,12 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace kiko {
@@ -30,6 +32,16 @@ struct Endpoint {
 
 Endpoint parse_endpoint(const std::string& value, std::uint16_t default_port = 0);
 Endpoint parse_bind_endpoint(const std::string& value, std::uint16_t default_port = 0);
+
+enum class IpAddressFamily { Unknown, IPv4, IPv6 };
+enum class IpAddressScope { Unknown, Loopback, LinkLocal, Private, UniqueLocal, Global };
+
+[[nodiscard]] IpAddressFamily ip_address_family(std::string_view host);
+[[nodiscard]] IpAddressScope ip_address_scope(std::string_view host);
+[[nodiscard]] bool is_ipv6_address(std::string_view host);
+[[nodiscard]] bool is_global_ipv6_address(std::string_view host);
+[[nodiscard]] std::size_t count_global_ipv6_addresses(const std::vector<std::string>& hosts);
+
 // Short pairing code: `bytes * 2` chars from an unambiguous alphabet (default 6).
 std::string random_code(std::size_t bytes = 3);
 

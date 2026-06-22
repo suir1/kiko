@@ -134,6 +134,23 @@ int main() {
     ConnectivitySnapshot snapshot;
     snapshot.self_nat = NatType::BehindNat;
     snapshot.peer_nat = NatType::BehindNat;
+    snapshot.self_global_ipv6_count = 1;
+    snapshot.peer_global_ipv6_count = 1;
+    const auto plan = rules.plan(snapshot, std::nullopt, false, 4);
+    assert(!plan.skip_direct);
+    assert_ms(plan.direct_timeout, 3500, "global IPv6 direct window");
+    assert_ms(plan.direct_connect, 450, "global IPv6 connect timeout");
+    assert_reason(plan, "ipv6_global_direct");
+    if (plan.direct_candidate_order.size() < 3 || plan.direct_candidate_order[2] != "ipv6_global") {
+      std::cerr << "FAIL: global IPv6 route did not prioritize ipv6_global candidates\n";
+      return 1;
+    }
+  }
+
+  {
+    ConnectivitySnapshot snapshot;
+    snapshot.self_nat = NatType::BehindNat;
+    snapshot.peer_nat = NatType::BehindNat;
     const auto plan = rules.plan(snapshot, std::nullopt, false, 4);
     assert(!plan.skip_direct);
     assert_ms(plan.direct_timeout, 500, "double NAT direct window");
@@ -191,6 +208,25 @@ int main() {
       std::cerr << "FAIL: direct success profile did not prioritize prior successful candidate kind\n";
       return 1;
     }
+  }
+
+  {
+    clear_profile();
+    const auto fingerprint = network_fingerprint();
+    PunchStats stats;
+    stats.attempted = true;
+    stats.direct_ok = false;
+    stats.candidate_failures_by_kind["ipv6_global"] = 2;
+    save_profile_success(fingerprint, "relay", stats);
+
+    ConnectivitySnapshot snapshot;
+    snapshot.self_global_ipv6_count = 1;
+    snapshot.peer_global_ipv6_count = 1;
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
+    assert(!plan.skip_direct);
+    assert_ms(plan.direct_timeout, 900, "IPv6 failure profile direct window");
+    assert_ms(plan.direct_connect, 250, "IPv6 failure profile connect timeout");
+    assert_reason(plan, "profile_ipv6_failures_short_direct");
   }
 
   {
@@ -258,7 +294,7 @@ int main() {
     Message peer{"peer",
                  {{"peer_listen_host", "127.0.0.1"},
                   {"peer_listen_port", "1"},
-                  {"peer_public_host", "203.0.113.7"},
+                  {"peer_public_host", "2001:4860:4860::8888"},
                   {"peer_public_port", "5000"}}};
     RoutePlan plan;
     plan.direct_timeout = std::chrono::milliseconds(20);
@@ -273,7 +309,7 @@ int main() {
     for (const auto& status : reporter.statuses) {
       if (status.find("direct plan: timeout=20ms connect=5ms") != std::string::npos &&
           status.find("listen@127.0.0.1:1") != std::string::npos &&
-          status.find("public@203.0.113.7:5000") != std::string::npos) {
+          status.find("ipv6_global@[2001:4860:4860::8888]:5000") != std::string::npos) {
         saw_plan = true;
       }
     }

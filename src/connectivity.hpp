@@ -47,6 +47,8 @@ struct ConnectivitySnapshot {
   std::string profile_direct_candidate_kind;
   std::int64_t profile_direct_rtt_ms = -1;
   std::map<std::string, int> profile_candidate_failures_by_kind;
+  std::size_t self_global_ipv6_count = 0;
+  std::size_t peer_global_ipv6_count = 0;
   std::uint64_t total_bytes = 0;
   std::size_t file_count = 0;
   std::uint64_t largest_file_bytes = 0;
@@ -60,7 +62,7 @@ struct RoutePlan {
   std::chrono::milliseconds direct_timeout{2500};
   std::chrono::milliseconds direct_connect{450};
   int connections = 4;
-  std::vector<std::string> direct_candidate_order;  // optional AI hint: manual/discovered/lan/listen/public
+  std::vector<std::string> direct_candidate_order;  // optional AI hint: manual/discovered/lan/listen/ipv6_global/public
   std::vector<std::string> relay_order;  // optional AI hint: embedded, lan, external
   std::string reason;
 };

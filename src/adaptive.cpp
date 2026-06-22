@@ -15,6 +15,7 @@ std::string default_candidate_reason(const std::string& kind) {
   if (kind == "discovered") return "lan_discovery";
   if (kind == "lan") return "peer_lan_candidate";
   if (kind == "listen") return "peer_listen_host";
+  if (kind == "ipv6_global") return "global_ipv6_candidate";
   if (kind == "public") return "relay_observed_public";
   if (kind == "public-same-port") return "same_port_probe";
   if (kind == "accept") return "inbound_accept";
@@ -28,6 +29,7 @@ bool has_reason(const DirectCandidate& candidate, const std::string& reason) {
 std::chrono::milliseconds dial_timeout_for(const DirectCandidate& candidate,
                                            std::chrono::milliseconds plan_connect_timeout) {
   if (candidate.priority >= 90 || candidate.kind == "discovered" || candidate.kind == "lan" ||
+      candidate.kind == "ipv6_global" ||
       has_reason(candidate, "profile_direct_success")) {
     return clamp_ms(plan_connect_timeout + std::chrono::milliseconds(100), std::chrono::milliseconds(300),
                     std::chrono::milliseconds(600));

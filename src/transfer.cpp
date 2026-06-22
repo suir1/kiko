@@ -115,6 +115,15 @@ int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
   return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
+std::size_t peer_global_ipv6_count(const Message& peer) {
+  auto hosts = split_csv(peer.get("peer_local_candidates"));
+  const auto listen_host = peer.get("peer_listen_host");
+  if (!listen_host.empty()) hosts.push_back(listen_host);
+  const auto public_host = peer.get("peer_public_host");
+  if (!public_host.empty()) hosts.push_back(public_host);
+  return count_global_ipv6_addresses(hosts);
+}
+
 template <typename Fn>
 int run_with_auto_reconnect(int max_attempts, std::chrono::milliseconds delay, ProgressReporter& reporter, Fn&& fn) {
   for (int attempt = 1;; ++attempt) {
@@ -274,6 +283,8 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   ConnectivitySnapshot snapshot = build_pre_rendezvous_snapshot(config.no_direct, config.only_local, 0, total_size);
   if (saved_profile) apply_profile_to_snapshot(*saved_profile, snapshot);
   fill_transfer_snapshot(snapshot, files, connections_hint);
+  snapshot.self_global_ipv6_count = count_global_ipv6_addresses(local_addrs);
+  snapshot.peer_global_ipv6_count = peer_global_ipv6_count(peer);
   snapshot.self_nat = self_nat.type;
   snapshot.peer_nat = peer_nat.type;
   snapshot.relays = std::move(relay_probes);
@@ -456,6 +467,8 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   if (saved_profile) apply_profile_to_snapshot(*saved_profile, snapshot);
   snapshot.file_count = static_cast<std::size_t>(peer.get_u64("file_count", 0));
   snapshot.total_bytes = peer.get_u64("total_size", 0);
+  snapshot.self_global_ipv6_count = count_global_ipv6_addresses(local_addrs);
+  snapshot.peer_global_ipv6_count = peer_global_ipv6_count(peer);
   snapshot.self_nat = self_nat.type;
   snapshot.peer_nat = peer_nat.type;
   snapshot.relays = std::move(relay_probes);
