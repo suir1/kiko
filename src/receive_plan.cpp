@@ -5,7 +5,6 @@
 
 #include <limits>
 #include <set>
-#include <sstream>
 
 namespace kiko::detail {
 namespace {
@@ -75,15 +74,17 @@ std::filesystem::path unique_conflict_path_reserved(const std::filesystem::path&
   throw KikoError("could not choose a non-conflicting filename for " + path.string());
 }
 
-std::string receive_plan_summary(const ReceivePlan& plan) {
-  std::ostringstream out;
-  out << "receive plan: " << plan.entries.size() << " item(s), " << plan.total_size << " bytes";
-  if (plan.skip_count > 0) out << ", skip=" << plan.skip_count;
-  if (plan.rename_count > 0) out << ", rename=" << plan.rename_count;
-  if (plan.overwrite_count > 0) out << ", overwrite=" << plan.overwrite_count;
-  if (plan.resume_count > 0) out << ", resume=" << plan.resume_count << " (" << plan.resume_bytes << " bytes)";
-  if (plan.skip_bytes > 0) out << ", skipped-bytes=" << plan.skip_bytes;
-  return out.str();
+ReceivePlanSummary to_progress_summary(const ReceivePlan& plan) {
+  ReceivePlanSummary summary;
+  summary.item_count = plan.entries.size();
+  summary.total_bytes = plan.total_size;
+  summary.resume_bytes = plan.resume_bytes;
+  summary.skip_bytes = plan.skip_bytes;
+  summary.skip_count = plan.skip_count;
+  summary.rename_count = plan.rename_count;
+  summary.overwrite_count = plan.overwrite_count;
+  summary.resume_count = plan.resume_count;
+  return summary;
 }
 
 }  // namespace
@@ -171,7 +172,7 @@ ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const 
   reporter.status("manifest: " + std::to_string(manifest.entries.size()) + " item(s), " +
                   std::to_string(manifest.total_size) + " bytes");
   plan.total_size = manifest.total_size;
-  reporter.status(receive_plan_summary(plan));
+  reporter.receive_plan(to_progress_summary(plan));
   return plan;
 }
 

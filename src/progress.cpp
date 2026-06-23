@@ -100,6 +100,20 @@ std::string transfer_timing_summary(const TransferTiming& timing) {
 
 }  // namespace
 
+std::string format_receive_plan_summary(const ReceivePlanSummary& summary) {
+  std::string line = "receive plan: " + std::to_string(summary.item_count) + " item(s), " +
+                     std::to_string(summary.total_bytes) + " bytes";
+  if (summary.skip_count > 0) line += ", skip=" + std::to_string(summary.skip_count);
+  if (summary.rename_count > 0) line += ", rename=" + std::to_string(summary.rename_count);
+  if (summary.overwrite_count > 0) line += ", overwrite=" + std::to_string(summary.overwrite_count);
+  if (summary.resume_count > 0) {
+    line += ", resume=" + std::to_string(summary.resume_count) + " (" +
+            std::to_string(summary.resume_bytes) + " bytes)";
+  }
+  if (summary.skip_bytes > 0) line += ", skipped-bytes=" + std::to_string(summary.skip_bytes);
+  return line;
+}
+
 void CliReporter::status(const std::string& message) { std::cout << message << "\n"; }
 
 void CliReporter::connectivity_report(const std::string& report) {

@@ -54,7 +54,22 @@ void prefer_local_before_public(RoutePlan& plan) {
   plan.direct_candidate_order = std::move(order);
 }
 
+void apply_same_port_history(RoutePlan& plan, const NetworkProfileEntry& profile) {
+  if (plan.skip_direct) return;
+  if (profile.same_port_successes > 0 && profile.same_port_failure_streak == 0) {
+    plan.same_port_timeout = std::max(plan.same_port_timeout, std::chrono::milliseconds(650));
+    plan.same_port_connect = std::max(plan.same_port_connect, std::chrono::milliseconds(180));
+    return;
+  }
+
+  if (profile.same_port_failure_streak >= 4) {
+    plan.same_port_timeout = std::chrono::milliseconds(180);
+    plan.same_port_connect = std::chrono::milliseconds(100);
+  }
+}
+
 void apply_profile_route_history(RoutePlan& plan, const NetworkProfileEntry& profile) {
+  apply_same_port_history(plan, profile);
   if (!profile.last_direct_candidate_kind.empty()) prefer_prior_direct_kind(plan, profile);
 
   if (profile.last_path == "direct") return;
@@ -79,7 +94,7 @@ void apply_profile_route_history(RoutePlan& plan, const NetworkProfileEntry& pro
     prefer_local_before_public(plan);
   }
 
-  if (profile.last_path == "relay" && profile.success_count >= 2 && !plan.skip_direct &&
+  if (profile.last_path == "relay" && profile.path_streak >= 2 && !plan.skip_direct &&
       (plan.reason == "default" || plan.reason == "profile_public_failures_short_direct")) {
     plan.direct_timeout = std::chrono::milliseconds(600);
     plan.direct_connect = std::chrono::milliseconds(220);

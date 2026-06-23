@@ -26,7 +26,12 @@ struct PunchStats {
   std::string successful_candidate_scope;
   int successful_candidate_priority = 0;
   std::int64_t successful_elapsed_ms = -1;
+  std::map<std::string, int> candidate_attempts_by_kind;
   std::map<std::string, int> candidate_failures_by_kind;
+  int same_port_attempts = 0;
+  int same_port_successes = 0;
+  int same_port_failures = 0;
+  std::int64_t same_port_last_elapsed_ms = -1;
 };
 
 struct ConnectivitySnapshot {
@@ -43,6 +48,7 @@ struct ConnectivitySnapshot {
   bool only_local = false;
   std::string profile_last_path;
   int profile_success_count = 0;
+  int profile_path_streak = 0;
   std::string profile_relay_path;
   std::string profile_relay_interface;
   std::string profile_relay_reason;
@@ -50,6 +56,10 @@ struct ConnectivitySnapshot {
   std::string profile_direct_candidate_kind;
   std::int64_t profile_direct_rtt_ms = -1;
   std::map<std::string, int> profile_candidate_failures_by_kind;
+  int profile_same_port_attempts = 0;
+  int profile_same_port_successes = 0;
+  int profile_same_port_failure_streak = 0;
+  std::int64_t profile_same_port_last_elapsed_ms = -1;
   std::size_t self_global_ipv6_count = 0;
   std::size_t peer_global_ipv6_count = 0;
   std::uint64_t total_bytes = 0;
@@ -64,6 +74,8 @@ struct RoutePlan {
   bool udp_punch_enabled = false;
   std::chrono::milliseconds direct_timeout{2500};
   std::chrono::milliseconds direct_connect{450};
+  std::chrono::milliseconds same_port_timeout{500};
+  std::chrono::milliseconds same_port_connect{160};
   int connections = 4;
   std::vector<std::string> direct_candidate_order;  // optional AI hint: manual/discovered/lan/listen/ipv6_global/public
   std::vector<std::string> relay_order;  // optional AI hint: embedded, lan, external

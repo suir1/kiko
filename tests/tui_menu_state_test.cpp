@@ -3,10 +3,16 @@
 
 #include "platform.hpp"
 
+#include <ftxui/dom/node.hpp>
+#include <ftxui/screen/screen.hpp>
+
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -14,6 +20,22 @@ namespace {
 
 bool contains(const std::string& text, const std::string& needle) {
   return text.find(needle) != std::string::npos;
+}
+
+std::string render_transfer_text(const kiko::TuiState& state) {
+  auto document = kiko::render_transfer_view(state);
+  auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(100), ftxui::Dimension::Fixed(40));
+  ftxui::Render(screen, document);
+  return screen.ToString();
+}
+
+std::string line_containing(const std::string& text, const std::string& needle) {
+  std::istringstream lines(text);
+  std::string line;
+  while (std::getline(lines, line)) {
+    if (contains(line, needle)) return line;
+  }
+  return {};
 }
 
 int expect_error(kiko::TuiMenuState state, const std::string& expected) {
@@ -151,10 +173,13 @@ int main() {
     transfer_state.handshake = true;
     TuiReporter reporter(transfer_state, [&] { woke = true; });
     reporter.transfer_retry(2, 3, "connection reset");
+    reporter.transfer_retry_delay(2, 3, std::chrono::milliseconds(250));
     if (!woke || transfer_state.current_done != 0 || transfer_state.overall_done != 0 ||
         transfer_state.files_done != 0 || transfer_state.handshake ||
         transfer_state.route_phase_label != "reconnecting" ||
-        !contains(transfer_state.connectivity_log, "connection lost, retrying 2/3")) {
+        transfer_state.activity != "waiting to reconnect 2/3" ||
+        !contains(transfer_state.connectivity_log, "connection lost, retrying 2/3") ||
+        !contains(transfer_state.connectivity_log, "reconnect in 250ms before attempt 2/3")) {
       std::cerr << "FAIL: TUI reporter did not reset progress for auto reconnect\n";
       fs::remove(send_path);
       return 1;
@@ -177,6 +202,32 @@ int main() {
 
   {
     TuiState transfer_state;
+    bool woke = false;
+    TuiReporter reporter(transfer_state, [&] { woke = true; });
+    ReceivePlanSummary summary;
+    summary.item_count = 4;
+    summary.total_bytes = 4096;
+    summary.resume_count = 1;
+    summary.resume_bytes = 1024;
+    summary.skip_count = 1;
+    summary.skip_bytes = 512;
+    summary.rename_count = 1;
+    summary.overwrite_count = 1;
+    reporter.receive_plan(summary);
+    const auto rendered = render_transfer_text(transfer_state);
+    if (!woke || !transfer_state.has_receive_plan ||
+        !contains(transfer_state.connectivity_log, "receive plan: 4 item(s), 4096 bytes") ||
+        !contains(rendered, "receive plan") || !contains(rendered, "resume:") ||
+        !contains(rendered, "skip:") || !contains(rendered, "rename:") ||
+        !contains(rendered, "overwrite:")) {
+      std::cerr << "FAIL: TUI reporter did not render structured receive plan\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
+  {
+    TuiState transfer_state;
     int wakes = 0;
     TuiReporter reporter(transfer_state, [&] { ++wakes; });
     reporter.file_advance(10);
@@ -189,6 +240,34 @@ int main() {
     reporter.file_complete("partial.bin", 30, true);
     if (wakes != 2 || transfer_state.files_done != 1) {
       std::cerr << "FAIL: TUI reporter throttled a file completion wakeup\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
+  {
+    TuiState transfer_state;
+    transfer_state.title = "kiko receive";
+    transfer_state.start = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    TuiReporter reporter(transfer_state, [] {});
+    constexpr std::uint64_t total = 1024 * 1024;
+    reporter.transfer_overview(1, total);
+    reporter.file_start("done.bin", total);
+    reporter.file_advance(total);
+    reporter.file_complete("done.bin", total, true);
+    reporter.transfer_complete(1, total);
+
+    const auto first_rate = line_containing(render_transfer_text(transfer_state), "throughput:");
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    const auto second_rate = line_containing(render_transfer_text(transfer_state), "throughput:");
+    if (first_rate.empty() || first_rate != second_rate) {
+      std::cerr << "FAIL: completed transfer throughput was not frozen\n";
+      fs::remove(send_path);
+      return 1;
+    }
+    reporter.file_advance(1);
+    if (transfer_state.overall_done != total) {
+      std::cerr << "FAIL: completed transfer accepted late byte progress\n";
       fs::remove(send_path);
       return 1;
     }

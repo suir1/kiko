@@ -15,6 +15,7 @@ namespace {
 constexpr auto kDirectPreflightTimeout = std::chrono::milliseconds(1500);
 constexpr auto kRelayStandbyDirectWindow = std::chrono::milliseconds(500);
 constexpr auto kRelayStandbyConnectWindow = std::chrono::milliseconds(220);
+constexpr auto kSyncSamePortConnectWindow = std::chrono::milliseconds(160);
 
 bool direct_cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
 
@@ -132,6 +133,8 @@ void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePunc
   if (plan.direct_connect.count() > 0) {
     out.connect_timeout = plan.direct_connect;
   }
+  if (plan.same_port_timeout.count() > 0) out.same_port_timeout = plan.same_port_timeout;
+  if (plan.same_port_connect.count() > 0) out.same_port_connect_timeout = plan.same_port_connect;
   tune_direct_candidate_timeouts(out);
 }
 
@@ -165,22 +168,31 @@ std::optional<std::uint64_t> parse_punch_token_ms(const std::string& token) {
   return parse_u64_strict(token);
 }
 
-void wait_until_punch_time(const std::string& punch_token, std::chrono::steady_clock::time_point deadline,
-                           const std::atomic_bool* cancel) {
-  std::optional<std::uint64_t> punch_at;
+std::optional<std::uint64_t> parse_punch_time(const std::string& punch_token) {
   try {
-    punch_at = parse_punch_token_ms(punch_token);
+    return parse_punch_token_ms(punch_token);
   } catch (const KikoError&) {
-    return;
+    return std::nullopt;
   }
-  if (!punch_at) return;
+}
 
+bool wait_until_punch_target(std::uint64_t target_ms, std::chrono::steady_clock::time_point deadline,
+                             const std::atomic_bool* cancel) {
   while (!direct_cancelled(cancel) && std::chrono::steady_clock::now() < deadline) {
     const auto now = now_ms();
-    if (now >= *punch_at) return;
-    if (*punch_at - now > 2000) return;
+    if (now >= target_ms) return true;
+    if (target_ms - now > 2000) return false;
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
+  return false;
+}
+
+std::uint64_t punch_target_with_offset(std::uint64_t punch_at_ms, int offset_ms) {
+  if (offset_ms < 0) {
+    const auto delta = static_cast<std::uint64_t>(-offset_ms);
+    return punch_at_ms > delta ? punch_at_ms - delta : 0;
+  }
+  return punch_at_ms + static_cast<std::uint64_t>(offset_ms);
 }
 
 bool complete_direct_dial_preflight(TcpSocket& socket, Role role, const std::string& room,
@@ -354,17 +366,41 @@ std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener
   }
   if (local_port == 0) return std::nullopt;
 
-  wait_until_punch_time(punch_token, phase_deadline, cancel);
-  while (!direct_cancelled(cancel) && std::chrono::steady_clock::now() < phase_deadline) {
+  const auto try_burst = [&]() -> std::optional<TcpSocket> {
     for (const auto& candidate : candidates) {
       if (direct_cancelled(cancel)) break;
-      const auto timeout = candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline);
+      const auto same_port_connect =
+          plan.same_port_connect_timeout.count() > 0 ? plan.same_port_connect_timeout : kSyncSamePortConnectWindow;
+      const auto timeout = std::min(candidate_connect_timeout(candidate, plan.connect_timeout, phase_deadline),
+                                    same_port_connect);
       if (timeout.count() <= 0) break;
       if (auto socket = dial_direct_candidate_same_port(candidate, timeout, role, room, puncher, connect_options,
                                                        local_port, "sync-same-port", cancel)) {
         return socket;
       }
     }
+    return std::nullopt;
+  };
+
+  if (const auto punch_at = parse_punch_time(punch_token)) {
+    constexpr int kBurstOffsetsMs[] = {-80, 0, 80, 160};
+    for (const int offset : kBurstOffsetsMs) {
+      if (direct_cancelled(cancel) || std::chrono::steady_clock::now() >= phase_deadline) break;
+      if (!wait_until_punch_target(punch_target_with_offset(*punch_at, offset), phase_deadline, cancel)) break;
+      if (auto socket = try_burst()) return socket;
+      const auto remaining = remaining_until(phase_deadline);
+      if (remaining.count() <= 0) break;
+      const auto accept_timeout = std::min<std::chrono::milliseconds>(remaining, std::chrono::milliseconds(30));
+      if (auto accepted =
+              accept_direct_candidate(listener, accept_timeout, room, peer_role(role), puncher, "sync-same-port-accept",
+                                      cancel)) {
+        return accepted;
+      }
+    }
+  }
+
+  while (!direct_cancelled(cancel) && std::chrono::steady_clock::now() < phase_deadline) {
+    if (auto socket = try_burst()) return socket;
     const auto remaining = remaining_until(phase_deadline);
     if (remaining.count() <= 0) break;
     const auto accept_timeout = std::min<std::chrono::milliseconds>(remaining, std::chrono::milliseconds(40));
@@ -389,7 +425,7 @@ std::optional<TcpSocket> try_direct_with_plan(Role role, TcpListener& listener, 
 
   const auto start = std::chrono::steady_clock::now();
   const auto deadline = start + plan.total_timeout;
-  const auto same_port_budget = std::min<std::chrono::milliseconds>(std::chrono::milliseconds(500), plan.total_timeout / 3);
+  const auto same_port_budget = std::min<std::chrono::milliseconds>(plan.same_port_timeout, plan.total_timeout / 3);
   const auto same_port_deadline = std::min(deadline, start + same_port_budget);
   if (auto socket = try_synchronized_same_port_phase(role, listener, plan, puncher, room, same_port_deadline,
                                                      connect_options, punch_token, cancel)) {
@@ -426,6 +462,23 @@ void fill_success_address(PunchStats& stats, const std::string& candidate) {
   }
 }
 
+std::string successful_direct_kind_from_observation(const PunchObservation& observation) {
+  if (observation.kind != "accept") return observation.kind;
+  try {
+    const auto endpoint = parse_endpoint(observation.candidate);
+    const auto family = ip_address_family(endpoint.host);
+    const auto scope = ip_address_scope(endpoint.host);
+    if (family == IpAddressFamily::IPv6 && scope == IpAddressScope::Global) return "ipv6_global";
+    if (scope == IpAddressScope::Loopback || scope == IpAddressScope::Private ||
+        scope == IpAddressScope::LinkLocal || scope == IpAddressScope::UniqueLocal) {
+      return "lan";
+    }
+    if (scope == IpAddressScope::Global) return "public";
+  } catch (const KikoError&) {
+  }
+  return observation.kind;
+}
+
 PunchStats punch_stats_from(const AdaptivePuncher& puncher, bool direct_ok, bool attempted) {
   PunchStats stats;
   stats.attempted = attempted;
@@ -433,9 +486,20 @@ PunchStats punch_stats_from(const AdaptivePuncher& puncher, bool direct_ok, bool
   if (!attempted) return stats;
 
   for (const auto& observation : puncher.observations()) {
+    if (!observation.kind.empty()) ++stats.candidate_attempts_by_kind[observation.kind];
+    if (observation.kind == "public-same-port") {
+      ++stats.same_port_attempts;
+      stats.same_port_last_elapsed_ms = static_cast<std::int64_t>(observation.elapsed_ms);
+      if (observation.success) {
+        ++stats.same_port_successes;
+      } else {
+        ++stats.same_port_failures;
+      }
+    }
     if (observation.success) {
+      const auto successful_kind = successful_direct_kind_from_observation(observation);
       if (stats.successful_candidate_kind.empty() || stats.successful_candidate_kind == "accept") {
-        stats.successful_candidate_kind = observation.kind;
+        stats.successful_candidate_kind = successful_kind;
         fill_success_address(stats, observation.candidate);
         stats.successful_candidate_priority = observation.priority;
         stats.successful_elapsed_ms = static_cast<std::int64_t>(observation.elapsed_ms);

@@ -40,7 +40,26 @@ std::string count_map_summary(const std::map<std::string, int>& values) {
   return oss.str();
 }
 
+std::string same_port_summary(const PunchStats& stats) {
+  std::ostringstream oss;
+  oss << "attempts=" << stats.same_port_attempts << ",successes=" << stats.same_port_successes
+      << ",failures=" << stats.same_port_failures;
+  if (stats.same_port_last_elapsed_ms >= 0) oss << ",last_ms=" << stats.same_port_last_elapsed_ms;
+  return oss.str();
+}
+
+std::string direct_probe_summary(const PunchStats& stats) {
+  if (!stats.attempted) return "result=not_attempted";
+  std::string line = std::string("result=") + (stats.direct_ok ? "direct" : "relay_fallback");
+  if (!stats.candidate_attempts_by_kind.empty()) {
+    line += " candidate_kinds=" + count_map_summary(stats.candidate_attempts_by_kind);
+  }
+  if (stats.same_port_attempts > 0) line += " same_port=" + same_port_summary(stats);
+  return line;
+}
+
 void report_route_detail(ProgressReporter& reporter, const PunchStats& stats) {
+  reporter.status("direct probe summary: " + direct_probe_summary(stats));
   if (!stats.attempted) {
     reporter.status("route detail: direct_not_attempted");
     return;
@@ -65,6 +84,7 @@ void report_route_detail(ProgressReporter& reporter, const PunchStats& stats) {
   if (!stats.candidate_failures_by_kind.empty()) {
     line += " candidate_kinds=" + count_map_summary(stats.candidate_failures_by_kind);
   }
+  if (stats.same_port_attempts > 0) line += " same_port=" + same_port_summary(stats);
   reporter.status(line);
 }
 
@@ -75,6 +95,10 @@ std::string direct_failure_summary(const PunchStats& stats) {
   if (!stats.candidate_failures_by_kind.empty()) {
     if (!summary.empty()) summary += ";";
     summary += "candidate_kinds=" + count_map_summary(stats.candidate_failures_by_kind);
+  }
+  if (stats.same_port_attempts > 0) {
+    if (!summary.empty()) summary += ";";
+    summary += "same_port=" + same_port_summary(stats);
   }
   return summary.empty() ? "unknown" : summary;
 }

@@ -167,6 +167,8 @@ void reset_transfer_state(TuiState& state) {
   state.overall_total = 0;
   state.files_total = 0;
   state.files_done = 0;
+  state.receive_plan = {};
+  state.has_receive_plan = false;
   state.handshake = false;
   state.finished = false;
   state.failed = false;
@@ -175,6 +177,7 @@ void reset_transfer_state(TuiState& state) {
   state.doctor_summary.clear();
   state.doctor_running = false;
   state.start = std::chrono::steady_clock::now();
+  state.end.reset();
 }
 
 TuiReporter::TuiReporter(TuiState& state, std::function<void()> wake)
@@ -269,6 +272,17 @@ void TuiReporter::transfer_overview(std::size_t file_count, std::uint64_t total_
   wake_();
 }
 
+void TuiReporter::receive_plan(const ReceivePlanSummary& summary) {
+  {
+    std::lock_guard<std::mutex> lock(state_.mutex);
+    state_.receive_plan = summary;
+    state_.has_receive_plan = true;
+    state_.activity = format_receive_plan_summary(summary);
+    log_append(state_.connectivity_log, state_.activity);
+  }
+  wake_();
+}
+
 void TuiReporter::file_start(const std::string& path, std::uint64_t size) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
@@ -283,6 +297,7 @@ void TuiReporter::file_advance(std::uint64_t bytes_delta) {
   bool should_wake = false;
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
+    if (state_.finished || state_.failed || state_.canceled) return;
     state_.current_done += bytes_delta;
     state_.overall_done += bytes_delta;
     should_wake = should_wake_progress(std::chrono::steady_clock::now());
@@ -322,6 +337,7 @@ void TuiReporter::transfer_complete(std::size_t file_count, std::uint64_t total_
     state_.activity = "transfer complete";
     if (state_.overall_total == 0) state_.overall_total = total_bytes;
     state_.overall_done = total_bytes;
+    state_.end = std::chrono::steady_clock::now();
   }
   wake_();
 }
@@ -337,11 +353,25 @@ void TuiReporter::transfer_retry(int next_attempt, int max_attempts, const std::
     state_.handshake = false;
     state_.finished = false;
     state_.failed = false;
+    state_.canceled = false;
+    state_.end.reset();
     state_.route_phase_label = "reconnecting";
     state_.activity = "reconnecting " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts);
     log_append(state_.connectivity_log, "connection lost, retrying " + std::to_string(next_attempt) + "/" +
                                             std::to_string(max_attempts) +
                                             "; resume will continue verified partial files; reason: " + reason);
+  }
+  wake_();
+}
+
+void TuiReporter::transfer_retry_delay(int next_attempt, int max_attempts, std::chrono::milliseconds delay) {
+  if (delay.count() <= 0) return;
+  {
+    std::lock_guard<std::mutex> lock(state_.mutex);
+    state_.activity = "waiting to reconnect " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts);
+    log_append(state_.connectivity_log, "reconnect in " + std::to_string(delay.count()) +
+                                            "ms before attempt " + std::to_string(next_attempt) + "/" +
+                                            std::to_string(max_attempts));
   }
   wake_();
 }
@@ -387,7 +417,8 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& co
                                 ? static_cast<double>(state.current_done) / static_cast<double>(state.current_size)
                                 : 0.0;
 
-  const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - state.start).count();
+  const auto display_now = state.end.value_or(std::chrono::steady_clock::now());
+  const auto elapsed = std::chrono::duration<double>(display_now - state.start).count();
   const std::uint64_t rate = elapsed > 0.01 ? static_cast<std::uint64_t>(state.overall_done / elapsed) : 0;
 
   Elements left;
@@ -417,6 +448,36 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& co
     }
     if (!state.route_timing_summary.empty()) {
       left.push_back(hbox({text("  timing:   "), text(state.route_timing_summary) | dim}));
+    }
+  }
+
+  if (state.has_receive_plan) {
+    const auto& plan = state.receive_plan;
+    left.push_back(text("receive plan") | underlined);
+    left.push_back(hbox({text("  incoming: "), text(std::to_string(plan.item_count) + " item(s), " +
+                                                     human_bytes(plan.total_bytes))}));
+    if (plan.resume_count > 0) {
+      left.push_back(hbox({text("  resume:   "),
+                           text(std::to_string(plan.resume_count) + " item(s), " +
+                                human_bytes(plan.resume_bytes)) |
+                               color(Color::GreenLight)}));
+    }
+    if (plan.skip_count > 0) {
+      left.push_back(hbox({text("  skip:     "),
+                           text(std::to_string(plan.skip_count) + " item(s), " + human_bytes(plan.skip_bytes)) |
+                               color(Color::Yellow)}));
+    }
+    if (plan.rename_count > 0) {
+      left.push_back(hbox({text("  rename:   "), text(std::to_string(plan.rename_count) + " conflict(s)")}));
+    }
+    if (plan.overwrite_count > 0) {
+      left.push_back(hbox({text("  overwrite: "),
+                           text(std::to_string(plan.overwrite_count) + " existing target(s)") |
+                               color(Color::Yellow)}));
+    }
+    if (plan.resume_count == 0 && plan.skip_count == 0 && plan.rename_count == 0 &&
+        plan.overwrite_count == 0) {
+      left.push_back(text("  write all incoming items") | dim);
     }
   }
 

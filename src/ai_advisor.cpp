@@ -24,6 +24,8 @@ nlohmann::json route_plan_json(const RoutePlan& plan) {
                       {"udp_punch_enabled", plan.udp_punch_enabled},
                       {"direct_timeout_ms", plan.direct_timeout.count()},
                       {"direct_connect_ms", plan.direct_connect.count()},
+                      {"same_port_timeout_ms", plan.same_port_timeout.count()},
+                      {"same_port_connect_ms", plan.same_port_connect.count()},
                       {"connections", plan.connections},
                       {"reason", plan.reason}};
   if (!plan.direct_candidate_order.empty()) j["direct_candidate_order"] = plan.direct_candidate_order;
@@ -94,6 +96,13 @@ std::string connectivity_snapshot_to_json(const ConnectivitySnapshot& snapshot) 
       for (const auto& [kind, count] : snapshot.profile_candidate_failures_by_kind) {
         profile["candidate_failures_by_kind"][kind] = count;
       }
+    }
+    if (snapshot.profile_same_port_attempts > 0 || snapshot.profile_same_port_successes > 0 ||
+        snapshot.profile_same_port_failure_streak > 0 || snapshot.profile_same_port_last_elapsed_ms >= 0) {
+      profile["same_port"] = {{"attempts", snapshot.profile_same_port_attempts},
+                              {"successes", snapshot.profile_same_port_successes},
+                              {"failure_streak", snapshot.profile_same_port_failure_streak},
+                              {"last_elapsed_ms", snapshot.profile_same_port_last_elapsed_ms}};
     }
     j["profile"] = std::move(profile);
   }

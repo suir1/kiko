@@ -103,6 +103,7 @@ int main() {
     assert(selection.path == RoutePath::Direct);
     assert(selection.direct);
     assert(saw_status(reporter, "route result: path=direct reason=confirmed direct_attempted=true lan_upgrade=false"));
+    assert(saw_status(reporter, "direct probe summary: result=direct candidate_kinds=lan=1"));
     assert(saw_status(reporter, "route detail: direct_success kind=lan priority=90 elapsed_ms=7"));
   }
 
@@ -313,6 +314,9 @@ int main() {
     assert(selection.allow_lan_upgrade);
     assert(saw_status(reporter,
                       "route result: path=relay reason=direct_failed direct_attempted=true lan_upgrade=true"));
+    assert(saw_status(
+        reporter,
+        "direct probe summary: result=relay_fallback candidate_kinds=lan=1,public-same-port=1 same_port=attempts=1,successes=0,failures=1,last_ms=80"));
     assert(saw_status(reporter, "route detail: direct_failed"));
     assert(saw_status(reporter, "failures=connect_failed=1,direct_ack_failed=1"));
     assert(saw_status(reporter, "candidate_kinds=lan=1,public-same-port=1"));

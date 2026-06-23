@@ -56,6 +56,7 @@ int run_transfer_screen(
         state.error_message = e.what();
         state.activity = "error";
       }
+      state.end = std::chrono::steady_clock::now();
     }
     screen.PostEvent(Event::Custom);
   });

@@ -74,8 +74,11 @@ void save_profile_success_impl(const std::string& fingerprint, const std::string
   }
   const int prev = root.contains(fingerprint) ? root[fingerprint].value("success_count", 0) : 0;
   auto entry = root.contains(fingerprint) && root[fingerprint].is_object() ? root[fingerprint] : nlohmann::json::object();
+  const auto prev_path = entry.value("last_path", std::string{});
+  const int prev_streak = entry.value("path_streak", prev_path == path ? prev : 0);
   entry["last_path"] = path;
   entry["success_count"] = prev + 1;
+  entry["path_streak"] = prev_path == path ? std::max(0, prev_streak) + 1 : 1;
 
   if (relay) {
     if (!relay->path.empty()) entry["last_relay_path"] = relay->path;
@@ -95,6 +98,19 @@ void save_profile_success_impl(const std::string& fingerprint, const std::string
     }
     if (!stats->candidate_failures_by_kind.empty()) {
       entry["candidate_failures_by_kind"] = failures_by_kind_json(stats->candidate_failures_by_kind);
+    }
+    if (stats->same_port_attempts > 0) {
+      entry["same_port_attempts"] = entry.value("same_port_attempts", 0) + stats->same_port_attempts;
+      entry["same_port_successes"] = entry.value("same_port_successes", 0) + stats->same_port_successes;
+      if (stats->same_port_successes > 0) {
+        entry["same_port_failure_streak"] = 0;
+      } else {
+        entry["same_port_failure_streak"] =
+            entry.value("same_port_failure_streak", 0) + stats->same_port_failures;
+      }
+      if (stats->same_port_last_elapsed_ms >= 0) {
+        entry["same_port_last_elapsed_ms"] = stats->same_port_last_elapsed_ms;
+      }
     }
   }
 
@@ -127,6 +143,7 @@ std::optional<NetworkProfileEntry> load_profile(const std::string& fingerprint) 
   entry.fingerprint = fingerprint;
   entry.last_path = root[fingerprint].value("last_path", "");
   entry.success_count = root[fingerprint].value("success_count", 0);
+  entry.path_streak = root[fingerprint].value("path_streak", entry.last_path.empty() ? 0 : entry.success_count);
   entry.last_relay_path = root[fingerprint].value("last_relay_path", "");
   entry.last_relay_interface = root[fingerprint].value("last_relay_interface", "");
   entry.last_relay_reason = root[fingerprint].value("last_relay_reason", "");
@@ -138,6 +155,10 @@ std::optional<NetworkProfileEntry> load_profile(const std::string& fingerprint) 
   if (root[fingerprint].contains("candidate_failures_by_kind")) {
     entry.candidate_failures_by_kind = parse_failures_by_kind(root[fingerprint]["candidate_failures_by_kind"]);
   }
+  entry.same_port_attempts = root[fingerprint].value("same_port_attempts", 0);
+  entry.same_port_successes = root[fingerprint].value("same_port_successes", 0);
+  entry.same_port_failure_streak = root[fingerprint].value("same_port_failure_streak", 0);
+  entry.same_port_last_elapsed_ms = root[fingerprint].value("same_port_last_elapsed_ms", -1);
   return entry;
 }
 
@@ -174,6 +195,7 @@ std::optional<OutboundHistory> outbound_history_from_profile(const NetworkProfil
 void apply_profile_to_snapshot(const NetworkProfileEntry& profile, ConnectivitySnapshot& snapshot) {
   snapshot.profile_last_path = profile.last_path;
   snapshot.profile_success_count = profile.success_count;
+  snapshot.profile_path_streak = profile.path_streak;
   snapshot.profile_relay_path = profile.last_relay_path;
   snapshot.profile_relay_interface = profile.last_relay_interface;
   snapshot.profile_relay_reason = profile.last_relay_reason;
@@ -181,6 +203,10 @@ void apply_profile_to_snapshot(const NetworkProfileEntry& profile, ConnectivityS
   snapshot.profile_direct_candidate_kind = profile.last_direct_candidate_kind;
   snapshot.profile_direct_rtt_ms = profile.last_direct_rtt_ms;
   snapshot.profile_candidate_failures_by_kind = profile.candidate_failures_by_kind;
+  snapshot.profile_same_port_attempts = profile.same_port_attempts;
+  snapshot.profile_same_port_successes = profile.same_port_successes;
+  snapshot.profile_same_port_failure_streak = profile.same_port_failure_streak;
+  snapshot.profile_same_port_last_elapsed_ms = profile.same_port_last_elapsed_ms;
 }
 
 void apply_profile_candidate_bias(const NetworkProfileEntry& profile, std::vector<DirectCandidate>& candidates) {

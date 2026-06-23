@@ -161,11 +161,37 @@ int main() {
 
   RecordingReporter retry_rec;
   retry_rec.transfer_retry(2, 3, "connection reset by peer");
-  if (retry_rec.statuses.size() != 1 ||
+  retry_rec.transfer_retry_delay(2, 3, std::chrono::milliseconds(250));
+  if (retry_rec.statuses.size() != 2 ||
       retry_rec.statuses[0].find("connection lost, retrying 2/3") == std::string::npos ||
       retry_rec.statuses[0].find("resume will continue verified partial files") == std::string::npos ||
       retry_rec.statuses[0].find("connection reset by peer") == std::string::npos) {
     std::cerr << "FAIL: retry status did not explain reconnect/resume semantics\n";
+    return 1;
+  }
+  if (retry_rec.statuses[1].find("reconnect in 250ms before attempt 2/3") == std::string::npos) {
+    std::cerr << "FAIL: retry delay status did not explain reconnect backoff\n";
+    return 1;
+  }
+
+  RecordingReporter plan_rec;
+  ReceivePlanSummary plan_summary;
+  plan_summary.item_count = 4;
+  plan_summary.total_bytes = 4096;
+  plan_summary.resume_count = 1;
+  plan_summary.resume_bytes = 1024;
+  plan_summary.skip_count = 1;
+  plan_summary.skip_bytes = 512;
+  plan_summary.rename_count = 1;
+  plan_summary.overwrite_count = 1;
+  plan_rec.receive_plan(plan_summary);
+  if (plan_rec.statuses.size() != 1 ||
+      plan_rec.statuses[0].find("receive plan: 4 item(s), 4096 bytes") == std::string::npos ||
+      plan_rec.statuses[0].find("skip=1") == std::string::npos ||
+      plan_rec.statuses[0].find("rename=1") == std::string::npos ||
+      plan_rec.statuses[0].find("overwrite=1") == std::string::npos ||
+      plan_rec.statuses[0].find("resume=1 (1024 bytes)") == std::string::npos) {
+    std::cerr << "FAIL: receive plan status did not expose preflight actions\n";
     return 1;
   }
 

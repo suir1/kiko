@@ -70,6 +70,29 @@ std::string ipv6_direct_note_for(const DoctorReport& report) {
   return "global IPv6 direct requires at least one non-VPN global IPv6 candidate";
 }
 
+std::string same_port_policy_for(const DoctorReport& report) {
+  if (report.plan.skip_direct) return "disabled";
+  if (report.plan.same_port_timeout <= std::chrono::milliseconds(180) ||
+      report.plan.same_port_connect <= std::chrono::milliseconds(100)) {
+    return "shortened";
+  }
+  if (report.plan.same_port_timeout >= std::chrono::milliseconds(650) ||
+      report.plan.same_port_connect >= std::chrono::milliseconds(180)) {
+    return "extended";
+  }
+  return "default";
+}
+
+std::string same_port_profile_summary(const DoctorReport& report) {
+  const auto& s = report.snapshot;
+  return "attempts=" + std::to_string(s.profile_same_port_attempts) +
+         " successes=" + std::to_string(s.profile_same_port_successes) +
+         " failure_streak=" + std::to_string(s.profile_same_port_failure_streak) +
+         (s.profile_same_port_last_elapsed_ms >= 0
+              ? " last_ms=" + std::to_string(s.profile_same_port_last_elapsed_ms)
+              : std::string{});
+}
+
 bool safe_route_token(const std::string& value) {
   if (value.empty()) return false;
   for (unsigned char c : value) {
@@ -325,11 +348,21 @@ std::string doctor_report_to_json(const DoctorReport& report) {
                {"reason", report.plan.reason},
                {"direct_timeout_ms", report.plan.direct_timeout.count()},
                {"direct_connect_ms", report.plan.direct_connect.count()},
+               {"same_port_timeout_ms", report.plan.same_port_timeout.count()},
+               {"same_port_connect_ms", report.plan.same_port_connect.count()},
                {"udp_punch_enabled", report.plan.udp_punch_enabled},
                {"connections", report.plan.connections}};
   j["direct_probe"] = {{"will_attempt", !report.plan.skip_direct},
                        {"timeout_ms", report.plan.direct_timeout.count()},
                        {"connect_timeout_ms", report.plan.direct_connect.count()},
+                       {"same_port",
+                        {{"policy", same_port_policy_for(report)},
+                         {"timeout_ms", report.plan.same_port_timeout.count()},
+                         {"connect_timeout_ms", report.plan.same_port_connect.count()},
+                         {"profile_attempts", report.snapshot.profile_same_port_attempts},
+                         {"profile_successes", report.snapshot.profile_same_port_successes},
+                         {"profile_failure_streak", report.snapshot.profile_same_port_failure_streak},
+                         {"profile_last_elapsed_ms", report.snapshot.profile_same_port_last_elapsed_ms}}},
                        {"udp_assist", report.plan.udp_punch_enabled},
                        {"candidate_order", report.plan.direct_candidate_order}};
   if (!report.plan.direct_candidate_order.empty()) {
@@ -357,7 +390,11 @@ std::vector<std::string> doctor_debug_lines(const DoctorReport& report) {
   lines.push_back("debug route: direct_probe will_attempt=" + std::string(report.plan.skip_direct ? "false" : "true") +
                   " timeout=" + std::to_string(report.plan.direct_timeout.count()) +
                   "ms connect=" + std::to_string(report.plan.direct_connect.count()) +
-                  "ms udp_assist=" + (report.plan.udp_punch_enabled ? "true" : "false"));
+                  "ms same_port=" + std::to_string(report.plan.same_port_timeout.count()) + "ms/" +
+                  std::to_string(report.plan.same_port_connect.count()) + "ms" +
+                  " same_port_policy=" + same_port_policy_for(report) +
+                  " same_port_profile=" + same_port_profile_summary(report) +
+                  " udp_assist=" + (report.plan.udp_punch_enabled ? "true" : "false"));
   lines.push_back("debug route: ipv6 status=" + ipv6_direct_status_for(report) +
                   " self_global=" + std::to_string(report.snapshot.self_global_ipv6_count) +
                   " peer_global=" + std::to_string(report.snapshot.peer_global_ipv6_count) +
@@ -424,6 +461,10 @@ int run_doctor_cli(const DoctorOptions& options) {
     std::cout << "  direct probe: will_attempt=" << (report.plan.skip_direct ? "false" : "true")
               << " timeout=" << report.plan.direct_timeout.count() << "ms"
               << " connect=" << report.plan.direct_connect.count() << "ms"
+              << " same_port=" << report.plan.same_port_timeout.count() << "ms/"
+              << report.plan.same_port_connect.count() << "ms"
+              << " same_port_policy=" << same_port_policy_for(report)
+              << " same_port_profile=(" << same_port_profile_summary(report) << ")"
               << " udp_assist=" << (report.plan.udp_punch_enabled ? "true" : "false") << "\n";
     const auto route_hint = route_result_hint_json(report);
     std::cout << "  route hint: path=" << route_hint.value("path", std::string{})

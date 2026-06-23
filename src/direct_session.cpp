@@ -95,6 +95,7 @@ std::vector<DirectCandidate> peer_candidates(const Message& peer, const std::vec
 std::string describe_direct_plan(const RoutePlan& route_plan, const PunchPlan& punch) {
   std::ostringstream oss;
   oss << "direct plan: timeout=" << punch.total_timeout.count() << "ms connect=" << punch.connect_timeout.count()
+      << "ms same_port=" << punch.same_port_timeout.count() << "ms/" << punch.same_port_connect_timeout.count()
       << "ms";
   if (route_plan.udp_punch_enabled) oss << " udp-assist";
   if (punch.candidates.empty()) {

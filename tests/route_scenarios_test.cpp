@@ -272,6 +272,55 @@ int main() {
   }
 
   {
+    clear_profile();
+    const auto fingerprint = network_fingerprint();
+    save_profile_success(fingerprint, "direct");
+    save_profile_success(fingerprint, "direct");
+    save_profile_success(fingerprint, "relay");
+
+    ConnectivitySnapshot snapshot;
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
+    assert(!plan.skip_direct);
+    assert_ms(plan.direct_timeout, 2500, "single relay after direct history should keep default direct window");
+    assert_reason(plan, "default");
+  }
+
+  {
+    clear_profile();
+    const auto fingerprint = network_fingerprint();
+    PunchStats stats;
+    stats.attempted = true;
+    stats.direct_ok = true;
+    stats.successful_candidate_kind = "public-same-port";
+    stats.same_port_attempts = 1;
+    stats.same_port_successes = 1;
+    save_profile_success(fingerprint, "direct", stats);
+
+    ConnectivitySnapshot snapshot;
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
+    assert_ms(plan.same_port_timeout, 650, "same-port success profile window");
+    assert_ms(plan.same_port_connect, 180, "same-port success profile connect window");
+  }
+
+  {
+    clear_profile();
+    const auto fingerprint = network_fingerprint();
+    PunchStats stats;
+    stats.attempted = true;
+    stats.direct_ok = false;
+    stats.same_port_attempts = 4;
+    stats.same_port_failures = 4;
+    save_profile_success(fingerprint, "relay", stats);
+
+    ConnectivitySnapshot snapshot;
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
+    assert_ms(plan.direct_timeout, 2500, "same-port failures should not shorten whole direct window");
+    assert_ms(plan.same_port_timeout, 180, "same-port failure profile window");
+    assert_ms(plan.same_port_connect, 100, "same-port failure profile connect window");
+    assert_reason(plan, "default");
+  }
+
+  {
     RoutePlan plan;
     plan.direct_timeout = std::chrono::milliseconds(600);
     plan.direct_connect = std::chrono::milliseconds(180);

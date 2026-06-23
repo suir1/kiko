@@ -107,6 +107,8 @@ std::string describe_route_plan_for_transfer(const RoutePlan& plan) {
   if (plan.skip_direct) return line + " (skip direct)";
   line += " direct_window=" + std::to_string(plan.direct_timeout.count()) + "ms";
   line += " direct_connect=" + std::to_string(plan.direct_connect.count()) + "ms";
+  line += " same_port=" + std::to_string(plan.same_port_timeout.count()) + "ms/" +
+          std::to_string(plan.same_port_connect.count()) + "ms";
   if (plan.udp_punch_enabled) line += " udp-assist";
   return line;
 }
@@ -136,6 +138,7 @@ int run_with_auto_reconnect(int max_attempts, std::chrono::milliseconds delay, P
       if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");
       if (attempt >= max_attempts || !is_retryable_transfer_error(error)) throw;
       reporter.transfer_retry(attempt + 1, max_attempts, error.what());
+      reporter.transfer_retry_delay(attempt + 1, max_attempts, delay);
       auto remaining = delay;
       while (remaining.count() > 0) {
         if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");

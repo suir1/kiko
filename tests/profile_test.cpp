@@ -38,6 +38,7 @@ int main() {
   assert(loaded);
   assert(loaded->last_path == "direct");
   assert(loaded->success_count == 1);
+  assert(loaded->path_streak == 1);
   assert(loaded->last_relay_path == "physical");
   assert(loaded->last_relay_interface == "en0");
   assert(loaded->last_relay_reason == "physical_lower_rtt");
@@ -66,6 +67,7 @@ int main() {
   apply_profile_to_snapshot(*loaded, snapshot);
   assert(snapshot.profile_last_path == "direct");
   assert(snapshot.profile_success_count == 1);
+  assert(snapshot.profile_path_streak == 1);
   assert(snapshot.profile_relay_path == "physical");
   assert(snapshot.profile_relay_interface == "en0");
   assert(snapshot.profile_relay_reason == "physical_lower_rtt");
@@ -74,6 +76,48 @@ int main() {
   assert(snapshot.profile_direct_candidate_kind == "lan");
   assert(snapshot.profile_direct_rtt_ms == 7);
   assert(snapshot.profile_candidate_failures_by_kind["public"] == 2);
+
+  save_profile_success("fp-test", "direct", stats, relay);
+  loaded = load_profile("fp-test");
+  assert(loaded);
+  assert(loaded->last_path == "direct");
+  assert(loaded->success_count == 2);
+  assert(loaded->path_streak == 2);
+
+  save_profile_success("fp-test", "relay", relay);
+  loaded = load_profile("fp-test");
+  assert(loaded);
+  assert(loaded->last_path == "relay");
+  assert(loaded->success_count == 3);
+  assert(loaded->path_streak == 1);
+
+  PunchStats same_port_fail;
+  same_port_fail.attempted = true;
+  same_port_fail.direct_ok = false;
+  same_port_fail.same_port_attempts = 4;
+  same_port_fail.same_port_failures = 4;
+  same_port_fail.same_port_last_elapsed_ms = 91;
+  save_profile_success("fp-same-port", "relay", same_port_fail);
+  auto same_port_loaded = load_profile("fp-same-port");
+  assert(same_port_loaded);
+  assert(same_port_loaded->same_port_attempts == 4);
+  assert(same_port_loaded->same_port_successes == 0);
+  assert(same_port_loaded->same_port_failure_streak == 4);
+  assert(same_port_loaded->same_port_last_elapsed_ms == 91);
+
+  PunchStats same_port_success;
+  same_port_success.attempted = true;
+  same_port_success.direct_ok = true;
+  same_port_success.same_port_attempts = 1;
+  same_port_success.same_port_successes = 1;
+  same_port_success.same_port_last_elapsed_ms = 37;
+  save_profile_success("fp-same-port", "direct", same_port_success);
+  same_port_loaded = load_profile("fp-same-port");
+  assert(same_port_loaded);
+  assert(same_port_loaded->same_port_attempts == 5);
+  assert(same_port_loaded->same_port_successes == 1);
+  assert(same_port_loaded->same_port_failure_streak == 0);
+  assert(same_port_loaded->same_port_last_elapsed_ms == 37);
 
   fs::remove(path);
   std::cout << "profile_test ok\n";

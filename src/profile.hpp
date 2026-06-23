@@ -15,6 +15,7 @@ struct NetworkProfileEntry {
   std::string fingerprint;
   std::string last_path;  // direct | relay | lan_relay
   int success_count = 0;
+  int path_streak = 0;
   std::string last_relay_path;
   std::string last_relay_interface;
   std::string last_relay_reason;
@@ -22,6 +23,10 @@ struct NetworkProfileEntry {
   std::string last_direct_candidate_kind;
   std::int64_t last_direct_rtt_ms = -1;
   std::map<std::string, int> candidate_failures_by_kind;
+  int same_port_attempts = 0;
+  int same_port_successes = 0;
+  int same_port_failure_streak = 0;
+  std::int64_t same_port_last_elapsed_ms = -1;
 };
 
 struct ProfileRelayPath {

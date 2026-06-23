@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,8 @@ struct TuiState {
   std::uint64_t overall_total = 0;
   std::size_t files_total = 0;
   std::size_t files_done = 0;
+  ReceivePlanSummary receive_plan;
+  bool has_receive_plan = false;
   bool handshake = false;
   bool finished = false;
   bool failed = false;
@@ -43,6 +46,7 @@ struct TuiState {
   std::string doctor_summary;
   bool doctor_running = false;
   std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+  std::optional<std::chrono::steady_clock::time_point> end;
 };
 
 class TuiReporter : public ProgressReporter {
@@ -57,12 +61,14 @@ class TuiReporter : public ProgressReporter {
   void handshake_ok() override;
   void code_ready(const std::string& code, bool show_qrcode = true) override;
   void transfer_overview(std::size_t file_count, std::uint64_t total_bytes) override;
+  void receive_plan(const ReceivePlanSummary& summary) override;
   void file_start(const std::string& path, std::uint64_t size) override;
   void file_advance(std::uint64_t bytes_delta) override;
   void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override;
   void file_complete(const std::string& path, std::uint64_t size, bool verified) override;
   void transfer_complete(std::size_t file_count, std::uint64_t total_bytes) override;
   void transfer_retry(int next_attempt, int max_attempts, const std::string& reason) override;
+  void transfer_retry_delay(int next_attempt, int max_attempts, std::chrono::milliseconds delay) override;
 
  private:
   [[nodiscard]] bool should_wake_progress(std::chrono::steady_clock::time_point now);

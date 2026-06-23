@@ -48,6 +48,8 @@ void add_direct_candidate_reason(DirectCandidate& candidate, std::string reason)
 struct PunchPlan {
   std::chrono::milliseconds total_timeout{2500};
   std::chrono::milliseconds connect_timeout{450};
+  std::chrono::milliseconds same_port_timeout{500};
+  std::chrono::milliseconds same_port_connect_timeout{160};
   std::chrono::milliseconds retry_delay{120};
   bool prefer_outbound = true;
   std::vector<DirectCandidate> candidates;

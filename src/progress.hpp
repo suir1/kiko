@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -59,6 +61,19 @@ struct TransferTiming {
   std::size_t mux_channels = 0;
 };
 
+struct ReceivePlanSummary {
+  std::size_t item_count = 0;
+  std::uint64_t total_bytes = 0;
+  std::uint64_t resume_bytes = 0;
+  std::uint64_t skip_bytes = 0;
+  std::size_t skip_count = 0;
+  std::size_t rename_count = 0;
+  std::size_t overwrite_count = 0;
+  std::size_t resume_count = 0;
+};
+
+[[nodiscard]] std::string format_receive_plan_summary(const ReceivePlanSummary& summary);
+
 // Decouples the transfer core from any particular front-end. The CLI prints
 // lines; the TUI updates widgets. The transfer logic only emits these events.
 class ProgressReporter {
@@ -103,6 +118,10 @@ class ProgressReporter {
     (void)total_bytes;
   }
 
+  // Receiver-side preflight once the manifest has been checked against the
+  // target directory.
+  virtual void receive_plan(const ReceivePlanSummary& summary) { status(format_receive_plan_summary(summary)); }
+
   // A file transfer started.
   virtual void file_start(const std::string& path, std::uint64_t size) {
     (void)path;
@@ -140,6 +159,14 @@ class ProgressReporter {
   virtual void transfer_retry(int next_attempt, int max_attempts, const std::string& reason) {
     status("connection lost, retrying " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts) +
            "; resume will continue verified partial files; reason: " + reason);
+  }
+
+  // The retry loop is waiting before it starts the next connection attempt.
+  // This keeps front-ends from looking stuck during the backoff window.
+  virtual void transfer_retry_delay(int next_attempt, int max_attempts, std::chrono::milliseconds delay) {
+    if (delay.count() <= 0) return;
+    status("reconnect in " + std::to_string(delay.count()) + "ms before attempt " +
+           std::to_string(next_attempt) + "/" + std::to_string(max_attempts));
   }
 };
 

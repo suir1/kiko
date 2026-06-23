@@ -15,7 +15,12 @@ int main() {
     report.plan.reason = "stun_symmetric_short_direct";
     report.plan.direct_timeout = std::chrono::milliseconds(500);
     report.plan.direct_connect = std::chrono::milliseconds(220);
+    report.plan.same_port_timeout = std::chrono::milliseconds(180);
+    report.plan.same_port_connect = std::chrono::milliseconds(100);
     report.plan.connections = 4;
+    report.snapshot.profile_same_port_attempts = 4;
+    report.snapshot.profile_same_port_failure_streak = 4;
+    report.snapshot.profile_same_port_last_elapsed_ms = 91;
     report.diagnosis = "synthetic";
 
     const auto j = nlohmann::json::parse(doctor_report_to_json(report));
@@ -28,6 +33,14 @@ int main() {
     assert(j["direct_probe"]["will_attempt"] == true);
     assert(j["direct_probe"]["timeout_ms"] == 500);
     assert(j["direct_probe"]["connect_timeout_ms"] == 220);
+    assert(j["direct_probe"]["same_port"]["policy"] == "shortened");
+    assert(j["direct_probe"]["same_port"]["timeout_ms"] == 180);
+    assert(j["direct_probe"]["same_port"]["connect_timeout_ms"] == 100);
+    assert(j["direct_probe"]["same_port"]["profile_attempts"] == 4);
+    assert(j["direct_probe"]["same_port"]["profile_failure_streak"] == 4);
+    assert(j["direct_probe"]["same_port"]["profile_last_elapsed_ms"] == 91);
+    assert(j["plan"]["same_port_timeout_ms"] == 180);
+    assert(j["plan"]["same_port_connect_ms"] == 100);
     assert(j["plan"]["direct_connect_ms"] == 220);
   }
 
@@ -136,6 +149,7 @@ int main() {
     }
     if (lines[0].find("relay_reachable=true outbound=physical/en0 reason=physical_lower_rtt") == std::string::npos ||
         lines[1].find("direct_probe will_attempt=false") == std::string::npos ||
+        lines[1].find("same_port=500ms/160ms") == std::string::npos ||
         lines[2].find("ipv6 status=direct_disabled") == std::string::npos ||
         lines[3].find("hint path=relay reason=direct_skipped") == std::string::npos ||
         lines[4].find("recommendation=relay_only") == std::string::npos) {

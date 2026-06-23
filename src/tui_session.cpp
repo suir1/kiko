@@ -51,6 +51,7 @@ void mark_transfer_failed(TuiState& state, const std::exception& error) {
   state.error_message = error.what();
   state.activity = "error";
   state.doctor_running = true;
+  state.end = std::chrono::steady_clock::now();
 }
 
 void mark_transfer_canceled(TuiState& state) {
@@ -61,6 +62,7 @@ void mark_transfer_canceled(TuiState& state) {
   state.error_message.clear();
   state.activity = "canceled";
   state.doctor_running = false;
+  state.end = std::chrono::steady_clock::now();
 }
 
 void finish_failure_diagnosis(TuiState& state, std::string diagnosis) {
