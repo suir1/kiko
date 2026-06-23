@@ -22,6 +22,10 @@ void TransferCancellation::request() {
   for (auto& socket : sockets) {
     if (!socket || !socket->is_open()) continue;
     asio::error_code ignored;
+    socket->cancel(ignored);
+    ignored.clear();
+    socket->shutdown(asio::ip::tcp::socket::shutdown_both, ignored);
+    ignored.clear();
     socket->close(ignored);
   }
 }
