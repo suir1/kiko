@@ -1,4 +1,4 @@
-#include "outbound_policy.hpp"
+#include "diagnostics/outbound_policy.hpp"
 
 #include <cassert>
 #include <iostream>

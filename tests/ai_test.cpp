@@ -1,5 +1,5 @@
-#include "ai_advisor.hpp"
-#include "ai_client.hpp"
+#include "diagnostics/ai_advisor.hpp"
+#include "diagnostics/ai_client.hpp"
 
 #include <cassert>
 #include <chrono>

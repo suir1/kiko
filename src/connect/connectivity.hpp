@@ -2,7 +2,7 @@
 
 #include "adaptive.hpp"
 #include "common.hpp"
-#include "network_probe.hpp"
+#include "diagnostics/network_probe.hpp"
 #include "protocol.hpp"
 #include "proxy.hpp"
 #include "relay/relay_race.hpp"

@@ -1,4 +1,4 @@
-#include "doctor.hpp"
+#include "diagnostics/doctor.hpp"
 
 #include <nlohmann/json.hpp>
 

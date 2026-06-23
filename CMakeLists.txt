@@ -18,8 +18,8 @@ option(KIKO_ENABLE_NETLAB_TESTS "Enable Docker-based network lab CTest targets" 
 
 set(KIKO_CORE_SOURCES
   src/adaptive.cpp
-  src/ai_advisor.cpp
-  src/ai_client.cpp
+  src/diagnostics/ai_advisor.cpp
+  src/diagnostics/ai_client.cpp
   src/cancellation.cpp
   src/common.cpp
   src/compression.cpp
@@ -28,7 +28,7 @@ set(KIKO_CORE_SOURCES
   src/crypto.cpp
   src/connect/direct_session.cpp
   src/discovery.cpp
-  src/doctor.cpp
+  src/diagnostics/doctor.cpp
   src/transfer/file_manifest.cpp
   src/transfer/file_metadata.cpp
   src/gitignore.cpp
@@ -38,8 +38,8 @@ set(KIKO_CORE_SOURCES
   src/transfer/mux_receive_session.cpp
   src/transfer/mux_send_scheduler.cpp
   src/transfer/mux_transfer.cpp
-  src/network_probe.cpp
-  src/outbound_policy.cpp
+  src/diagnostics/network_probe.cpp
+  src/diagnostics/outbound_policy.cpp
   src/pake.cpp
   src/profile.cpp
   src/user_config.cpp

@@ -1,7 +1,7 @@
 #include "tui_session.hpp"
 
 #include "cancellation.hpp"
-#include "doctor.hpp"
+#include "diagnostics/doctor.hpp"
 #include "tui_advanced.hpp"
 
 namespace kiko {

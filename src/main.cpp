@@ -1,6 +1,6 @@
 #include "common.hpp"
 #include "config.hpp"
-#include "doctor.hpp"
+#include "diagnostics/doctor.hpp"
 #include "progress.hpp"
 #include "proxy.hpp"
 #include "relay/relay.hpp"

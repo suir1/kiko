@@ -1,6 +1,6 @@
 #include "tui_doctor_modal.hpp"
 
-#include "doctor.hpp"
+#include "diagnostics/doctor.hpp"
 #include "tui_transfer_view.hpp"
 
 #include <ftxui/component/component.hpp>

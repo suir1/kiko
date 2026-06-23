@@ -1,7 +1,7 @@
 #include "route_planner.hpp"
 
-#include "ai_advisor.hpp"
-#include "ai_client.hpp"
+#include "diagnostics/ai_advisor.hpp"
+#include "diagnostics/ai_client.hpp"
 #include "profile.hpp"
 #include "transfer/transfer.hpp"
 #include "transfer/transfer_heuristics.hpp"

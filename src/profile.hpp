@@ -1,7 +1,7 @@
 #pragma once
 
 #include "connect/connectivity.hpp"
-#include "outbound_policy.hpp"
+#include "diagnostics/outbound_policy.hpp"
 
 #include <cstdint>
 #include <map>
