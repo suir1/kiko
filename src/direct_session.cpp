@@ -58,31 +58,36 @@ std::vector<DirectCandidate> peer_candidates(const Message& peer, const std::vec
     if (kind == "ipv6_global") return std::max(priority, 82);
     return priority;
   };
-  auto push_unique = [&](Endpoint e, std::string kind, int priority) {
+  auto push_unique = [&](Endpoint e, std::string kind, int priority, const std::string& source_reason) {
     if (e.port == 0 || e.host.empty() || unspecified_host(e.host)) return;
-    for (const auto& existing : out) {
-      if (existing.endpoint.host == e.host && existing.endpoint.port == e.port) return;
-    }
     kind = classify_kind(e, kind);
     priority = classify_priority(kind, priority);
-    out.push_back(make_direct_candidate(std::move(e), std::move(kind), priority));
+    for (auto& existing : out) {
+      if (existing.endpoint.host != e.host || existing.endpoint.port != e.port) continue;
+      add_direct_candidate_reason(existing, source_reason);
+      if (priority > existing.priority) existing.priority = priority;
+      return;
+    }
+    auto candidate = make_direct_candidate(std::move(e), std::move(kind), priority);
+    add_direct_candidate_reason(candidate, source_reason);
+    out.push_back(std::move(candidate));
   };
 
-  for (const auto& e : extra) push_unique(e, "discovered", 95);
+  for (const auto& e : extra) push_unique(e, "discovered", 95, "lan_discovery");
 
   auto listen_port = message_port_field(peer, "peer_listen_port");
   if (listen_port) {
     for (const auto& host : split_csv(peer.get("peer_local_candidates"))) {
-      push_unique(Endpoint{host, *listen_port}, "lan", 90);
+      push_unique(Endpoint{host, *listen_port}, "lan", 90, "peer_local_candidates");
     }
     if (!peer.get("peer_listen_host").empty()) {
-      push_unique(Endpoint{peer.get("peer_listen_host"), *listen_port}, "listen", 60);
+      push_unique(Endpoint{peer.get("peer_listen_host"), *listen_port}, "listen", 60, "peer_listen_host");
     }
   }
 
   auto public_port = message_port_field(peer, "peer_public_port");
   if (!peer.get("peer_public_host").empty() && public_port) {
-    push_unique(Endpoint{peer.get("peer_public_host"), *public_port}, "public", 20);
+    push_unique(Endpoint{peer.get("peer_public_host"), *public_port}, "public", 20, "peer_public_host");
   }
   return out;
 }

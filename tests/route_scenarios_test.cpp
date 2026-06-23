@@ -299,6 +299,7 @@ int main() {
     Message peer{"peer",
                  {{"peer_listen_host", "127.0.0.1"},
                   {"peer_listen_port", "1"},
+                  {"peer_local_candidates", "2001:db8::5"},
                   {"peer_public_host", "2001:4860:4860::8888"},
                   {"peer_public_port", "5000"}}};
     RoutePlan plan;
@@ -314,7 +315,10 @@ int main() {
     for (const auto& status : reporter.statuses) {
       if (status.find("direct plan: timeout=20ms connect=5ms") != std::string::npos &&
           status.find("listen@127.0.0.1:1") != std::string::npos &&
-          status.find("ipv6_global@[2001:4860:4860::8888]:5000") != std::string::npos) {
+          status.find("ipv6_global@[2001:db8::5]:1") != std::string::npos &&
+          status.find("reason=global_ipv6_candidate+peer_local_candidates") != std::string::npos &&
+          status.find("ipv6_global@[2001:4860:4860::8888]:5000") != std::string::npos &&
+          status.find("reason=global_ipv6_candidate+peer_public_host") != std::string::npos) {
         saw_plan = true;
       }
     }
