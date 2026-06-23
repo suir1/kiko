@@ -226,9 +226,10 @@ scripts/netlab_double_nat.sh
 
 `netlab_matrix.sh` currently verifies fake-VPN outbound physical fallback in `doctor`, manual
 `--avoid-vpn`/`--bind-interface` overrides, fake-VPN relay transfer over the physical outbound path,
-sender-only and receiver-only fake-VPN relay transfers, same-LAN direct TCP, same-LAN isolated relay
-fallback, one-side-NAT direct TCP, and Docker double-NAT fast relay fallback after direct probing. The first Docker run builds the
-`kiko-netlab:local` image; later runs reuse the cache.
+sender-only and receiver-only fake-VPN relay transfers, delayed/limited relay transfer with `tc netem`,
+same-LAN direct TCP, same-LAN isolated relay fallback, one-side-NAT direct TCP, and Docker double-NAT
+fast relay fallback after direct probing. The first Docker run builds the `kiko-netlab:local` image;
+later runs reuse the cache.
 
 The Docker labs are also available as optional CTest targets:
 
@@ -238,6 +239,7 @@ ctest --test-dir build -L netlab --output-on-failure
 ```
 
 `KIKO_ENABLE_NETLAB_TESTS` defaults to `OFF` so normal `ctest` runs do not require Docker or privileged networking.
+The `Docker Netlab` GitHub workflow runs the same matrix manually and once per week.
 
 - `handshake` – PAKE session key agreement and rejection of wrong codes
 - `transfer` – multi-file directory round-trip, manifest preflight, resume from partial

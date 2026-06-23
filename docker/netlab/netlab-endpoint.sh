@@ -38,6 +38,21 @@ if [ "${NETLAB_ROUTE_RELAY_VIA_FAKE_VPN:-0}" = "1" ]; then
   ip route replace "$relay_host/32" dev "$vpn_if"
 fi
 
+if [ -n "${NETLAB_NETEM_DELAY:-}${NETLAB_NETEM_LOSS:-}${NETLAB_NETEM_RATE:-}" ]; then
+  netem_if="${NETLAB_NETEM_IF:-eth0}"
+  set -- tc qdisc replace dev "$netem_if" root netem
+  if [ -n "${NETLAB_NETEM_DELAY:-}" ]; then
+    set -- "$@" delay "$NETLAB_NETEM_DELAY"
+  fi
+  if [ -n "${NETLAB_NETEM_LOSS:-}" ]; then
+    set -- "$@" loss "$NETLAB_NETEM_LOSS"
+  fi
+  if [ -n "${NETLAB_NETEM_RATE:-}" ]; then
+    set -- "$@" rate "$NETLAB_NETEM_RATE"
+  fi
+  "$@"
+fi
+
 case "$ROLE" in
   relay)
     exec kiko relay --listen 0.0.0.0:9000

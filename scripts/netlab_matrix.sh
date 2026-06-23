@@ -270,6 +270,21 @@ run_outbound_receiver_only_transfer() {
   echo "PASS: fake VPN receiver-only relay transfer"
 }
 
+run_netem_relay_transfer() {
+  echo "== delayed relay path: expect relay transfer to complete under netem =="
+  compose up -d --no-build relay
+  sleep "${NETLAB_INFRA_DELAY:-2}"
+  compose up -d --no-build receiver-netem-relay
+  sleep "${NETLAB_RECEIVER_DELAY:-2}"
+  compose run --rm --no-deps sender-netem-relay
+  wait_for_service_exit receiver-netem-relay
+  compose run --rm --no-deps verifier-netem-relay
+  assert_service_log_contains receiver-netem-relay "direct skipped, using relay"
+  assert_service_log_contains receiver-netem-relay "route summary: control=relay data=relay"
+  assert_service_log_contains receiver-netem-relay "pake handshake ok"
+  echo "PASS: delayed relay transfer under netem"
+}
+
 trap finish EXIT
 
 if [[ "${NETLAB_SKIP_BUILD:-0}" != "1" ]]; then
@@ -280,6 +295,7 @@ run_outbound_manual_overrides
 run_outbound_physical_transfer
 run_outbound_sender_only_transfer
 run_outbound_receiver_only_transfer
+run_netem_relay_transfer
 run_same_lan_direct
 run_same_lan_isolated_relay_fallback
 run_one_side_nat_direct

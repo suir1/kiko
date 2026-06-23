@@ -373,6 +373,48 @@ services:
     volumes:
       - netlab-out-outbound-physical:/out
 
+  sender-netem-relay:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    cap_add:
+      - NET_ADMIN
+    environment:
+      NETLAB_ROLE: sender
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-netem-relay
+      NETLAB_TEXT: hello from kiko docker netem relay
+      NETLAB_CONNECTIONS: 4
+      NETLAB_COMMON_FLAGS: --no-direct --no-lan --no-local
+      NETLAB_NETEM_DELAY: 75ms
+    networks:
+      pub:
+        ipv4_address: 172.28.0.62
+    volumes:
+      - netlab-data-netem-relay:/data
+
+  receiver-netem-relay:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: receiver
+      NETLAB_RELAY: 172.28.0.10:9000
+      NETLAB_CODE: docker-netem-relay
+      NETLAB_COMMON_FLAGS: --no-direct --no-lan --no-local
+    networks:
+      pub:
+        ipv4_address: 172.28.0.63
+    volumes:
+      - netlab-out-netem-relay:/out
+
+  verifier-netem-relay:
+    <<: *kiko-netlab
+    command: netlab-endpoint.sh
+    environment:
+      NETLAB_ROLE: verifier
+      NETLAB_TEXT: hello from kiko docker netem relay
+    volumes:
+      - netlab-out-netem-relay:/out
+
   verifier-one-nat:
     <<: *kiko-netlab
     command: netlab-endpoint.sh
@@ -420,3 +462,5 @@ volumes:
   netlab-out-outbound-sender-only:
   netlab-data-outbound-receiver-only:
   netlab-out-outbound-receiver-only:
+  netlab-data-netem-relay:
+  netlab-out-netem-relay:
