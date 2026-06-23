@@ -21,7 +21,7 @@ irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
 ```
 
 The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
-`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.7-alpha` to install a specific release.
+`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.8-alpha` to install a specific release.
 Use `KIKO_INSTALL_DRY_RUN=1` to print the release asset URL without downloading it.
 
 Termux source build:
@@ -287,8 +287,8 @@ Tags matching `v*` trigger the release workflow. It builds and tests Linux, macO
 uploads the packaged binaries to the matching GitHub Release.
 
 ```sh
-git tag v0.1.7-alpha
-git push origin v0.1.7-alpha
+git tag v0.1.8-alpha
+git push origin v0.1.8-alpha
 ```
 
 ## Stack

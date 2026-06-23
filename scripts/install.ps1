@@ -38,7 +38,7 @@ if (-not $Version) {
 }
 
 if (-not $Version) {
-    throw "Could not determine latest kiko release from https://github.com/$Repo/releases. Set KIKO_VERSION=v0.1.7-alpha and retry."
+    throw "Could not determine latest kiko release from https://github.com/$Repo/releases. Set KIKO_VERSION=v0.1.8-alpha and retry."
 }
 
 $arch = if ($env:KIKO_TEST_ARCH) { $env:KIKO_TEST_ARCH } else { [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() }
