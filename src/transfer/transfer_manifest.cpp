@@ -1,6 +1,6 @@
 #include "transfer_manifest.hpp"
 
-#include "common.hpp"
+#include "core/common.hpp"
 #include "transfer_stream.hpp"
 
 #include <nlohmann/json.hpp>

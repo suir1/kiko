@@ -1,7 +1,7 @@
-#include "user_config.hpp"
+#include "platform/user_config.hpp"
 
-#include "config.hpp"
-#include "platform.hpp"
+#include "core/config.hpp"
+#include "platform/platform.hpp"
 
 #include <filesystem>
 #include <fstream>

@@ -1,8 +1,8 @@
 #include "relay_session.hpp"
 
-#include "cancellation.hpp"
-#include "security/pake.hpp"
-#include "protocol.hpp"
+#include "core/cancellation.hpp"
+#include "core/pake.hpp"
+#include "core/protocol.hpp"
 #include "transfer/transfer.hpp"
 
 #include <chrono>

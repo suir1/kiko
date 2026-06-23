@@ -1,7 +1,7 @@
 #pragma once
 
-#include "progress.hpp"
-#include "protocol.hpp"
+#include "core/progress.hpp"
+#include "core/protocol.hpp"
 #include "transfer_manifest.hpp"
 #include "transfer.hpp"
 

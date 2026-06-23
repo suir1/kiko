@@ -1,9 +1,9 @@
 #pragma once
 
-#include "adaptive.hpp"
+#include "core/adaptive.hpp"
 #include "connectivity.hpp"
-#include "progress.hpp"
-#include "net/socket.hpp"
+#include "core/progress.hpp"
+#include "core/socket.hpp"
 
 #include <atomic>
 #include <chrono>

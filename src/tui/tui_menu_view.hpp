@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common.hpp"
+#include "core/common.hpp"
 #include "tui_menu_state.hpp"
 
 #include <ftxui/component/component_base.hpp>

@@ -1,7 +1,7 @@
 #include "tui/tui_menu_state.hpp"
 #include "tui/tui_transfer_view.hpp"
 
-#include "platform.hpp"
+#include "platform/platform.hpp"
 
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>

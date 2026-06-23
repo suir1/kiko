@@ -1,7 +1,7 @@
 #pragma once
 
-#include "common.hpp"
-#include "protocol.hpp"
+#include "core/common.hpp"
+#include "core/protocol.hpp"
 
 #include <atomic>
 #include <chrono>

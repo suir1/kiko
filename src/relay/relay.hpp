@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common.hpp"
+#include "core/common.hpp"
 #include "relay_server.hpp"
 
 namespace kiko {

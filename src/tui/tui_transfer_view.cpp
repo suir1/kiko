@@ -1,6 +1,6 @@
 #include "tui_transfer_view.hpp"
 
-#include "qrcode_print.hpp"
+#include "core/qrcode_print.hpp"
 #include "tui_advanced.hpp"
 #include "tui_failure_hint.hpp"
 

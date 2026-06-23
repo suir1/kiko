@@ -1,5 +1,5 @@
-#include "cancellation.hpp"
-#include "net/socket.hpp"
+#include "core/cancellation.hpp"
+#include "core/socket.hpp"
 
 #include <atomic>
 #include <chrono>

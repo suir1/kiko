@@ -1,6 +1,6 @@
-#include "adaptive.hpp"
+#include "core/adaptive.hpp"
 #include "connect/connectivity.hpp"
-#include "net/socket.hpp"
+#include "core/socket.hpp"
 
 #include <iostream>
 #include <string>

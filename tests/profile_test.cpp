@@ -1,5 +1,5 @@
-#include "platform.hpp"
-#include "profile.hpp"
+#include "platform/platform.hpp"
+#include "connect/profile.hpp"
 
 #include <cassert>
 #include <cstdlib>

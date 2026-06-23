@@ -1,8 +1,8 @@
 #include "transfer.hpp"
 
 #include "file_metadata.hpp"
-#include "gitignore.hpp"
-#include "imohash.hpp"
+#include "transfer/gitignore.hpp"
+#include "core/imohash.hpp"
 
 namespace kiko {
 namespace {

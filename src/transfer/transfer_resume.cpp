@@ -1,7 +1,7 @@
 #include "transfer_resume.hpp"
 
 #include "file_metadata.hpp"
-#include "imohash.hpp"
+#include "core/imohash.hpp"
 #include "transfer_stream.hpp"
 
 #include <algorithm>

@@ -1,8 +1,8 @@
 #include "tui.hpp"
 
-#include "cancellation.hpp"
-#include "platform.hpp"
-#include "progress.hpp"
+#include "core/cancellation.hpp"
+#include "platform/platform.hpp"
+#include "core/progress.hpp"
 #include "tui_browser.hpp"
 #include "tui_doctor_modal.hpp"
 #include "tui_failure_hint.hpp"

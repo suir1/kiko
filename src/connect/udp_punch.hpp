@@ -1,10 +1,10 @@
 #pragma once
 
-#include "adaptive.hpp"
-#include "common.hpp"
+#include "core/adaptive.hpp"
+#include "core/common.hpp"
 #include "connectivity.hpp"
-#include "protocol.hpp"
-#include "net/socket.hpp"
+#include "core/protocol.hpp"
+#include "core/socket.hpp"
 
 #include <atomic>
 

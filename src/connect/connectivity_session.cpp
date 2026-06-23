@@ -1,6 +1,6 @@
 #include "connectivity_session.hpp"
 
-#include "common.hpp"
+#include "core/common.hpp"
 #include "direct_session.hpp"
 
 #include <atomic>

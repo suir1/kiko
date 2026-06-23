@@ -1,12 +1,12 @@
 #include "relay_server.hpp"
 
-#include "adaptive.hpp"
-#include "common.hpp"
-#include "platform.hpp"
-#include "protocol.hpp"
+#include "core/adaptive.hpp"
+#include "core/common.hpp"
+#include "platform/platform.hpp"
+#include "core/protocol.hpp"
 #include "relay_room_state.hpp"
 #include "relay_route_state.hpp"
-#include "net/socket.hpp"
+#include "core/socket.hpp"
 #include <array>
 #include <chrono>
 #include <iostream>

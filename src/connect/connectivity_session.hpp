@@ -1,12 +1,12 @@
 #pragma once
 
-#include "adaptive.hpp"
+#include "core/adaptive.hpp"
 #include "connectivity.hpp"
-#include "progress.hpp"
-#include "protocol.hpp"
+#include "core/progress.hpp"
+#include "core/protocol.hpp"
 #include "relay/relay_race.hpp"
 #include "route_session.hpp"
-#include "net/socket.hpp"
+#include "core/socket.hpp"
 
 #include <chrono>
 #include <atomic>

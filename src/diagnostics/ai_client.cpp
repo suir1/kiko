@@ -1,8 +1,8 @@
 #include "ai_client.hpp"
 
-#include "common.hpp"
-#include "platform.hpp"
-#include "net/socket.hpp"
+#include "core/common.hpp"
+#include "platform/platform.hpp"
+#include "core/socket.hpp"
 
 #include <nlohmann/json.hpp>
 

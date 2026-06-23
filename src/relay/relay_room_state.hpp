@@ -1,9 +1,9 @@
 #pragma once
 
-#include "adaptive.hpp"
-#include "common.hpp"
+#include "core/adaptive.hpp"
+#include "core/common.hpp"
 #include "relay_server.hpp"
-#include "net/socket.hpp"
+#include "core/socket.hpp"
 
 #include <chrono>
 #include <cstdint>

@@ -1,6 +1,6 @@
 #include "direct_session.hpp"
 
-#include "progress.hpp"
+#include "core/progress.hpp"
 #include "udp_punch.hpp"
 
 #include <algorithm>

@@ -1,6 +1,6 @@
 #include "tui_transfer_actions.hpp"
 
-#include "clipboard.hpp"
+#include "platform/clipboard.hpp"
 #include "tui_failure_hint.hpp"
 
 #include <ftxui/component/component.hpp>

@@ -1,7 +1,7 @@
 #include "tui_menu_state.hpp"
 
 #include "tui_transfer_view.hpp"
-#include "user_config.hpp"
+#include "platform/user_config.hpp"
 
 #include <cstdlib>
 #include <filesystem>

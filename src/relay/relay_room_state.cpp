@@ -1,7 +1,7 @@
 #include "relay_room_state.hpp"
 
-#include "platform.hpp"
-#include "protocol.hpp"
+#include "platform/platform.hpp"
+#include "core/protocol.hpp"
 
 namespace kiko {
 namespace {

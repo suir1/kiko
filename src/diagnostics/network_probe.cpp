@@ -1,7 +1,7 @@
 #include "network_probe.hpp"
 
-#include "platform.hpp"
-#include "net/socket.hpp"
+#include "platform/platform.hpp"
+#include "core/socket.hpp"
 
 #include <algorithm>
 #include <map>

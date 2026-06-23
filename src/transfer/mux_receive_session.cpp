@@ -1,6 +1,6 @@
 #include "mux_receive_session.hpp"
 
-#include "compression.hpp"
+#include "core/compression.hpp"
 
 #include <algorithm>
 #include <span>

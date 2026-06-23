@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common.hpp"
+#include "core/common.hpp"
 #include "tui_advanced.hpp"
 
 #include <optional>

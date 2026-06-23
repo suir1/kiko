@@ -1,6 +1,6 @@
 #include "transfer_stream.hpp"
 
-#include "compression.hpp"
+#include "core/compression.hpp"
 #include "transfer_heuristics.hpp"
 
 #include <algorithm>

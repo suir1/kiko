@@ -2,12 +2,12 @@
 
 #include "ai_advisor.hpp"
 #include "ai_client.hpp"
-#include "discovery.hpp"
-#include "profile.hpp"
-#include "protocol.hpp"
+#include "connect/discovery.hpp"
+#include "connect/profile.hpp"
+#include "core/protocol.hpp"
 #include "relay/relay_race.hpp"
 #include "connect/route_planner.hpp"
-#include "net/socket.hpp"
+#include "core/socket.hpp"
 
 #include <nlohmann/json.hpp>
 

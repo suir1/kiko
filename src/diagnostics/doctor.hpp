@@ -2,7 +2,7 @@
 
 #include "connect/connectivity.hpp"
 #include "outbound_policy.hpp"
-#include "net/proxy.hpp"
+#include "core/proxy.hpp"
 
 #include <optional>
 #include <string>

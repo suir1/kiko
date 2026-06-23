@@ -16,49 +16,56 @@ set(KIKO_DEFAULT_RELAY "106.53.170.243:9000" CACHE STRING "Default relay address
 add_compile_definitions("KIKO_DEFAULT_RELAY=\"${KIKO_DEFAULT_RELAY}\"")
 option(KIKO_ENABLE_NETLAB_TESTS "Enable Docker-based network lab CTest targets" OFF)
 
-set(KIKO_CORE_SOURCES
-  src/adaptive.cpp
-  src/diagnostics/ai_advisor.cpp
-  src/diagnostics/ai_client.cpp
-  src/cancellation.cpp
-  src/common.cpp
-  src/compression.cpp
+set(KIKO_CORE_LAYER_SOURCES
+  src/core/adaptive.cpp
+  src/core/cancellation.cpp
+  src/core/common.cpp
+  src/core/compression.cpp
+  src/core/crypto.cpp
+  src/core/imohash.cpp
+  src/core/io.cpp
+  src/core/pake.cpp
+  src/core/progress.cpp
+  src/core/protocol.cpp
+  src/core/proxy.cpp
+  src/core/qrcode_print.cpp
+  src/core/socket.cpp
+)
+
+set(KIKO_PLATFORM_LAYER_SOURCES
+  src/platform/user_config.cpp
+)
+
+set(KIKO_CONNECT_LAYER_SOURCES
   src/connect/connectivity.cpp
   src/connect/connectivity_session.cpp
-  src/security/crypto.cpp
   src/connect/direct_session.cpp
-  src/discovery.cpp
-  src/diagnostics/doctor.cpp
-  src/transfer/file_manifest.cpp
-  src/transfer/file_metadata.cpp
-  src/gitignore.cpp
-  src/imohash.cpp
-  src/net/io.cpp
-  src/lan_upgrade.cpp
-  src/transfer/mux_receive_session.cpp
-  src/transfer/mux_send_scheduler.cpp
-  src/transfer/mux_transfer.cpp
-  src/diagnostics/network_probe.cpp
-  src/diagnostics/outbound_policy.cpp
-  src/security/pake.cpp
-  src/profile.cpp
-  src/user_config.cpp
-  src/tui/tui_advanced.cpp
-  src/progress.cpp
-  src/protocol.cpp
-  src/net/proxy.cpp
-  src/qrcode_print.cpp
+  src/connect/discovery.cpp
+  src/connect/lan_upgrade.cpp
+  src/connect/profile.cpp
+  src/connect/rendezvous_session.cpp
+  src/connect/route_planner.cpp
+  src/connect/route_session.cpp
+  src/connect/udp_punch.cpp
+)
+
+set(KIKO_RELAY_LAYER_SOURCES
   src/relay/relay.cpp
   src/relay/relay_race.cpp
   src/relay/relay_room_state.cpp
   src/relay/relay_route_state.cpp
   src/relay/relay_session.cpp
   src/relay/relay_server.cpp
+)
+
+set(KIKO_TRANSFER_LAYER_SOURCES
+  src/transfer/file_manifest.cpp
+  src/transfer/file_metadata.cpp
+  src/transfer/gitignore.cpp
+  src/transfer/mux_receive_session.cpp
+  src/transfer/mux_send_scheduler.cpp
+  src/transfer/mux_transfer.cpp
   src/transfer/receive_plan.cpp
-  src/connect/rendezvous_session.cpp
-  src/connect/route_planner.cpp
-  src/connect/route_session.cpp
-  src/net/socket.cpp
   src/transfer/transfer.cpp
   src/transfer/transfer_heuristics.cpp
   src/transfer/transfer_manifest.cpp
@@ -66,7 +73,28 @@ set(KIKO_CORE_SOURCES
   src/transfer/transfer_resume.cpp
   src/transfer/transfer_retry.cpp
   src/transfer/transfer_stream.cpp
-  src/connect/udp_punch.cpp
+)
+
+set(KIKO_DIAGNOSTICS_LAYER_SOURCES
+  src/diagnostics/ai_advisor.cpp
+  src/diagnostics/ai_client.cpp
+  src/diagnostics/doctor.cpp
+  src/diagnostics/network_probe.cpp
+  src/diagnostics/outbound_policy.cpp
+)
+
+set(KIKO_TUI_LAYER_SOURCES
+  src/tui/tui_advanced.cpp
+)
+
+set(KIKO_CORE_SOURCES
+  ${KIKO_CORE_LAYER_SOURCES}
+  ${KIKO_PLATFORM_LAYER_SOURCES}
+  ${KIKO_CONNECT_LAYER_SOURCES}
+  ${KIKO_RELAY_LAYER_SOURCES}
+  ${KIKO_TRANSFER_LAYER_SOURCES}
+  ${KIKO_DIAGNOSTICS_LAYER_SOURCES}
+  ${KIKO_TUI_LAYER_SOURCES}
 )
 
 add_library(kiko_core STATIC ${KIKO_CORE_SOURCES})
@@ -160,7 +188,7 @@ target_compile_options(kiko_core PRIVATE
 )
 
 set(KIKO_APP_SOURCES
-  src/main.cpp
+  src/app/main.cpp
   src/tui/tui.cpp
   src/tui/tui_browser.cpp
   src/tui/tui_doctor_modal.cpp
@@ -170,7 +198,7 @@ set(KIKO_APP_SOURCES
   src/tui/tui_transfer_actions.cpp
   src/tui/tui_transfer_view.cpp
   src/tui/tui_failure_hint.cpp
-  src/clipboard.cpp
+  src/platform/clipboard.cpp
 )
 
 add_executable(kiko ${KIKO_APP_SOURCES})
@@ -178,16 +206,16 @@ target_link_libraries(kiko PRIVATE kiko_core ftxui::component CLI11::CLI11)
 target_compile_definitions(kiko PRIVATE "KIKO_VERSION=\"${PROJECT_VERSION}\"")
 
 set(KIKO_RELAYD_SOURCES
-  src/relayd_main.cpp
-  src/adaptive.cpp
-  src/common.cpp
-  src/net/io.cpp
-  src/protocol.cpp
-  src/net/proxy.cpp
+  src/app/relayd_main.cpp
+  src/core/adaptive.cpp
+  src/core/common.cpp
+  src/core/io.cpp
+  src/core/protocol.cpp
+  src/core/proxy.cpp
   src/relay/relay_room_state.cpp
   src/relay/relay_route_state.cpp
   src/relay/relay_server.cpp
-  src/net/socket.cpp
+  src/core/socket.cpp
 )
 
 add_executable(kiko-relayd ${KIKO_RELAYD_SOURCES})

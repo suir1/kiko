@@ -1,8 +1,8 @@
 #pragma once
 
-#include "common.hpp"
-#include "net/proxy.hpp"
-#include "net/socket.hpp"
+#include "core/common.hpp"
+#include "core/proxy.hpp"
+#include "core/socket.hpp"
 
 #include <cstdint>
 #include <map>

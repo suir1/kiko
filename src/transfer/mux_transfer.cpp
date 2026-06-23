@@ -1,6 +1,6 @@
 #include "transfer.hpp"
 
-#include "compression.hpp"
+#include "core/compression.hpp"
 #include "mux_receive_session.hpp"
 #include "mux_send_scheduler.hpp"
 #include "transfer_stream.hpp"

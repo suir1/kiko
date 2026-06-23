@@ -1,9 +1,9 @@
 #pragma once
 
-#include "common.hpp"
-#include "security/crypto.hpp"
-#include "progress.hpp"
-#include "protocol.hpp"
+#include "core/common.hpp"
+#include "core/crypto.hpp"
+#include "core/progress.hpp"
+#include "core/protocol.hpp"
 
 #include <cstdint>
 #include <filesystem>

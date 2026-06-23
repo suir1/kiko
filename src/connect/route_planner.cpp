@@ -2,7 +2,7 @@
 
 #include "diagnostics/ai_advisor.hpp"
 #include "diagnostics/ai_client.hpp"
-#include "profile.hpp"
+#include "connect/profile.hpp"
 #include "transfer/transfer.hpp"
 #include "transfer/transfer_heuristics.hpp"
 

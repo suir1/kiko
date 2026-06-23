@@ -1,6 +1,6 @@
 #include "ai_advisor.hpp"
 
-#include "adaptive.hpp"
+#include "core/adaptive.hpp"
 
 #include <algorithm>
 #include <sstream>

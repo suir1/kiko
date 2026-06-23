@@ -1,7 +1,7 @@
-#include "platform.hpp"
+#include "platform/platform.hpp"
 #include "connect/direct_session.hpp"
-#include "profile.hpp"
-#include "progress.hpp"
+#include "connect/profile.hpp"
+#include "core/progress.hpp"
 #include "connect/route_planner.hpp"
 
 #include <algorithm>

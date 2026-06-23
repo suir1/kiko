@@ -1,10 +1,10 @@
 #pragma once
 
-#include "common.hpp"
-#include "security/crypto.hpp"
-#include "progress.hpp"
-#include "protocol.hpp"
-#include "net/socket.hpp"
+#include "core/common.hpp"
+#include "core/crypto.hpp"
+#include "core/progress.hpp"
+#include "core/protocol.hpp"
+#include "core/socket.hpp"
 #include "transfer.hpp"
 
 #include <cstdint>

@@ -1,6 +1,6 @@
 #include "tui_session.hpp"
 
-#include "cancellation.hpp"
+#include "core/cancellation.hpp"
 #include "diagnostics/doctor.hpp"
 #include "tui_advanced.hpp"
 

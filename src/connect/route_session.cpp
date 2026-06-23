@@ -1,7 +1,7 @@
 #include "route_session.hpp"
 
-#include "platform.hpp"
-#include "protocol.hpp"
+#include "platform/platform.hpp"
+#include "core/protocol.hpp"
 
 #include <algorithm>
 #include <exception>

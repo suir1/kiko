@@ -1,12 +1,12 @@
 #pragma once
 
-#include "adaptive.hpp"
-#include "common.hpp"
+#include "core/adaptive.hpp"
+#include "core/common.hpp"
 #include "diagnostics/network_probe.hpp"
-#include "protocol.hpp"
-#include "net/proxy.hpp"
+#include "core/protocol.hpp"
+#include "core/proxy.hpp"
 #include "relay/relay_race.hpp"
-#include "net/socket.hpp"
+#include "core/socket.hpp"
 #include <atomic>
 #include <cstdint>
 #include <map>

@@ -1,8 +1,8 @@
 #include "connectivity.hpp"
 
-#include "adaptive.hpp"
-#include "protocol.hpp"
-#include "net/socket.hpp"
+#include "core/adaptive.hpp"
+#include "core/protocol.hpp"
+#include "core/socket.hpp"
 
 #include <algorithm>
 #include <atomic>

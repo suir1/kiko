@@ -1,6 +1,6 @@
 #pragma once
 
-#include "progress.hpp"
+#include "core/progress.hpp"
 
 #include <ftxui/dom/elements.hpp>
 

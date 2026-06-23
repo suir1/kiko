@@ -1,6 +1,6 @@
 #include "relay.hpp"
 
-#include "discovery.hpp"
+#include "connect/discovery.hpp"
 #include "relay_server.hpp"
 
 #include <atomic>

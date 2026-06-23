@@ -1,6 +1,6 @@
 #include "transfer/file_metadata.hpp"
-#include "platform.hpp"
-#include "protocol.hpp"
+#include "platform/platform.hpp"
+#include "core/protocol.hpp"
 #include "relay/relay_server.hpp"
 #include "transfer/transfer.hpp"
 

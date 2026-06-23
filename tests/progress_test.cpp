@@ -1,5 +1,5 @@
-#include "progress.hpp"
-#include "platform.hpp"
+#include "core/progress.hpp"
+#include "platform/platform.hpp"
 #include "transfer/transfer.hpp"
 
 #include <chrono>

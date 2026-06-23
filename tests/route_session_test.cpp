@@ -1,6 +1,6 @@
-#include "platform.hpp"
-#include "protocol.hpp"
-#include "progress.hpp"
+#include "platform/platform.hpp"
+#include "core/protocol.hpp"
+#include "core/progress.hpp"
 #include "connect/route_session.hpp"
 
 #include <cassert>

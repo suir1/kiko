@@ -1,6 +1,6 @@
 #pragma once
 
-#include "protocol.hpp"
+#include "core/protocol.hpp"
 
 #include <string>
 

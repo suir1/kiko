@@ -1,8 +1,8 @@
 #pragma once
 
 #include "connectivity.hpp"
-#include "progress.hpp"
-#include "protocol.hpp"
+#include "core/progress.hpp"
+#include "core/protocol.hpp"
 
 #include <optional>
 #include <vector>

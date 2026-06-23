@@ -1,11 +1,11 @@
 #pragma once
 
-#include "common.hpp"
-#include "security/crypto.hpp"
+#include "core/common.hpp"
+#include "core/crypto.hpp"
 #include "file_metadata.hpp"
-#include "protocol.hpp"
+#include "core/protocol.hpp"
 #include "receive_plan.hpp"
-#include "net/socket.hpp"
+#include "core/socket.hpp"
 #include "transfer.hpp"
 #include "transfer_receive_paths.hpp"
 #include "transfer_resume.hpp"
