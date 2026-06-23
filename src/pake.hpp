@@ -2,7 +2,7 @@
 
 #include "adaptive.hpp"
 #include "crypto.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <string>
 

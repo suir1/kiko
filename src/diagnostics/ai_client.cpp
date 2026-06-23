@@ -2,7 +2,7 @@
 
 #include "common.hpp"
 #include "platform.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <nlohmann/json.hpp>
 

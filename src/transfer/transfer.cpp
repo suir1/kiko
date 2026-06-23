@@ -20,7 +20,7 @@
 #include "relay/relay_server.hpp"
 #include "connect/route_planner.hpp"
 #include "connect/route_session.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 #include "transfer_heuristics.hpp"
 #include "transfer_retry.hpp"
 #include "transfer_stream.hpp"

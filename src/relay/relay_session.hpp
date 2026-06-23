@@ -3,8 +3,8 @@
 #include "adaptive.hpp"
 #include "common.hpp"
 #include "progress.hpp"
-#include "proxy.hpp"
-#include "socket.hpp"
+#include "net/proxy.hpp"
+#include "net/socket.hpp"
 
 #include <filesystem>
 #include <optional>

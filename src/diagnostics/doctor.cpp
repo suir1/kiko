@@ -7,7 +7,7 @@
 #include "protocol.hpp"
 #include "relay/relay_race.hpp"
 #include "connect/route_planner.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <nlohmann/json.hpp>
 

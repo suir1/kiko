@@ -1,5 +1,5 @@
 #include "pake.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <chrono>
 #include <iostream>

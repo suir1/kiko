@@ -1,7 +1,7 @@
 #pragma once
 
 #include "adaptive.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <cstdint>
 #include <string>

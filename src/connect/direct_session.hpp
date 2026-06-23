@@ -4,8 +4,8 @@
 #include "common.hpp"
 #include "connectivity.hpp"
 #include "protocol.hpp"
-#include "proxy.hpp"
-#include "socket.hpp"
+#include "net/proxy.hpp"
+#include "net/socket.hpp"
 
 #include <atomic>
 #include <chrono>

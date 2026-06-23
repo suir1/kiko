@@ -3,7 +3,7 @@
 #include "adaptive.hpp"
 #include "common.hpp"
 #include "relay_server.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <chrono>
 #include <cstdint>

@@ -5,7 +5,7 @@
 #include "file_metadata.hpp"
 #include "protocol.hpp"
 #include "receive_plan.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 #include "transfer.hpp"
 #include "transfer_receive_paths.hpp"
 #include "transfer_resume.hpp"

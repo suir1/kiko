@@ -3,8 +3,8 @@
 #include "common.hpp"
 #include "crypto.hpp"
 #include "progress.hpp"
-#include "proxy.hpp"
-#include "socket.hpp"
+#include "net/proxy.hpp"
+#include "net/socket.hpp"
 
 #include <chrono>
 #include <cstdint>

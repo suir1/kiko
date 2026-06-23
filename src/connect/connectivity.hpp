@@ -4,9 +4,9 @@
 #include "common.hpp"
 #include "diagnostics/network_probe.hpp"
 #include "protocol.hpp"
-#include "proxy.hpp"
+#include "net/proxy.hpp"
 #include "relay/relay_race.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 #include <atomic>
 #include <cstdint>
 #include <map>

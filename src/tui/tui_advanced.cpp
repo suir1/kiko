@@ -1,6 +1,6 @@
 #include "tui_advanced.hpp"
 
-#include "proxy.hpp"
+#include "net/proxy.hpp"
 
 namespace kiko {
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <asio/awaitable.hpp>
 

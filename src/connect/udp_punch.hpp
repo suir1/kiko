@@ -4,7 +4,7 @@
 #include "common.hpp"
 #include "connectivity.hpp"
 #include "protocol.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <atomic>
 

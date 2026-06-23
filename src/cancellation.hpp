@@ -1,6 +1,6 @@
 #pragma once
 
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <atomic>
 #include <memory>

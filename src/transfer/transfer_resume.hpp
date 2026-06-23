@@ -4,7 +4,7 @@
 #include "crypto.hpp"
 #include "progress.hpp"
 #include "protocol.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 #include "transfer.hpp"
 
 #include <cstdint>

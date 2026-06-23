@@ -1,8 +1,8 @@
 #include "common.hpp"
 #include "platform.hpp"
-#include "proxy.hpp"
+#include "net/proxy.hpp"
 #include "protocol.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <cassert>
 #include <chrono>

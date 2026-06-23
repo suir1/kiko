@@ -1,6 +1,6 @@
 #include "profile.hpp"
 
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <nlohmann/json.hpp>
 

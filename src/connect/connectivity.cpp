@@ -2,7 +2,7 @@
 
 #include "adaptive.hpp"
 #include "protocol.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <algorithm>
 #include <atomic>

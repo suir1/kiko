@@ -33,7 +33,7 @@ set(KIKO_CORE_SOURCES
   src/transfer/file_metadata.cpp
   src/gitignore.cpp
   src/imohash.cpp
-  src/io.cpp
+  src/net/io.cpp
   src/lan_upgrade.cpp
   src/transfer/mux_receive_session.cpp
   src/transfer/mux_send_scheduler.cpp
@@ -46,7 +46,7 @@ set(KIKO_CORE_SOURCES
   src/tui/tui_advanced.cpp
   src/progress.cpp
   src/protocol.cpp
-  src/proxy.cpp
+  src/net/proxy.cpp
   src/qrcode_print.cpp
   src/relay/relay.cpp
   src/relay/relay_race.cpp
@@ -58,7 +58,7 @@ set(KIKO_CORE_SOURCES
   src/connect/rendezvous_session.cpp
   src/connect/route_planner.cpp
   src/connect/route_session.cpp
-  src/socket.cpp
+  src/net/socket.cpp
   src/transfer/transfer.cpp
   src/transfer/transfer_heuristics.cpp
   src/transfer/transfer_manifest.cpp
@@ -181,13 +181,13 @@ set(KIKO_RELAYD_SOURCES
   src/relayd_main.cpp
   src/adaptive.cpp
   src/common.cpp
-  src/io.cpp
+  src/net/io.cpp
   src/protocol.cpp
-  src/proxy.cpp
+  src/net/proxy.cpp
   src/relay/relay_room_state.cpp
   src/relay/relay_route_state.cpp
   src/relay/relay_server.cpp
-  src/socket.cpp
+  src/net/socket.cpp
 )
 
 add_executable(kiko-relayd ${KIKO_RELAYD_SOURCES})

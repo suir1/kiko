@@ -3,7 +3,7 @@
 #include "adaptive.hpp"
 #include "connectivity.hpp"
 #include "progress.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <atomic>
 #include <chrono>

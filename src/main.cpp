@@ -2,7 +2,7 @@
 #include "config.hpp"
 #include "diagnostics/doctor.hpp"
 #include "progress.hpp"
-#include "proxy.hpp"
+#include "net/proxy.hpp"
 #include "relay/relay.hpp"
 
 #include "relay/relay_server.hpp"

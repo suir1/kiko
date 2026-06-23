@@ -1,6 +1,6 @@
 #include "discovery.hpp"
 
-#include "io.hpp"
+#include "net/io.hpp"
 #include "platform.hpp"
 
 #include <asio/ip/multicast.hpp>

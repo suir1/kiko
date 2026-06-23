@@ -2,7 +2,7 @@
 #include "protocol.hpp"
 #include "relay/relay_race.hpp"
 #include "relay/relay_server.hpp"
-#include "socket.hpp"
+#include "net/socket.hpp"
 
 #include <chrono>
 #include <future>
