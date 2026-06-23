@@ -321,8 +321,8 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       reporter.file_advance(have);
     }
 
-    MuxReceiveSession receive_session(channels, ciphers, out, current_relative, declared_size, have, use_zstd, reporter,
-                                      timing);
+    MuxReceiveSession receive_session(channels, ciphers, out, part_path, current_relative, declared_size, have,
+                                      use_zstd, reporter, timing);
     const auto written = receive_session.receive();
 
     auto endframe = recv_tagged(channels[0], ciphers[0]);
