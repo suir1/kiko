@@ -1,6 +1,7 @@
 #include "file_metadata.hpp"
 #include "platform.hpp"
 #include "transfer.hpp"
+#include "transfer_stream.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -147,6 +148,8 @@ int main() {
   auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
   auto endpoint = listener.local_endpoint();
   const int N = 4;
+  const auto max_expected_mux_pending =
+      static_cast<std::uint64_t>(N) * 4 * static_cast<std::uint64_t>(kiko::detail::kMuxChunk);
 
   RecordingReporter first_sender_reporter;
   RecordingReporter first_receiver_reporter;
@@ -158,6 +161,7 @@ int main() {
   if (first_sender_reporter.timings.size() != 1 || first_sender_reporter.timings[0].mode != "mux_send" ||
       first_sender_reporter.timings[0].mux_channels != static_cast<std::size_t>(N) ||
       first_sender_reporter.timings[0].mux_max_pending_bytes == 0 ||
+      first_sender_reporter.timings[0].mux_max_pending_bytes > max_expected_mux_pending ||
       first_sender_reporter.timings[0].payload_bytes != static_cast<std::uint64_t>(blob.size() + 5)) {
     std::cerr << "FAIL: mux sender timing missing or incomplete\n";
     return 1;

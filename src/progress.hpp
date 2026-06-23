@@ -54,6 +54,8 @@ struct TransferTiming {
   std::int64_t decompress_ms = 0;
   std::int64_t hash_ms = 0;
   std::uint64_t mux_max_pending_bytes = 0;
+  std::int64_t mux_backpressure_wait_ms = 0;
+  std::uint64_t mux_backpressure_wait_count = 0;
   std::size_t mux_channels = 0;
 };
 

@@ -92,6 +92,8 @@ std::string transfer_timing_summary(const TransferTiming& timing) {
   append_duration_field(line, "decompress", timing.decompress_ms);
   append_duration_field(line, "hash", timing.hash_ms);
   append_counter_field(line, "mux_max_pending_bytes", timing.mux_max_pending_bytes);
+  append_duration_field(line, "mux_backpressure_wait", timing.mux_backpressure_wait_ms);
+  append_counter_field(line, "mux_backpressure_waits", timing.mux_backpressure_wait_count);
   if (timing.mux_channels > 0) line += " mux_channels=" + std::to_string(timing.mux_channels);
   return line;
 }

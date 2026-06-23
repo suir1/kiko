@@ -75,12 +75,20 @@ class MuxSendScheduler {
 
   void enqueue(Bytes payload, std::uint64_t raw_size) {
     std::unique_lock<std::mutex> lock(mutex_);
-    cv_.wait(lock, [&] { return error_ || min_pending_locked() <= kMaxPendingPerChannel; });
+    const auto payload_size = static_cast<std::uint64_t>(payload.size());
+    auto channel_index = choose_ready_channel_locked(payload_size);
+    if (!channel_index && !error_) {
+      const auto wait_start = TransferClock::now();
+      cv_.wait(lock, [&] {
+        channel_index = choose_ready_channel_locked(payload_size);
+        return error_ || channel_index.has_value();
+      });
+      if (!error_) record_backpressure_wait(transfer_elapsed_ms_since(wait_start));
+    }
     if (error_) std::rethrow_exception(error_);
 
-    const auto channel_index = choose_channel_locked();
-    pending_[channel_index] += payload.size();
-    queues_[channel_index].push_back(MuxSendItem{std::move(payload), raw_size});
+    pending_[*channel_index] += payload_size;
+    queues_[*channel_index].push_back(MuxSendItem{std::move(payload), raw_size});
     record_pending_peak_locked();
     cv_.notify_all();
   }
@@ -99,14 +107,15 @@ class MuxSendScheduler {
   }
 
  private:
-  static constexpr std::uint64_t kMaxPendingPerChannel = 4 * kMuxChunk;
+  static constexpr std::uint64_t kMuxPendingChunksPerChannel = 4;
+  static constexpr std::uint64_t kMaxPendingPerChannel = kMuxPendingChunksPerChannel * kMuxChunk;
 
-  std::uint64_t min_pending_locked() const {
-    std::uint64_t best = pending_.empty() ? 0 : pending_.front();
-    for (const auto pending : pending_) {
-      if (pending < best) best = pending;
-    }
-    return best;
+  std::uint64_t per_channel_pending_limit(std::uint64_t payload_size) const {
+    return std::max<std::uint64_t>(kMaxPendingPerChannel, payload_size);
+  }
+
+  std::uint64_t global_pending_limit(std::uint64_t payload_size) const {
+    return std::max<std::uint64_t>(static_cast<std::uint64_t>(pending_.size()) * kMaxPendingPerChannel, payload_size);
   }
 
   std::uint64_t total_pending_locked() const {
@@ -115,9 +124,33 @@ class MuxSendScheduler {
     return total;
   }
 
+  std::optional<std::size_t> choose_ready_channel_locked(std::uint64_t payload_size) {
+    if (pending_.empty()) return std::nullopt;
+    const auto global_limit = global_pending_limit(payload_size);
+    const auto total_pending = total_pending_locked();
+    if (total_pending > global_limit - payload_size) return std::nullopt;
+
+    const auto channel_limit = per_channel_pending_limit(payload_size);
+    std::optional<std::size_t> best;
+    for (std::size_t step = 0; step < pending_.size(); ++step) {
+      const auto k = (next_channel_ + step) % pending_.size();
+      if (pending_[k] > channel_limit - payload_size) continue;
+      if (!best || pending_[k] < pending_[*best]) best = k;
+    }
+    if (!best) return std::nullopt;
+    next_channel_ = (*best + 1) % pending_.size();
+    return best;
+  }
+
   void record_pending_peak_locked() {
     std::lock_guard<std::mutex> timing_lock(timing_mutex_);
     timing_.mux_max_pending_bytes = std::max(timing_.mux_max_pending_bytes, total_pending_locked());
+  }
+
+  void record_backpressure_wait(std::int64_t elapsed_ms) {
+    std::lock_guard<std::mutex> timing_lock(timing_mutex_);
+    timing_.mux_backpressure_wait_ms += elapsed_ms;
+    ++timing_.mux_backpressure_wait_count;
   }
 
   void record_send_timing(std::int64_t elapsed_ms) {
@@ -125,16 +158,6 @@ class MuxSendScheduler {
     timing_.send_frame_ms += elapsed_ms;
     timing_.max_send_frame_ms = std::max(timing_.max_send_frame_ms, static_cast<int>(elapsed_ms));
     ++timing_.frame_count;
-  }
-
-  std::size_t choose_channel_locked() {
-    std::size_t best = next_channel_;
-    for (std::size_t step = 1; step < pending_.size(); ++step) {
-      const auto k = (next_channel_ + step) % pending_.size();
-      if (pending_[k] < pending_[best]) best = k;
-    }
-    next_channel_ = (best + 1) % pending_.size();
-    return best;
   }
 
   void set_error(std::exception_ptr error) {
