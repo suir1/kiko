@@ -184,19 +184,11 @@ void apply_profile_to_snapshot(const NetworkProfileEntry& profile, ConnectivityS
 }
 
 void apply_profile_candidate_bias(const NetworkProfileEntry& profile, std::vector<DirectCandidate>& candidates) {
-  if (candidates.empty()) return;
-  for (auto& candidate : candidates) {
-    if (!profile.last_direct_candidate_kind.empty() && profile.last_path == "direct" &&
-        candidate.kind == profile.last_direct_candidate_kind) {
-      candidate.priority += 25;
-      add_direct_candidate_reason(candidate, "profile_direct_success");
-    }
-    const auto failure = profile.candidate_failures_by_kind.find(candidate.kind);
-    if (failure != profile.candidate_failures_by_kind.end()) {
-      candidate.priority -= std::min(30, failure->second * 5);
-      add_direct_candidate_reason(candidate, "profile_previous_failure");
-    }
-  }
+  RoutePlan::DirectCandidateScoreHints hints;
+  hints.profile_last_path = profile.last_path;
+  hints.profile_direct_candidate_kind = profile.last_direct_candidate_kind;
+  hints.profile_candidate_failures_by_kind = profile.candidate_failures_by_kind;
+  apply_direct_candidate_scoring(candidates, hints);
 }
 
 }  // namespace kiko

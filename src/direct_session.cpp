@@ -1,6 +1,5 @@
 #include "direct_session.hpp"
 
-#include "profile.hpp"
 #include "progress.hpp"
 #include "udp_punch.hpp"
 
@@ -187,7 +186,6 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
   if (route_plan.skip_direct) return std::nullopt;
   PunchPlan punch;
   auto candidates = peer_candidates(peer, lan_extra);
-  if (auto profile = load_profile(network_fingerprint())) apply_profile_candidate_bias(*profile, candidates);
   apply_route_plan_to_adaptive(route_plan, role, puncher, candidates, self, peer_nat, punch);
   apply_relay_fallback_guard(punch, route_plan);
   if (reporter) reporter->status(describe_direct_plan(route_plan, punch));

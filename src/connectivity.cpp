@@ -35,6 +35,13 @@ void prefer_global_ipv6(RoutePlan& plan) {
   plan.direct_candidate_order = std::move(order);
 }
 
+void fill_candidate_score_hints(RoutePlan& plan, const ConnectivitySnapshot& snapshot) {
+  plan.candidate_score_hints.vpn_detected = snapshot.vpn_detected;
+  plan.candidate_score_hints.profile_last_path = snapshot.profile_last_path;
+  plan.candidate_score_hints.profile_direct_candidate_kind = snapshot.profile_direct_candidate_kind;
+  plan.candidate_score_hints.profile_candidate_failures_by_kind = snapshot.profile_candidate_failures_by_kind;
+}
+
 }  // namespace
 
 ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local, std::size_t lan_discovered_count,
@@ -55,6 +62,7 @@ RoutePlan RuleScheduler::plan(const ConnectivitySnapshot& snapshot, const std::o
   RoutePlan plan;
   plan.connections = default_connections;
   plan.reason = "default";
+  fill_candidate_score_hints(plan, snapshot);
 
   if (force_no_direct || snapshot.no_direct_config) {
     plan.skip_direct = true;
@@ -116,7 +124,7 @@ void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePunc
                                   const std::vector<DirectCandidate>& candidates, const NatProfile& self,
                                   const NatProfile& peer, PunchPlan& out) {
   auto ordered = candidates;
-  apply_direct_candidate_kind_order(ordered, plan.direct_candidate_order);
+  apply_direct_candidate_scoring(ordered, plan.candidate_score_hints, plan.direct_candidate_order);
   out = puncher.plan(role, ordered, self, peer);
   if (plan.direct_timeout.count() > 0 && plan.direct_timeout < out.total_timeout) {
     out.total_timeout = plan.direct_timeout;
@@ -429,8 +437,10 @@ PunchStats punch_stats_from(const AdaptivePuncher& puncher, bool direct_ok, bool
   return stats;
 }
 
-void apply_direct_candidate_kind_order(std::vector<DirectCandidate>& candidates, const std::vector<std::string>& kind_order) {
-  if (kind_order.empty() || candidates.empty()) return;
+void apply_direct_candidate_scoring(std::vector<DirectCandidate>& candidates,
+                                    const RoutePlan::DirectCandidateScoreHints& hints,
+                                    const std::vector<std::string>& kind_order) {
+  if (candidates.empty()) return;
 
   auto rank = [&](const std::string& kind) {
     for (std::size_t i = 0; i < kind_order.size(); ++i) {
@@ -440,12 +450,37 @@ void apply_direct_candidate_kind_order(std::vector<DirectCandidate>& candidates,
   };
 
   for (auto& candidate : candidates) {
-    const auto r = rank(candidate.kind);
-    if (r < static_cast<int>(kind_order.size())) {
-      candidate.priority += 1000 - r * 100;
-      add_direct_candidate_reason(candidate, "route_order_hint");
+    if (!kind_order.empty()) {
+      const auto r = rank(candidate.kind);
+      if (r < static_cast<int>(kind_order.size())) {
+        candidate.priority += 1000 - r * 100;
+        add_direct_candidate_reason(candidate, "route_order_hint");
+      }
+    }
+
+    if (!hints.profile_direct_candidate_kind.empty() && hints.profile_last_path == "direct" &&
+        candidate.kind == hints.profile_direct_candidate_kind) {
+      candidate.priority += 25;
+      add_direct_candidate_reason(candidate, "profile_direct_success");
+    }
+
+    const auto failure = hints.profile_candidate_failures_by_kind.find(candidate.kind);
+    if (failure != hints.profile_candidate_failures_by_kind.end()) {
+      candidate.priority -= std::min(30, failure->second * 5);
+      add_direct_candidate_reason(candidate, "profile_previous_failure");
+    }
+
+    if (hints.vpn_detected && (candidate.kind == "discovered" || candidate.kind == "lan")) {
+      candidate.priority -= 10;
+      add_direct_candidate_reason(candidate, "vpn_lan_caution");
     }
   }
+}
+
+void apply_direct_candidate_kind_order(std::vector<DirectCandidate>& candidates,
+                                       const std::vector<std::string>& kind_order) {
+  RoutePlan::DirectCandidateScoreHints hints;
+  apply_direct_candidate_scoring(candidates, hints, kind_order);
 }
 
 }  // namespace kiko

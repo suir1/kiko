@@ -67,6 +67,12 @@ struct RoutePlan {
   int connections = 4;
   std::vector<std::string> direct_candidate_order;  // optional AI hint: manual/discovered/lan/listen/ipv6_global/public
   std::vector<std::string> relay_order;  // optional AI hint: embedded, lan, external
+  struct DirectCandidateScoreHints {
+    bool vpn_detected = false;
+    std::string profile_last_path;
+    std::string profile_direct_candidate_kind;
+    std::map<std::string, int> profile_candidate_failures_by_kind;
+  } candidate_score_hints;
   std::string reason;
 };
 
@@ -84,6 +90,9 @@ void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePunc
                                   const std::vector<DirectCandidate>& candidates, const NatProfile& self,
                                   const NatProfile& peer, PunchPlan& out);
 
+void apply_direct_candidate_scoring(std::vector<DirectCandidate>& candidates,
+                                    const RoutePlan::DirectCandidateScoreHints& hints,
+                                    const std::vector<std::string>& kind_order = {});
 void apply_direct_candidate_kind_order(std::vector<DirectCandidate>& candidates, const std::vector<std::string>& kind_order);
 
 [[nodiscard]] std::optional<TcpSocket> try_direct_with_plan(Role role, TcpListener& listener, PunchPlan plan,

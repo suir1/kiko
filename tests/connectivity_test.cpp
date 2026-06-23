@@ -152,6 +152,31 @@ int main() {
   }
 
   {
+    std::vector<DirectCandidate> candidates{
+        make_direct_candidate(Endpoint{"203.0.113.7", 5000}, "public", 20),
+        make_direct_candidate(Endpoint{"192.168.1.10", 5000}, "lan", 90),
+        make_direct_candidate(Endpoint{"2001:4860:4860::8888", 5000}, "ipv6_global", 82),
+    };
+    RoutePlan::DirectCandidateScoreHints hints;
+    hints.vpn_detected = true;
+    hints.profile_last_path = "direct";
+    hints.profile_direct_candidate_kind = "lan";
+    hints.profile_candidate_failures_by_kind["public"] = 4;
+    apply_direct_candidate_scoring(candidates, hints, {"public"});
+
+    auto has_reason = [](const DirectCandidate& candidate, const std::string& reason) {
+      return std::find(candidate.reasons.begin(), candidate.reasons.end(), reason) != candidate.reasons.end();
+    };
+    assert(candidates[0].priority == 1000);
+    assert(candidates[1].priority == 105);
+    assert(candidates[2].priority == 82);
+    assert(has_reason(candidates[0], "route_order_hint"));
+    assert(has_reason(candidates[0], "profile_previous_failure"));
+    assert(has_reason(candidates[1], "profile_direct_success"));
+    assert(has_reason(candidates[1], "vpn_lan_caution"));
+  }
+
+  {
     auto sender_listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
     auto receiver_listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
 
