@@ -11,6 +11,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <chrono>
@@ -40,6 +41,33 @@ std::vector<std::string> interface_addresses_by_kind(const std::vector<Interface
     out.push_back(iface.name.empty() ? iface.address : iface.name + "=" + iface.address);
   }
   return out;
+}
+
+std::vector<std::string> candidate_ipv6_by_scope(const ConnectivitySnapshot& snapshot, IpAddressScope scope) {
+  std::vector<std::string> out;
+  for (const auto& address : snapshot.lan_candidates) {
+    if (ip_address_family(address) != IpAddressFamily::IPv6 || ip_address_scope(address) != scope) continue;
+    if (std::find(out.begin(), out.end(), address) == out.end()) out.push_back(address);
+  }
+  return out;
+}
+
+std::string ipv6_direct_status_for(const DoctorReport& report) {
+  const auto& snapshot = report.snapshot;
+  if (report.plan.skip_direct) return "direct_disabled";
+  if (snapshot.self_global_ipv6_count > 0 && snapshot.peer_global_ipv6_count > 0) return "available";
+  if (snapshot.self_global_ipv6_count > 0) return "waiting_for_peer_global";
+  if (!candidate_ipv6_by_scope(snapshot, IpAddressScope::UniqueLocal).empty()) return "lan_only_unique_local";
+  return "no_local_global";
+}
+
+std::string ipv6_direct_note_for(const DoctorReport& report) {
+  const auto status = ipv6_direct_status_for(report);
+  if (status == "available") return "both peers advertised global IPv6 candidates";
+  if (status == "waiting_for_peer_global") return "local global IPv6 exists; peer capability is learned during rendezvous";
+  if (status == "lan_only_unique_local") return "unique-local IPv6 is treated as LAN scope, not WAN direct";
+  if (status == "direct_disabled") return "direct probing is disabled by config or peer policy";
+  return "global IPv6 direct requires at least one non-VPN global IPv6 candidate";
 }
 
 bool safe_route_token(const std::string& value) {
@@ -252,8 +280,14 @@ std::string doctor_report_to_json(const DoctorReport& report) {
   j["vpn_detected"] = report.snapshot.vpn_detected;
   j["lan_discovered_count"] = report.snapshot.lan_discovered_count;
   j["stun_nat"] = stun_nat_class_name(report.snapshot.stun_nat);
+  const auto ipv6_global_candidates = candidate_ipv6_by_scope(report.snapshot, IpAddressScope::Global);
+  const auto ipv6_unique_local_candidates = candidate_ipv6_by_scope(report.snapshot, IpAddressScope::UniqueLocal);
   j["ipv6"] = {{"self_global_count", report.snapshot.self_global_ipv6_count},
-               {"peer_global_count", report.snapshot.peer_global_ipv6_count}};
+               {"peer_global_count", report.snapshot.peer_global_ipv6_count},
+               {"self_global_candidates", ipv6_global_candidates},
+               {"self_unique_local_candidates", ipv6_unique_local_candidates},
+               {"direct_status", ipv6_direct_status_for(report)},
+               {"direct_note", ipv6_direct_note_for(report)}};
   j["relay_reachable"] = relay_reachable(report);
   j["recommendation"] = recommendation_for(report);
   j["route_result_hint"] = route_result_hint_json(report);
@@ -324,8 +358,11 @@ std::vector<std::string> doctor_debug_lines(const DoctorReport& report) {
                   " timeout=" + std::to_string(report.plan.direct_timeout.count()) +
                   "ms connect=" + std::to_string(report.plan.direct_connect.count()) +
                   "ms udp_assist=" + (report.plan.udp_punch_enabled ? "true" : "false"));
-  lines.push_back("debug route: ipv6 self_global=" + std::to_string(report.snapshot.self_global_ipv6_count) +
-                  " peer_global=" + std::to_string(report.snapshot.peer_global_ipv6_count));
+  lines.push_back("debug route: ipv6 status=" + ipv6_direct_status_for(report) +
+                  " self_global=" + std::to_string(report.snapshot.self_global_ipv6_count) +
+                  " peer_global=" + std::to_string(report.snapshot.peer_global_ipv6_count) +
+                  " self_ula=" +
+                  std::to_string(candidate_ipv6_by_scope(report.snapshot, IpAddressScope::UniqueLocal).size()));
   lines.push_back("debug route: hint path=" + hint.value("path", std::string{}) +
                   " reason=" + hint.value("reason", std::string{}) +
                   " data_relay_required=" + (hint.value("data_relay_required", false) ? "true" : "false"));
@@ -342,8 +379,13 @@ int run_doctor_cli(const DoctorOptions& options) {
     std::cout << "  vpn: " << (report.snapshot.vpn_detected ? "yes" : "no") << "\n";
     std::cout << "  lan ips: " << join_strings(interface_addresses_by_kind(report.interfaces, false)) << "\n";
     std::cout << "  vpn ips: " << join_strings(interface_addresses_by_kind(report.interfaces, true)) << "\n";
-    std::cout << "  ipv6 global candidates: self=" << report.snapshot.self_global_ipv6_count
-              << " peer=" << report.snapshot.peer_global_ipv6_count << "\n";
+    std::cout << "  ipv6: status=" << ipv6_direct_status_for(report)
+              << " self_global=" << report.snapshot.self_global_ipv6_count
+              << " peer_global=" << report.snapshot.peer_global_ipv6_count << "\n";
+    std::cout << "  ipv6 global candidates: "
+              << join_strings(candidate_ipv6_by_scope(report.snapshot, IpAddressScope::Global)) << "\n";
+    std::cout << "  ipv6 unique-local candidates: "
+              << join_strings(candidate_ipv6_by_scope(report.snapshot, IpAddressScope::UniqueLocal)) << "\n";
     if (!report.outbound_path.empty()) {
       std::cout << "  outbound: " << report.outbound_path << " (" << report.outbound_reason << ")\n";
     }

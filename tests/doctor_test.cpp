@@ -33,6 +33,63 @@ int main() {
 
   {
     DoctorReport report;
+    report.snapshot.relays.push_back(RelayProbeEntry{"external", "relay.example:9000", 18, true});
+    report.snapshot.lan_candidates = {"2001:4860:4860::8888", "fd00::10", "2001:4860:4860::8888"};
+    report.snapshot.self_global_ipv6_count = 1;
+    report.plan.reason = "default";
+    report.diagnosis = "synthetic";
+
+    const auto j = nlohmann::json::parse(doctor_report_to_json(report));
+    if (j["ipv6"]["direct_status"] != "waiting_for_peer_global") {
+      std::cerr << "FAIL: doctor did not mark local global IPv6 as waiting for peer\n";
+      return 1;
+    }
+    if (j["ipv6"]["self_global_candidates"].size() != 1 ||
+        j["ipv6"]["self_global_candidates"][0] != "2001:4860:4860::8888") {
+      std::cerr << "FAIL: doctor did not expose deduplicated global IPv6 candidates\n";
+      return 1;
+    }
+    if (j["ipv6"]["self_unique_local_candidates"].size() != 1 ||
+        j["ipv6"]["self_unique_local_candidates"][0] != "fd00::10") {
+      std::cerr << "FAIL: doctor did not expose unique-local IPv6 candidates\n";
+      return 1;
+    }
+
+    const auto lines = doctor_debug_lines(report);
+    bool saw_ipv6_line = false;
+    for (const auto& line : lines) {
+      if (line.find("ipv6 status=waiting_for_peer_global self_global=1 peer_global=0 self_ula=1") !=
+          std::string::npos) {
+        saw_ipv6_line = true;
+      }
+    }
+    if (!saw_ipv6_line) {
+      std::cerr << "FAIL: doctor debug lines did not include IPv6 status\n";
+      return 1;
+    }
+  }
+
+  {
+    DoctorReport report;
+    report.snapshot.relays.push_back(RelayProbeEntry{"external", "relay.example:9000", 18, true});
+    report.snapshot.lan_candidates = {"fd00::10"};
+    report.snapshot.self_global_ipv6_count = 0;
+    report.plan.reason = "default";
+    report.diagnosis = "synthetic";
+
+    const auto j = nlohmann::json::parse(doctor_report_to_json(report));
+    if (j["ipv6"]["direct_status"] != "lan_only_unique_local") {
+      std::cerr << "FAIL: doctor did not keep ULA IPv6 scoped to LAN\n";
+      return 1;
+    }
+    if (j["ipv6"]["direct_note"].get<std::string>().find("not WAN direct") == std::string::npos) {
+      std::cerr << "FAIL: doctor IPv6 ULA note did not explain LAN scope\n";
+      return 1;
+    }
+  }
+
+  {
+    DoctorReport report;
     report.snapshot.relays.push_back(RelayProbeEntry{"external", "relay.example:9000", -1, false});
     report.plan.reason = "default";
     report.diagnosis = "synthetic";
@@ -73,11 +130,18 @@ int main() {
     assert(j["route_result_hint"]["path"] == "relay");
     assert(j["route_result_hint"]["direct_attempted"] == false);
     const auto lines = doctor_debug_lines(report);
-    assert(lines.size() == 4);
-    assert(lines[0].find("relay_reachable=true outbound=physical/en0 reason=physical_lower_rtt") != std::string::npos);
-    assert(lines[1].find("direct_probe will_attempt=false") != std::string::npos);
-    assert(lines[2].find("hint path=relay reason=direct_skipped") != std::string::npos);
-    assert(lines[3].find("recommendation=relay_only") != std::string::npos);
+    if (lines.size() != 5) {
+      std::cerr << "FAIL: doctor debug line count changed unexpectedly\n";
+      return 1;
+    }
+    if (lines[0].find("relay_reachable=true outbound=physical/en0 reason=physical_lower_rtt") == std::string::npos ||
+        lines[1].find("direct_probe will_attempt=false") == std::string::npos ||
+        lines[2].find("ipv6 status=direct_disabled") == std::string::npos ||
+        lines[3].find("hint path=relay reason=direct_skipped") == std::string::npos ||
+        lines[4].find("recommendation=relay_only") == std::string::npos) {
+      std::cerr << "FAIL: doctor debug lines did not expose route and IPv6 details\n";
+      return 1;
+    }
   }
 
   std::cout << "PASS: doctor JSON exposes route hints and recommendations\n";
