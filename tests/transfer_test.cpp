@@ -1,8 +1,8 @@
-#include "file_metadata.hpp"
+#include "transfer/file_metadata.hpp"
 #include "platform.hpp"
 #include "protocol.hpp"
 #include "relay_server.hpp"
-#include "transfer.hpp"
+#include "transfer/transfer.hpp"
 
 #include <chrono>
 #include <cstdint>

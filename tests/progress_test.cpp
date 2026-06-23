@@ -1,6 +1,6 @@
 #include "progress.hpp"
 #include "platform.hpp"
-#include "transfer.hpp"
+#include "transfer/transfer.hpp"
 
 #include <chrono>
 #include <filesystem>

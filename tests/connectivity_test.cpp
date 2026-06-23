@@ -1,7 +1,7 @@
 #include "connectivity.hpp"
 #include "direct_session.hpp"
 #include "relay_race.hpp"
-#include "transfer.hpp"
+#include "transfer/transfer.hpp"
 
 #include <algorithm>
 #include <cassert>

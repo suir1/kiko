@@ -29,15 +29,15 @@ set(KIKO_CORE_SOURCES
   src/direct_session.cpp
   src/discovery.cpp
   src/doctor.cpp
-  src/file_manifest.cpp
-  src/file_metadata.cpp
+  src/transfer/file_manifest.cpp
+  src/transfer/file_metadata.cpp
   src/gitignore.cpp
   src/imohash.cpp
   src/io.cpp
   src/lan_upgrade.cpp
-  src/mux_receive_session.cpp
-  src/mux_send_scheduler.cpp
-  src/mux_transfer.cpp
+  src/transfer/mux_receive_session.cpp
+  src/transfer/mux_send_scheduler.cpp
+  src/transfer/mux_transfer.cpp
   src/network_probe.cpp
   src/outbound_policy.cpp
   src/pake.cpp
@@ -54,18 +54,18 @@ set(KIKO_CORE_SOURCES
   src/relay_route_state.cpp
   src/relay_session.cpp
   src/relay_server.cpp
-  src/receive_plan.cpp
+  src/transfer/receive_plan.cpp
   src/rendezvous_session.cpp
   src/route_planner.cpp
   src/route_session.cpp
   src/socket.cpp
-  src/transfer.cpp
-  src/transfer_heuristics.cpp
-  src/transfer_manifest.cpp
-  src/transfer_receive_paths.cpp
-  src/transfer_resume.cpp
-  src/transfer_retry.cpp
-  src/transfer_stream.cpp
+  src/transfer/transfer.cpp
+  src/transfer/transfer_heuristics.cpp
+  src/transfer/transfer_manifest.cpp
+  src/transfer/transfer_receive_paths.cpp
+  src/transfer/transfer_resume.cpp
+  src/transfer/transfer_retry.cpp
+  src/transfer/transfer_stream.cpp
   src/udp_punch.cpp
 )
 

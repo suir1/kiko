@@ -3,7 +3,7 @@
 #include "cancellation.hpp"
 #include "pake.hpp"
 #include "protocol.hpp"
-#include "transfer.hpp"
+#include "transfer/transfer.hpp"
 
 #include <chrono>
 

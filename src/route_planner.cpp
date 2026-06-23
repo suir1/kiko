@@ -3,8 +3,8 @@
 #include "ai_advisor.hpp"
 #include "ai_client.hpp"
 #include "profile.hpp"
-#include "transfer.hpp"
-#include "transfer_heuristics.hpp"
+#include "transfer/transfer.hpp"
+#include "transfer/transfer_heuristics.hpp"
 
 #include <algorithm>
 

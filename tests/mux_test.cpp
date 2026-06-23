@@ -1,7 +1,7 @@
-#include "file_metadata.hpp"
+#include "transfer/file_metadata.hpp"
 #include "platform.hpp"
-#include "transfer.hpp"
-#include "transfer_stream.hpp"
+#include "transfer/transfer.hpp"
+#include "transfer/transfer_stream.hpp"
 
 #include <chrono>
 #include <cstdint>
