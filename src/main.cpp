@@ -7,7 +7,7 @@
 
 #include "relay_server.hpp"
 #include "transfer.hpp"
-#include "tui.hpp"
+#include "tui/tui.hpp"
 #include "user_config.hpp"
 
 #include <CLI/CLI.hpp>

@@ -1,5 +1,5 @@
-#include "tui_menu_state.hpp"
-#include "tui_transfer_view.hpp"
+#include "tui/tui_menu_state.hpp"
+#include "tui/tui_transfer_view.hpp"
 
 #include "platform.hpp"
 

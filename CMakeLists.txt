@@ -43,7 +43,7 @@ set(KIKO_CORE_SOURCES
   src/pake.cpp
   src/profile.cpp
   src/user_config.cpp
-  src/tui_advanced.cpp
+  src/tui/tui_advanced.cpp
   src/progress.cpp
   src/protocol.cpp
   src/proxy.cpp
@@ -161,15 +161,15 @@ target_compile_options(kiko_core PRIVATE
 
 set(KIKO_APP_SOURCES
   src/main.cpp
-  src/tui.cpp
-  src/tui_browser.cpp
-  src/tui_doctor_modal.cpp
-  src/tui_menu_state.cpp
-  src/tui_menu_view.cpp
-  src/tui_session.cpp
-  src/tui_transfer_actions.cpp
-  src/tui_transfer_view.cpp
-  src/tui_failure_hint.cpp
+  src/tui/tui.cpp
+  src/tui/tui_browser.cpp
+  src/tui/tui_doctor_modal.cpp
+  src/tui/tui_menu_state.cpp
+  src/tui/tui_menu_view.cpp
+  src/tui/tui_session.cpp
+  src/tui/tui_transfer_actions.cpp
+  src/tui/tui_transfer_view.cpp
+  src/tui/tui_failure_hint.cpp
   src/clipboard.cpp
 )
 
@@ -217,11 +217,11 @@ kiko_add_core_test(profile tests/profile_test.cpp)
 kiko_add_core_test(user_config tests/user_config_test.cpp)
 kiko_add_core_test(cancellation tests/cancellation_test.cpp)
 kiko_add_core_test(tui_advanced tests/tui_advanced_test.cpp)
-add_executable(kiko_tui_menu_state_test tests/tui_menu_state_test.cpp src/tui_menu_state.cpp src/tui_transfer_view.cpp)
+add_executable(kiko_tui_menu_state_test tests/tui_menu_state_test.cpp src/tui/tui_menu_state.cpp src/tui/tui_transfer_view.cpp)
 target_link_libraries(kiko_tui_menu_state_test PRIVATE kiko_core ftxui::component)
 add_test(NAME tui_menu_state COMMAND kiko_tui_menu_state_test)
 
-add_executable(kiko_tui_failure_hint_test tests/tui_failure_hint_test.cpp src/tui_failure_hint.cpp)
+add_executable(kiko_tui_failure_hint_test tests/tui_failure_hint_test.cpp src/tui/tui_failure_hint.cpp)
 target_link_libraries(kiko_tui_failure_hint_test PRIVATE kiko_core)
 add_test(NAME tui_failure_hint COMMAND kiko_tui_failure_hint_test)
 kiko_add_core_test(mux tests/mux_test.cpp)
