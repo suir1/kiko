@@ -47,6 +47,7 @@ set(KIKO_CORE_SOURCES
   src/qrcode_print.cpp
   src/relay.cpp
   src/relay_race.cpp
+  src/relay_route_state.cpp
   src/relay_session.cpp
   src/relay_server.cpp
   src/receive_plan.cpp
@@ -179,6 +180,7 @@ set(KIKO_RELAYD_SOURCES
   src/io.cpp
   src/protocol.cpp
   src/proxy.cpp
+  src/relay_route_state.cpp
   src/relay_server.cpp
   src/socket.cpp
 )
@@ -222,6 +224,7 @@ kiko_add_core_test(connectivity tests/connectivity_test.cpp)
 kiko_add_core_test(route_session tests/route_session_test.cpp)
 kiko_add_core_test(route_scenarios tests/route_scenarios_test.cpp)
 kiko_add_core_test(outbound_policy tests/outbound_policy_test.cpp)
+kiko_add_core_test(relay_route_state tests/relay_route_state_test.cpp)
 kiko_add_core_test(relay tests/relay_test.cpp)
 kiko_add_core_test(transfer_retry tests/transfer_retry_test.cpp)
 kiko_add_core_test(transfer_heuristics tests/transfer_heuristics_test.cpp)
