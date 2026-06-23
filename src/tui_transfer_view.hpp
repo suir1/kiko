@@ -64,10 +64,13 @@ class TuiReporter : public ProgressReporter {
   void transfer_retry(int next_attempt, int max_attempts, const std::string& reason) override;
 
  private:
+  [[nodiscard]] bool should_wake_progress(std::chrono::steady_clock::time_point now);
+
   void update_network_summary(const std::string& message);
 
   TuiState& state_;
   std::function<void()> wake_;
+  std::chrono::steady_clock::time_point last_progress_wake_{};
 };
 
 [[nodiscard]] std::string human_bytes(std::uint64_t bytes);

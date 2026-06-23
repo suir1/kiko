@@ -12,6 +12,8 @@
 namespace kiko {
 namespace {
 
+constexpr auto kProgressWakeInterval = std::chrono::milliseconds(50);
+
 void trim_log(std::string& log, std::size_t max_lines) {
   std::size_t lines = log.empty() ? 0 : 1;
   for (char c : log) {
@@ -276,12 +278,16 @@ void TuiReporter::file_start(const std::string& path, std::uint64_t size) {
 }
 
 void TuiReporter::file_advance(std::uint64_t bytes_delta) {
+  bool should_wake = false;
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
     state_.current_done += bytes_delta;
     state_.overall_done += bytes_delta;
+    should_wake = should_wake_progress(std::chrono::steady_clock::now());
   }
-  wake_();
+  if (should_wake) {
+    wake_();
+  }
 }
 
 void TuiReporter::file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) {
@@ -336,6 +342,15 @@ void TuiReporter::transfer_retry(int next_attempt, int max_attempts, const std::
                                             "; resume will continue verified partial files; reason: " + reason);
   }
   wake_();
+}
+
+bool TuiReporter::should_wake_progress(std::chrono::steady_clock::time_point now) {
+  if (last_progress_wake_ == std::chrono::steady_clock::time_point{} ||
+      now - last_progress_wake_ >= kProgressWakeInterval) {
+    last_progress_wake_ = now;
+    return true;
+  }
+  return false;
 }
 
 void TuiReporter::update_network_summary(const std::string& message) {

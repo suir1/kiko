@@ -25,6 +25,8 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
   using namespace ftxui;
 
   auto modes = std::make_shared<std::vector<std::string>>(std::vector<std::string>{"Send", "Receive"});
+  auto summary_path = std::make_shared<std::string>();
+  auto summary_cache = std::make_shared<PathSummary>();
   auto wake = callbacks.wake;
   auto mode_toggle = Toggle(modes.get(), &menu.mode);
 
@@ -106,9 +108,9 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
       start_button,
   });
 
-  auto root = Renderer(layout, [&, modes, mode_toggle, relay_input, relay_pass_input, path_input, path_browse,
-                                code_input, out_input, out_browse, preset_wan, preset_wifi, preset_corp, preset_debug,
-                                advanced_section, doctor_button, start_button] {
+  auto root = Renderer(layout, [&, modes, summary_path, summary_cache, mode_toggle, relay_input, relay_pass_input,
+                                path_input, path_browse, code_input, out_input, out_browse, preset_wan, preset_wifi,
+                                preset_corp, preset_debug, advanced_section, doctor_button, start_button] {
     Elements rows;
     rows.push_back(text("kiko") | bold | hcenter);
     rows.push_back(separator());
@@ -118,9 +120,12 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
     rows.push_back(hbox({text("pass:  "), relay_pass_input->Render() | flex}));
     if (menu.mode == 0) {
       rows.push_back(hbox({text("path:  "), path_input->Render() | flex, path_browse->Render()}));
-      const auto summary = summarize_path(menu.path);
-      if (summary.ok) {
-        rows.push_back(hbox({text("       "), text(summary.text) | dim}));
+      if (*summary_path != menu.path) {
+        *summary_path = menu.path;
+        *summary_cache = summarize_path(menu.path);
+      }
+      if (summary_cache->ok) {
+        rows.push_back(hbox({text("       "), text(summary_cache->text) | dim}));
       }
       rows.push_back(hbox({text("code:  "), code_input->Render() | flex, text(" (optional)") | dim}));
     } else {

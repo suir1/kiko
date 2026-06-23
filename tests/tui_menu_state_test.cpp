@@ -175,6 +175,25 @@ int main() {
     }
   }
 
+  {
+    TuiState transfer_state;
+    int wakes = 0;
+    TuiReporter reporter(transfer_state, [&] { ++wakes; });
+    reporter.file_advance(10);
+    reporter.file_advance(20);
+    if (transfer_state.overall_done != 30 || transfer_state.current_done != 30 || wakes != 1) {
+      std::cerr << "FAIL: TUI reporter did not throttle progress wakeups while keeping byte totals\n";
+      fs::remove(send_path);
+      return 1;
+    }
+    reporter.file_complete("partial.bin", 30, true);
+    if (wakes != 2 || transfer_state.files_done != 1) {
+      std::cerr << "FAIL: TUI reporter throttled a file completion wakeup\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
   fs::remove(send_path);
   std::cout << "tui_menu_state_test ok\n";
   return 0;
