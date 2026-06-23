@@ -264,6 +264,53 @@ int main() {
 
   {
     auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    PunchPlan plan;
+    plan.total_timeout = std::chrono::seconds(3);
+    plan.connect_timeout = std::chrono::milliseconds(100);
+    plan.retry_delay = std::chrono::milliseconds(20);
+
+    AdaptivePuncher puncher;
+    std::atomic_bool cancel{false};
+    std::atomic_bool peer_connected{false};
+    auto direct_future = std::async(std::launch::async, [&] {
+      return try_direct_with_plan(Role::Sender, listener, plan, puncher, "cancel-accept-preflight",
+                                  ConnectOptions{}, "", &cancel);
+    });
+
+    std::thread silent_peer([&] {
+      auto peer = connect_tcp(listener.local_endpoint(), std::chrono::seconds(2));
+      peer_connected.store(peer.valid());
+      while (peer.valid() && !cancel.load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    });
+
+    const auto wait_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!peer_connected.load() && std::chrono::steady_clock::now() < wait_deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    if (!peer_connected.load()) {
+      cancel.store(true);
+      silent_peer.join();
+      std::cerr << "FAIL: silent direct peer did not connect\n";
+      return 1;
+    }
+
+    const auto cancel_start = std::chrono::steady_clock::now();
+    cancel.store(true);
+    auto direct = direct_future.get();
+    const auto elapsed = std::chrono::steady_clock::now() - cancel_start;
+    silent_peer.join();
+    if (direct) {
+      std::cerr << "FAIL: canceled direct preflight unexpectedly succeeded\n";
+      return 1;
+    }
+    if (elapsed >= std::chrono::milliseconds(500)) {
+      std::cerr << "FAIL: direct accept preflight ignored cancellation\n";
+      return 1;
+    }
+  }
+
+  {
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
     const auto endpoint = listener.local_endpoint();
     std::thread silent_relay([&] {
       auto accepted = listener.accept(std::chrono::seconds(2));

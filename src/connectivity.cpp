@@ -258,9 +258,15 @@ std::optional<TcpSocket> dial_direct_candidate_same_port(const DirectCandidate& 
 
 std::optional<TcpSocket> accept_direct_candidate(TcpListener& listener, std::chrono::milliseconds timeout,
                                                  const std::string& room, Role expected_role,
-                                                 AdaptivePuncher& puncher, const std::string& phase) {
+                                                 AdaptivePuncher& puncher, const std::string& phase,
+                                                 const std::atomic_bool* cancel) {
+  if (direct_cancelled(cancel)) return std::nullopt;
   auto accepted = listener.accept(timeout);
   if (!accepted.valid()) return std::nullopt;
+  if (direct_cancelled(cancel)) {
+    accepted.close();
+    return std::nullopt;
+  }
 
   try {
     std::string accepted_endpoint = "listener";
@@ -268,7 +274,11 @@ std::optional<TcpSocket> accept_direct_candidate(TcpListener& listener, std::chr
       accepted_endpoint = accepted.peer_endpoint().to_string();
     } catch (const std::exception&) {
     }
-    auto hello = recv_message_timeout(accepted, kDirectPreflightTimeout);
+    auto hello = recv_message_timeout(accepted, kDirectPreflightTimeout, cancel);
+    if (direct_cancelled(cancel)) {
+      accepted.close();
+      return std::nullopt;
+    }
     const bool ok = hello && direct_hello_ok(*hello, room, expected_role);
     if (ok) {
       send_message(accepted, Message{"direct_ack", {{"room", room}}});
@@ -317,7 +327,8 @@ std::optional<TcpSocket> try_direct_phase(Role self_role, Role active_role, TcpL
     const auto remaining = remaining_until(phase_deadline);
     if (remaining.count() <= 0) break;
     const auto accept_timeout = std::min<std::chrono::milliseconds>(remaining, std::chrono::milliseconds(80));
-    if (auto accepted = accept_direct_candidate(listener, accept_timeout, room, active_role, puncher, phase + "-accept")) {
+    if (auto accepted =
+            accept_direct_candidate(listener, accept_timeout, room, active_role, puncher, phase + "-accept", cancel)) {
       return accepted;
     }
 
@@ -358,7 +369,8 @@ std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener
     if (remaining.count() <= 0) break;
     const auto accept_timeout = std::min<std::chrono::milliseconds>(remaining, std::chrono::milliseconds(40));
     if (auto accepted =
-            accept_direct_candidate(listener, accept_timeout, room, peer_role(role), puncher, "sync-same-port-accept")) {
+            accept_direct_candidate(listener, accept_timeout, room, peer_role(role), puncher, "sync-same-port-accept",
+                                    cancel)) {
       return accepted;
     }
     if (!direct_cancelled(cancel)) std::this_thread::sleep_for(std::min(plan.retry_delay, std::chrono::milliseconds(40)));
