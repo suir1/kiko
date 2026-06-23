@@ -1,18 +1,14 @@
 #include "transfer.hpp"
 
 #include "compression.hpp"
+#include "mux_receive_session.hpp"
 #include "mux_send_scheduler.hpp"
 #include "transfer_stream.hpp"
 
-#include <algorithm>
-#include <atomic>
-#include <exception>
 #include <filesystem>
 #include <fstream>
-#include <mutex>
 #include <optional>
 #include <span>
-#include <thread>
 
 namespace kiko {
 
@@ -26,18 +22,6 @@ void put_u64(Bytes& out, std::uint64_t value) {
 
 void put_u32(Bytes& out, std::uint32_t value) {
   for (int i = 3; i >= 0; --i) out.push_back(static_cast<std::uint8_t>((value >> (i * 8)) & 0xff));
-}
-
-std::uint64_t read_u64(const std::uint8_t* p) {
-  std::uint64_t v = 0;
-  for (int i = 0; i < 8; ++i) v = (v << 8) | p[i];
-  return v;
-}
-
-std::uint32_t read_u32(const std::uint8_t* p) {
-  std::uint32_t v = 0;
-  for (int i = 0; i < 4; ++i) v = (v << 8) | p[i];
-  return v;
 }
 
 }  // namespace
@@ -337,71 +321,9 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       reporter.file_advance(have);
     }
 
-    std::mutex file_mutex;
-    std::mutex report_mutex;
-    std::mutex timing_mutex;
-    std::atomic<std::uint64_t> written{have};
-    std::atomic<bool> failed{false};
-    std::string error_text;
-
-    auto reader = [&, use_zstd](std::size_t k) {
-      try {
-        while (true) {
-          auto f = recv_tagged(channels[k], ciphers[k]);
-          if (!f) throw KikoError("data channel closed early");
-          if (f->tag == StreamTag::ChunkEnd) break;
-          if (f->tag != StreamTag::Data) throw KikoError("unexpected frame on data channel");
-          if (f->payload.size() < 12) throw KikoError("short data frame");
-          std::uint64_t off = read_u64(f->payload.data());
-          std::uint32_t raw_len = read_u32(f->payload.data() + 8);
-          if (raw_len > kMuxChunk) throw KikoError("mux data chunk too large for " + current_relative);
-          if (off < have) throw KikoError("mux data before resume offset for " + current_relative);
-          ensure_declared_space(off, declared_size, static_cast<std::uint64_t>(raw_len), current_relative);
-          std::span<const std::uint8_t> comp(f->payload.data() + 12, f->payload.size() - 12);
-          Bytes plain;
-          std::int64_t decompress_ms = 0;
-          if (use_zstd) {
-            const auto decompress_start = TransferClock::now();
-            plain = zstd_decompress_block(comp, raw_len);
-            decompress_ms = transfer_elapsed_ms_since(decompress_start);
-          } else {
-            if (comp.size() != raw_len) throw KikoError("uncompressed chunk size mismatch");
-            plain.assign(comp.begin(), comp.end());
-          }
-          if (plain.size() != raw_len) throw KikoError("mux decoded chunk size mismatch");
-          ensure_declared_space(off, declared_size, static_cast<std::uint64_t>(plain.size()), current_relative);
-          std::int64_t write_ms = 0;
-          {
-            std::lock_guard<std::mutex> lock(file_mutex);
-            const auto write_start = TransferClock::now();
-            out.seekp(static_cast<std::streamoff>(off));
-            out.write(reinterpret_cast<const char*>(plain.data()), static_cast<std::streamsize>(plain.size()));
-            write_ms = transfer_elapsed_ms_since(write_start);
-            if (!out) throw KikoError("write failed during mux receive");
-          }
-          written.fetch_add(plain.size());
-          {
-            std::lock_guard<std::mutex> timing_lock(timing_mutex);
-            timing.decompress_ms += decompress_ms;
-            timing.disk_write_ms += write_ms;
-            timing.payload_bytes += plain.size();
-          }
-          std::lock_guard<std::mutex> rlock(report_mutex);
-          reporter.file_advance(plain.size());
-        }
-      } catch (const std::exception& e) {
-        failed.store(true);
-        std::lock_guard<std::mutex> rlock(report_mutex);
-        if (error_text.empty()) error_text = e.what();
-      }
-    };
-
-    std::vector<std::thread> threads;
-    threads.reserve(n - 1);
-    for (std::size_t k = 1; k < n; ++k) threads.emplace_back(reader, k);
-    reader(0);
-    for (auto& t : threads) t.join();
-    if (failed.load()) throw KikoError("mux receive failed: " + error_text);
+    MuxReceiveSession receive_session(channels, ciphers, out, current_relative, declared_size, have, use_zstd, reporter,
+                                      timing);
+    const auto written = receive_session.receive();
 
     auto endframe = recv_tagged(channels[0], ciphers[0]);
     if (!endframe || endframe->tag != StreamTag::FileEnd) throw KikoError("expected file end");
@@ -409,7 +331,7 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     auto expected = trailer.get("sha256");
     out.flush();
     out.close();
-    if (written.load() > declared_size) throw KikoError("received more data than declared for " + current_relative);
+    if (written > declared_size) throw KikoError("received more data than declared for " + current_relative);
     Bytes verify_buffer(kMuxChunk);
     verify_part_file_digest(part_path, current_relative, declared_size, expected, verify_buffer);
     finalize_part_file(part_path, current_path, current_relative);
