@@ -4,17 +4,17 @@
 #include "common.hpp"
 #include "platform.hpp"
 #include "protocol.hpp"
+#include "relay_room_state.hpp"
 #include "relay_route_state.hpp"
 #include "socket.hpp"
 #include <array>
 #include <chrono>
 #include <iostream>
-#include <map>
 #include <mutex>
 #include <optional>
-#include <set>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace kiko {
@@ -25,31 +25,6 @@ constexpr auto kRouteChoiceTimeout = std::chrono::seconds(15);
 constexpr auto kRoutePollSlice = std::chrono::milliseconds(25);
 constexpr auto kRouteFrameReadTimeout = std::chrono::milliseconds(250);
 constexpr std::uint64_t kMaxRelayConnections = 32;
-
-std::string room_base(const std::string& match_key) {
-  const auto hash = match_key.find('#');
-  if (hash == std::string::npos) return match_key;
-  return match_key.substr(0, hash);
-}
-
-bool socket_is_dead(TcpSocket& socket) {
-  const int fd = socket.fd();
-  if (fd < 0) return true;
-  const int poll = net_poll(fd, true, false, 0);
-  if (poll < 0) return true;
-  if (poll == 0) return false;
-
-  char byte = 0;
-#ifdef _WIN32
-  const int rc = recv(static_cast<SOCKET>(fd), &byte, 1, MSG_PEEK);
-#else
-  const ssize_t rc = recv(fd, &byte, 1, MSG_PEEK);
-#endif
-  if (rc == 0) return true;
-  if (rc > 0) return false;
-  const int err = net_last_error();
-  return err != kErrWouldBlock && err != kErrIntr;
-}
 
 struct RouteChoiceRead {
   enum class Kind { None, Message, Closed };
@@ -104,22 +79,9 @@ std::uint16_t checked_control_port(const Message& message, const std::string& fi
   return static_cast<std::uint16_t>(port);
 }
 
-struct WaitingPeer {
-  Role role = Role::Sender;
-  TcpSocket socket;
-  Endpoint public_endpoint;
-  Endpoint listen_endpoint;
-  std::uint64_t file_count = 0;
-  std::uint64_t total_size = 0;
-  std::uint64_t conn_count = 1;
-  bool no_direct = false;
-  std::string local_candidates;
-  std::chrono::steady_clock::time_point registered_at = std::chrono::steady_clock::now();
-};
-
 class RelayStateImpl {
  public:
-  explicit RelayStateImpl(RelayServerConfig config) : config_(std::move(config)) { start_cleanup(); }
+  explicit RelayStateImpl(RelayServerConfig config) : config_(std::move(config)), rooms_(config_) { start_cleanup(); }
 
   ~RelayStateImpl() { stop_cleanup(); }
 
@@ -127,65 +89,21 @@ class RelayStateImpl {
     return relay_password_ok(config_, hello);
   }
 
-  [[nodiscard]] bool is_room_active(const std::string& room) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return active_rooms_.count(room) > 0;
+  [[nodiscard]] RelayRoomPairing pair_or_wait(const std::string& match_key, const std::string& active_room,
+                                              RelayWaitingPeer peer, bool auxiliary) {
+    return rooms_.pair_or_wait(match_key, active_room, std::move(peer), auxiliary);
   }
 
-  void mark_room_active(const std::string& room) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    active_rooms_.insert(room);
-  }
+  void release_active_room(const std::string& room) { rooms_.release_active_room(room); }
 
-  void unmark_room_active(const std::string& room) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    active_rooms_.erase(room);
-  }
-
-  void close_waiting() {
-    std::vector<TcpSocket> to_close;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      for (auto& [_, peer] : waiting_) {
-        if (peer.socket.valid()) to_close.push_back(std::move(peer.socket));
-      }
-      waiting_.clear();
-    }
-    for (auto& socket : to_close) socket.close();
-  }
+  void close_waiting() { rooms_.close_waiting(); }
 
   RelayServerConfig config_;
-  std::mutex mutex_;
-  std::map<std::string, WaitingPeer> waiting_;
-  std::set<std::string> active_rooms_;
+  RelayRoomState rooms_;
   std::atomic<bool> cleanup_stop_{false};
   std::thread cleanup_thread_;
 
-  void purge_stale_waiting() {
-    const auto now = std::chrono::steady_clock::now();
-    std::vector<TcpSocket> to_close;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      for (auto it = waiting_.begin(); it != waiting_.end();) {
-        const bool expired = config_.room_ttl.count() > 0 && now - it->second.registered_at > config_.room_ttl;
-        const int fd = it->second.socket.fd();
-        const bool dead = socket_is_dead(it->second.socket);
-        if (expired || dead) {
-          if (fd >= 0) to_close.push_back(std::move(it->second.socket));
-          it = waiting_.erase(it);
-        } else {
-          ++it;
-        }
-      }
-    }
-    for (auto& sock : to_close) {
-      try {
-        send_message(sock, Message{"error", {{"code", "room_expired"}}});
-      } catch (...) {
-      }
-      sock.close();
-    }
-  }
+  void purge_stale_waiting() { rooms_.purge_stale_waiting(); }
 
  private:
   void start_cleanup() {
@@ -207,10 +125,9 @@ class RelayStateImpl {
     if (cleanup_thread_.joinable()) cleanup_thread_.join();
   }
 
-  void purge_expired_waiting() { purge_stale_waiting(); }
 };
 
-void send_peer_messages(WaitingPeer& a, WaitingPeer& b) {
+void send_peer_messages(RelayWaitingPeer& a, RelayWaitingPeer& b) {
   const auto punch_token = std::to_string(now_ms() + 250);
   send_message(a.socket,
                Message{"peer",
@@ -407,7 +324,7 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
 
     bool aux = hello.get("aux") == "1" || conn_index > 0;
     auto peer_addr = socket.peer_endpoint();
-    WaitingPeer self;
+    RelayWaitingPeer self;
     self.role = role;
     self.socket = std::move(socket);
     const auto punch_host = hello.get("punch_public_host");
@@ -425,44 +342,32 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
     self.registered_at = std::chrono::steady_clock::now();
 
     auto match_key = room + "#" + std::to_string(conn_index);
-    active_room = room_base(match_key);
-
-    if (!aux && state->is_room_active(active_room)) {
-      reject_client(self.socket, "room_full");
-      return;
-    }
+    active_room = relay_room_base(match_key);
 
     state->purge_stale_waiting();
 
-    std::optional<WaitingPeer> other;
-    {
-      std::lock_guard<std::mutex> lock(state->mutex_);
-      auto it = state->waiting_.find(match_key);
-      if (it == state->waiting_.end()) {
-        state->waiting_.emplace(match_key, std::move(self));
-        return;
-      }
-      if (it->second.role == self.role) {
-        reject_client(self.socket, "room_full");
-        return;
-      }
-      other = std::move(it->second);
-      state->waiting_.erase(it);
+    auto pairing = state->pair_or_wait(match_key, active_room, std::move(self), aux);
+    if (pairing.kind == RelayRoomPairing::Kind::Waiting) return;
+    if (pairing.kind == RelayRoomPairing::Kind::RoomFull) {
+      reject_client(pairing.self->socket, "room_full");
+      return;
     }
+
+    auto other = std::move(pairing.peer);
+    self = std::move(*pairing.self);
 
     if (aux) {
       relay_stream_sync(std::move(other->socket), std::move(self.socket));
       return;
     }
 
-    state->mark_room_active(active_room);
     struct ActiveRoomCleanup {
       std::shared_ptr<RelayStateImpl> state;
       std::string room;
       ~ActiveRoomCleanup() {
-        if (!room.empty()) state->unmark_room_active(room);
+        if (!room.empty()) state->release_active_room(room);
       }
-    } cleanup{state, active_room};
+    } cleanup{state, pairing.claimed_active_room ? active_room : std::string{}};
 
     send_peer_messages(*other, self);
 
