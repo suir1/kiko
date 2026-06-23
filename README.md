@@ -6,6 +6,7 @@
 
 Download prebuilt binaries from [Releases](https://github.com/suir1/kiko/releases), or install the latest release.
 Current packages cover Linux x64, Linux ARM64, macOS ARM64, macOS x64, and Windows x64.
+Android / Termux prebuilt packages are not published yet; the shell installer detects Termux and prints source-build steps instead of installing an incompatible Linux binary.
 
 macOS / Linux:
 
@@ -22,6 +23,22 @@ irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
 The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
 `KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.6-alpha` to install a specific release.
 Use `KIKO_INSTALL_DRY_RUN=1` to print the release asset URL without downloading it.
+
+Termux source build:
+
+```sh
+pkg update
+pkg install -y git clang cmake ninja pkg-config libsodium zstd
+git clone https://github.com/suir1/kiko.git
+cd kiko
+cmake --preset system-deps
+cmake --build build --target kiko
+mkdir -p "$PREFIX/bin"
+cp build/kiko "$PREFIX/bin/kiko"
+chmod +x "$PREFIX/bin/kiko"
+```
+
+For a custom or future Android release asset, set `KIKO_ASSET=android-arm64` when running `scripts/install.sh`.
 
 macOS binaries are not signed yet. If Gatekeeper blocks the downloaded binary, open **System Settings** →
 **Privacy & Security** and allow `kiko`, or remove the quarantine flag:

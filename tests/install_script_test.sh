@@ -37,6 +37,35 @@ run_dry Linux aarch64 "$tmp_dir/linux-arm64.out"
 assert_contains "$tmp_dir/linux-arm64.out" "asset=linux-arm64"
 assert_contains "$tmp_dir/linux-arm64.out" "archive=kiko-v9.9.9-test-linux-arm64.tar.gz"
 
+env \
+  KIKO_VERSION=v9.9.9-test \
+  KIKO_INSTALL_DRY_RUN=1 \
+  KIKO_TEST_UNAME_S=Linux \
+  KIKO_TEST_UNAME_M=aarch64 \
+  TERMUX_VERSION=0.119 \
+  PREFIX="$tmp_dir/termux-prefix" \
+  "$installer" >"$tmp_dir/termux-arm64.out"
+assert_contains "$tmp_dir/termux-arm64.out" "asset=android-arm64"
+assert_contains "$tmp_dir/termux-arm64.out" "archive=kiko-v9.9.9-test-android-arm64.tar.gz"
+assert_contains "$tmp_dir/termux-arm64.out" "install_dir=$tmp_dir/termux-prefix/bin"
+assert_contains "$tmp_dir/termux-arm64.out" "android=1"
+assert_contains "$tmp_dir/termux-arm64.out" "termux=1"
+
+if env \
+  KIKO_VERSION=v9.9.9-test \
+  KIKO_INSTALL_DRY_RUN=1 \
+  KIKO_TEST_UNAME_S=Linux \
+  KIKO_TEST_UNAME_M=aarch64 \
+  KIKO_ASSET=linux-arm64 \
+  TERMUX_VERSION=0.119 \
+  PREFIX="$tmp_dir/termux-prefix" \
+  "$installer" >"$tmp_dir/termux-linux.out" 2>"$tmp_dir/termux-linux.err"; then
+  echo "expected linux-arm64 override on Termux to fail" >&2
+  exit 1
+fi
+assert_contains "$tmp_dir/termux-linux.err" "refusing to install linux-arm64 on Android/Termux"
+assert_contains "$tmp_dir/termux-linux.err" "Termux source build:"
+
 run_dry Darwin arm64 "$tmp_dir/macos-arm64.out"
 assert_contains "$tmp_dir/macos-arm64.out" "asset=macos-arm64"
 assert_contains "$tmp_dir/macos-arm64.out" "archive=kiko-v9.9.9-test-macos-arm64.tar.gz"
