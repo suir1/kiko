@@ -34,6 +34,7 @@ set(KIKO_CORE_SOURCES
   src/imohash.cpp
   src/io.cpp
   src/lan_upgrade.cpp
+  src/mux_send_scheduler.cpp
   src/mux_transfer.cpp
   src/network_probe.cpp
   src/outbound_policy.cpp
