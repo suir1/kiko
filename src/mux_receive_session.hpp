@@ -23,6 +23,7 @@ class MuxReceiveSession {
  private:
   void reader(std::size_t channel_index);
   void record_failure(const std::exception& error);
+  void close_channels();
 
   std::vector<TcpSocket>& channels_;
   std::vector<StreamCipher>& ciphers_;
@@ -38,6 +39,7 @@ class MuxReceiveSession {
   std::mutex timing_mutex_;
   std::atomic<std::uint64_t> written_;
   std::atomic<bool> failed_{false};
+  std::atomic<bool> closing_{false};
   std::string error_text_;
 };
 

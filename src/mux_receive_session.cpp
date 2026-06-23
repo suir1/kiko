@@ -104,8 +104,17 @@ void MuxReceiveSession::reader(std::size_t channel_index) {
 
 void MuxReceiveSession::record_failure(const std::exception& error) {
   failed_.store(true);
-  std::lock_guard<std::mutex> report_lock(report_mutex_);
-  if (error_text_.empty()) error_text_ = error.what();
+  {
+    std::lock_guard<std::mutex> report_lock(report_mutex_);
+    if (error_text_.empty()) error_text_ = error.what();
+  }
+  close_channels();
+}
+
+void MuxReceiveSession::close_channels() {
+  bool expected = false;
+  if (!closing_.compare_exchange_strong(expected, true)) return;
+  for (auto& channel : channels_) channel.close();
 }
 
 }  // namespace kiko::detail

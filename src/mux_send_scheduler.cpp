@@ -132,9 +132,23 @@ void MuxSendScheduler::record_send_timing(std::int64_t elapsed_ms) {
 }
 
 void MuxSendScheduler::set_error(std::exception_ptr error) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!error_) error_ = error;
+  bool should_close = false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!error_) {
+      error_ = error;
+      if (!closing_) {
+        closing_ = true;
+        should_close = true;
+      }
+    }
+  }
+  if (should_close) close_channels();
   cv_.notify_all();
+}
+
+void MuxSendScheduler::close_channels() {
+  for (auto& channel : channels_) channel.close();
 }
 
 void MuxSendScheduler::worker(std::size_t channel_index) {
