@@ -3,6 +3,7 @@
 #include "relay_race.hpp"
 #include "transfer.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <future>
@@ -63,8 +64,14 @@ int main() {
     assert(plan.direct_timeout.count() == 3500);
     assert(plan.direct_connect.count() == 450);
     assert(plan.reason == "ipv6_global_direct");
-    assert(plan.direct_candidate_order.size() >= 3);
-    assert(plan.direct_candidate_order[2] == "ipv6_global");
+    const auto lan = std::find(plan.direct_candidate_order.begin(), plan.direct_candidate_order.end(), "lan");
+    const auto ipv6 = std::find(plan.direct_candidate_order.begin(), plan.direct_candidate_order.end(), "ipv6_global");
+    const auto public_v4 = std::find(plan.direct_candidate_order.begin(), plan.direct_candidate_order.end(), "public");
+    assert(lan != plan.direct_candidate_order.end());
+    assert(ipv6 != plan.direct_candidate_order.end());
+    assert(public_v4 != plan.direct_candidate_order.end());
+    assert(lan < ipv6);
+    assert(ipv6 < public_v4);
   }
 
   {

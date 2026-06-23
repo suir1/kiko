@@ -25,11 +25,11 @@ void push_unique_kind(std::vector<std::string>& kinds, const std::string& kind) 
 
 void prefer_global_ipv6(RoutePlan& plan) {
   std::vector<std::string> order;
+  push_unique_kind(order, "manual");
   push_unique_kind(order, "discovered");
   push_unique_kind(order, "lan");
-  push_unique_kind(order, "ipv6_global");
   push_unique_kind(order, "listen");
-  push_unique_kind(order, "manual");
+  push_unique_kind(order, "ipv6_global");
   push_unique_kind(order, "public");
   for (const auto& kind : plan.direct_candidate_order) push_unique_kind(order, kind);
   plan.direct_candidate_order = std::move(order);

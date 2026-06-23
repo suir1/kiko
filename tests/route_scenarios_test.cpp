@@ -4,6 +4,7 @@
 #include "progress.hpp"
 #include "route_planner.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <filesystem>
@@ -141,8 +142,12 @@ int main() {
     assert_ms(plan.direct_timeout, 3500, "global IPv6 direct window");
     assert_ms(plan.direct_connect, 450, "global IPv6 connect timeout");
     assert_reason(plan, "ipv6_global_direct");
-    if (plan.direct_candidate_order.size() < 3 || plan.direct_candidate_order[2] != "ipv6_global") {
-      std::cerr << "FAIL: global IPv6 route did not prioritize ipv6_global candidates\n";
+    const auto lan = std::find(plan.direct_candidate_order.begin(), plan.direct_candidate_order.end(), "lan");
+    const auto ipv6 = std::find(plan.direct_candidate_order.begin(), plan.direct_candidate_order.end(), "ipv6_global");
+    const auto public_v4 = std::find(plan.direct_candidate_order.begin(), plan.direct_candidate_order.end(), "public");
+    if (lan == plan.direct_candidate_order.end() || ipv6 == plan.direct_candidate_order.end() ||
+        public_v4 == plan.direct_candidate_order.end() || !(lan < ipv6 && ipv6 < public_v4)) {
+      std::cerr << "FAIL: global IPv6 route did not keep LAN before IPv6 before public IPv4\n";
       return 1;
     }
   }
