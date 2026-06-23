@@ -6,7 +6,7 @@
 #include "profile.hpp"
 #include "protocol.hpp"
 #include "relay/relay_race.hpp"
-#include "route_planner.hpp"
+#include "connect/route_planner.hpp"
 #include "socket.hpp"
 
 #include <nlohmann/json.hpp>

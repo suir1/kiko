@@ -1,8 +1,8 @@
 #include "platform.hpp"
-#include "direct_session.hpp"
+#include "connect/direct_session.hpp"
 #include "profile.hpp"
 #include "progress.hpp"
-#include "route_planner.hpp"
+#include "connect/route_planner.hpp"
 
 #include <algorithm>
 #include <cassert>

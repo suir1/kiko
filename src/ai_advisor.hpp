@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ai_client.hpp"
-#include "connectivity.hpp"
+#include "connect/connectivity.hpp"
 
 #include <nlohmann/json.hpp>
 

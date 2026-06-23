@@ -1,6 +1,6 @@
 #pragma once
 
-#include "connectivity.hpp"
+#include "connect/connectivity.hpp"
 #include "outbound_policy.hpp"
 
 #include <cstdint>

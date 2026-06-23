@@ -1,5 +1,5 @@
 #include "adaptive.hpp"
-#include "connectivity.hpp"
+#include "connect/connectivity.hpp"
 #include "socket.hpp"
 
 #include <iostream>

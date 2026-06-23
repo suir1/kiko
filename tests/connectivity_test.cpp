@@ -1,5 +1,5 @@
-#include "connectivity.hpp"
-#include "direct_session.hpp"
+#include "connect/connectivity.hpp"
+#include "connect/direct_session.hpp"
 #include "relay/relay_race.hpp"
 #include "transfer/transfer.hpp"
 

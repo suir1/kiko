@@ -1,7 +1,7 @@
 #include "platform.hpp"
 #include "protocol.hpp"
 #include "progress.hpp"
-#include "route_session.hpp"
+#include "connect/route_session.hpp"
 
 #include <cassert>
 #include <atomic>

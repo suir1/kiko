@@ -23,10 +23,10 @@ set(KIKO_CORE_SOURCES
   src/cancellation.cpp
   src/common.cpp
   src/compression.cpp
-  src/connectivity.cpp
-  src/connectivity_session.cpp
+  src/connect/connectivity.cpp
+  src/connect/connectivity_session.cpp
   src/crypto.cpp
-  src/direct_session.cpp
+  src/connect/direct_session.cpp
   src/discovery.cpp
   src/doctor.cpp
   src/transfer/file_manifest.cpp
@@ -55,9 +55,9 @@ set(KIKO_CORE_SOURCES
   src/relay/relay_session.cpp
   src/relay/relay_server.cpp
   src/transfer/receive_plan.cpp
-  src/rendezvous_session.cpp
-  src/route_planner.cpp
-  src/route_session.cpp
+  src/connect/rendezvous_session.cpp
+  src/connect/route_planner.cpp
+  src/connect/route_session.cpp
   src/socket.cpp
   src/transfer/transfer.cpp
   src/transfer/transfer_heuristics.cpp
@@ -66,7 +66,7 @@ set(KIKO_CORE_SOURCES
   src/transfer/transfer_resume.cpp
   src/transfer/transfer_retry.cpp
   src/transfer/transfer_stream.cpp
-  src/udp_punch.cpp
+  src/connect/udp_punch.cpp
 )
 
 add_library(kiko_core STATIC ${KIKO_CORE_SOURCES})
