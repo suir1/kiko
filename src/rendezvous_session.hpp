@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common.hpp"
-#include "relay_race.hpp"
+#include "relay/relay_race.hpp"
 
 #include <atomic>
 #include <optional>

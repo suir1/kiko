@@ -1,7 +1,7 @@
 #include "transfer/file_metadata.hpp"
 #include "platform.hpp"
 #include "protocol.hpp"
-#include "relay_server.hpp"
+#include "relay/relay_server.hpp"
 #include "transfer/transfer.hpp"
 
 #include <chrono>

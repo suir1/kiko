@@ -3,9 +3,9 @@
 #include "doctor.hpp"
 #include "progress.hpp"
 #include "proxy.hpp"
-#include "relay.hpp"
+#include "relay/relay.hpp"
 
-#include "relay_server.hpp"
+#include "relay/relay_server.hpp"
 #include "transfer/transfer.hpp"
 #include "tui/tui.hpp"
 #include "user_config.hpp"

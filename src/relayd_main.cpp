@@ -1,5 +1,5 @@
 #include "common.hpp"
-#include "relay_server.hpp"
+#include "relay/relay_server.hpp"
 
 #include <chrono>
 #include <exception>

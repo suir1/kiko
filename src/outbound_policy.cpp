@@ -1,7 +1,7 @@
 #include "outbound_policy.hpp"
 
 #include "network_probe.hpp"
-#include "relay_race.hpp"
+#include "relay/relay_race.hpp"
 
 #include <chrono>
 

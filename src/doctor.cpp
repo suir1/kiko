@@ -5,7 +5,7 @@
 #include "discovery.hpp"
 #include "profile.hpp"
 #include "protocol.hpp"
-#include "relay_race.hpp"
+#include "relay/relay_race.hpp"
 #include "route_planner.hpp"
 #include "socket.hpp"
 

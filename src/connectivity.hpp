@@ -5,7 +5,7 @@
 #include "network_probe.hpp"
 #include "protocol.hpp"
 #include "proxy.hpp"
-#include "relay_race.hpp"
+#include "relay/relay_race.hpp"
 #include "socket.hpp"
 #include <atomic>
 #include <cstdint>

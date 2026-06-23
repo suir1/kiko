@@ -48,12 +48,12 @@ set(KIKO_CORE_SOURCES
   src/protocol.cpp
   src/proxy.cpp
   src/qrcode_print.cpp
-  src/relay.cpp
-  src/relay_race.cpp
-  src/relay_room_state.cpp
-  src/relay_route_state.cpp
-  src/relay_session.cpp
-  src/relay_server.cpp
+  src/relay/relay.cpp
+  src/relay/relay_race.cpp
+  src/relay/relay_room_state.cpp
+  src/relay/relay_route_state.cpp
+  src/relay/relay_session.cpp
+  src/relay/relay_server.cpp
   src/transfer/receive_plan.cpp
   src/rendezvous_session.cpp
   src/route_planner.cpp
@@ -184,9 +184,9 @@ set(KIKO_RELAYD_SOURCES
   src/io.cpp
   src/protocol.cpp
   src/proxy.cpp
-  src/relay_room_state.cpp
-  src/relay_route_state.cpp
-  src/relay_server.cpp
+  src/relay/relay_room_state.cpp
+  src/relay/relay_route_state.cpp
+  src/relay/relay_server.cpp
   src/socket.cpp
 )
 

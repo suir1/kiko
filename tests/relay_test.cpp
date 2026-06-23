@@ -1,7 +1,7 @@
 #include "connectivity.hpp"
 #include "protocol.hpp"
-#include "relay_race.hpp"
-#include "relay_server.hpp"
+#include "relay/relay_race.hpp"
+#include "relay/relay_server.hpp"
 #include "socket.hpp"
 
 #include <chrono>

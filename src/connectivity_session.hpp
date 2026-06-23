@@ -4,7 +4,7 @@
 #include "connectivity.hpp"
 #include "progress.hpp"
 #include "protocol.hpp"
-#include "relay_race.hpp"
+#include "relay/relay_race.hpp"
 #include "route_session.hpp"
 #include "socket.hpp"
 
