@@ -46,6 +46,11 @@ struct MuxSendItem {
   std::uint64_t raw_size = 0;
 };
 
+struct MuxChannelState {
+  std::uint64_t pending_bytes = 0;
+  double send_ewma_ms = 0.0;
+};
+
 class MuxSendScheduler {
  public:
   MuxSendScheduler(std::vector<TcpSocket>& channels, std::vector<StreamCipher>& ciphers, ProgressReporter& reporter,
@@ -55,7 +60,7 @@ class MuxSendScheduler {
         reporter_(reporter),
         timing_(timing),
         queues_(channels.size()),
-        pending_(channels.size(), 0) {
+        channel_state_(channels.size()) {
     timing_.mux_channels = channels_.size();
     workers_.reserve(channels_.size());
     for (std::size_t k = 0; k < channels_.size(); ++k) workers_.emplace_back([this, k] { worker(k); });
@@ -87,7 +92,7 @@ class MuxSendScheduler {
     }
     if (error_) std::rethrow_exception(error_);
 
-    pending_[*channel_index] += payload_size;
+    channel_state_[*channel_index].pending_bytes += payload_size;
     queues_[*channel_index].push_back(MuxSendItem{std::move(payload), raw_size});
     record_pending_peak_locked();
     cv_.notify_all();
@@ -109,37 +114,60 @@ class MuxSendScheduler {
  private:
   static constexpr std::uint64_t kMuxPendingChunksPerChannel = 4;
   static constexpr std::uint64_t kMaxPendingPerChannel = kMuxPendingChunksPerChannel * kMuxChunk;
+  static constexpr double kLatencyPenaltyBytesPerMs = 16.0 * 1024.0;
+  static constexpr double kSendEwmaAlpha = 0.2;
 
   std::uint64_t per_channel_pending_limit(std::uint64_t payload_size) const {
     return std::max<std::uint64_t>(kMaxPendingPerChannel, payload_size);
   }
 
   std::uint64_t global_pending_limit(std::uint64_t payload_size) const {
-    return std::max<std::uint64_t>(static_cast<std::uint64_t>(pending_.size()) * kMaxPendingPerChannel, payload_size);
+    return std::max<std::uint64_t>(static_cast<std::uint64_t>(channel_state_.size()) * kMaxPendingPerChannel,
+                                   payload_size);
   }
 
   std::uint64_t total_pending_locked() const {
     std::uint64_t total = 0;
-    for (const auto pending : pending_) total += pending;
+    for (const auto& state : channel_state_) total += state.pending_bytes;
     return total;
   }
 
+  double channel_cost_locked(const MuxChannelState& state) const {
+    return static_cast<double>(state.pending_bytes) + state.send_ewma_ms * kLatencyPenaltyBytesPerMs;
+  }
+
   std::optional<std::size_t> choose_ready_channel_locked(std::uint64_t payload_size) {
-    if (pending_.empty()) return std::nullopt;
+    if (channel_state_.empty()) return std::nullopt;
     const auto global_limit = global_pending_limit(payload_size);
     const auto total_pending = total_pending_locked();
     if (total_pending > global_limit - payload_size) return std::nullopt;
 
     const auto channel_limit = per_channel_pending_limit(payload_size);
     std::optional<std::size_t> best;
-    for (std::size_t step = 0; step < pending_.size(); ++step) {
-      const auto k = (next_channel_ + step) % pending_.size();
-      if (pending_[k] > channel_limit - payload_size) continue;
-      if (!best || pending_[k] < pending_[*best]) best = k;
+    double best_cost = 0.0;
+    for (std::size_t step = 0; step < channel_state_.size(); ++step) {
+      const auto k = (next_channel_ + step) % channel_state_.size();
+      const auto& state = channel_state_[k];
+      if (state.pending_bytes > channel_limit - payload_size) continue;
+      const auto cost = channel_cost_locked(state);
+      if (!best || cost < best_cost) {
+        best = k;
+        best_cost = cost;
+      }
     }
     if (!best) return std::nullopt;
-    next_channel_ = (*best + 1) % pending_.size();
+    next_channel_ = (*best + 1) % channel_state_.size();
     return best;
+  }
+
+  void record_channel_latency_locked(std::size_t channel_index, std::int64_t elapsed_ms) {
+    auto& state = channel_state_[channel_index];
+    const auto sample = static_cast<double>(std::max<std::int64_t>(0, elapsed_ms));
+    if (state.send_ewma_ms <= 0.0) {
+      state.send_ewma_ms = sample;
+    } else {
+      state.send_ewma_ms = state.send_ewma_ms * (1.0 - kSendEwmaAlpha) + sample * kSendEwmaAlpha;
+    }
   }
 
   void record_pending_peak_locked() {
@@ -181,10 +209,12 @@ class MuxSendScheduler {
         queues_[channel_index].pop_front();
       }
 
+      std::int64_t elapsed_ms = 0;
       try {
         const auto send_start = TransferClock::now();
         send_tagged(channels_[channel_index], ciphers_[channel_index], StreamTag::Data, item.payload);
-        record_send_timing(transfer_elapsed_ms_since(send_start));
+        elapsed_ms = transfer_elapsed_ms_since(send_start);
+        record_send_timing(elapsed_ms);
         {
           std::lock_guard<std::mutex> lock(report_mutex_);
           reporter_.file_advance(item.raw_size);
@@ -196,7 +226,9 @@ class MuxSendScheduler {
 
       {
         std::lock_guard<std::mutex> lock(mutex_);
-        pending_[channel_index] -= std::min<std::uint64_t>(pending_[channel_index], item.payload.size());
+        auto& state = channel_state_[channel_index];
+        state.pending_bytes -= std::min<std::uint64_t>(state.pending_bytes, item.payload.size());
+        record_channel_latency_locked(channel_index, elapsed_ms);
       }
       cv_.notify_all();
     }
@@ -216,7 +248,7 @@ class MuxSendScheduler {
   ProgressReporter& reporter_;
   TransferTiming& timing_;
   std::vector<std::deque<MuxSendItem>> queues_;
-  std::vector<std::uint64_t> pending_;
+  std::vector<MuxChannelState> channel_state_;
   std::vector<std::thread> workers_;
   std::mutex mutex_;
   std::mutex report_mutex_;
