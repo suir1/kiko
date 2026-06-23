@@ -38,6 +38,15 @@ cp build/kiko "$PREFIX/bin/kiko"
 chmod +x "$PREFIX/bin/kiko"
 ```
 
+Or let the shell installer do the clone/build/install step:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh | KIKO_BUILD_FROM_SOURCE=1 sh
+```
+
+On Termux, `KIKO_BUILD_FROM_SOURCE=1` runs `pkg update` and installs build dependencies with `pkg install -y` by default. Set
+`KIKO_INSTALL_DEPS=0` to skip that step, or `KIKO_SOURCE_REF=main` to build a branch/ref instead of the latest release tag.
+
 For a custom or future Android release asset, set `KIKO_ASSET=android-arm64` when running `scripts/install.sh`.
 
 macOS binaries are not signed yet. If Gatekeeper blocks the downloaded binary, open **System Settings** →

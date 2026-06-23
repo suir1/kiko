@@ -66,6 +66,34 @@ fi
 assert_contains "$tmp_dir/termux-linux.err" "refusing to install linux-arm64 on Android/Termux"
 assert_contains "$tmp_dir/termux-linux.err" "Termux source build:"
 
+env \
+  KIKO_VERSION=v9.9.9-test \
+  KIKO_BUILD_FROM_SOURCE=1 \
+  KIKO_INSTALL_DRY_RUN=1 \
+  KIKO_TEST_UNAME_S=Linux \
+  KIKO_TEST_UNAME_M=aarch64 \
+  TERMUX_VERSION=0.119 \
+  PREFIX="$tmp_dir/termux-prefix" \
+  "$installer" >"$tmp_dir/termux-source.out"
+assert_contains "$tmp_dir/termux-source.out" "mode=source"
+assert_contains "$tmp_dir/termux-source.out" "source_ref=v9.9.9-test"
+assert_contains "$tmp_dir/termux-source.out" "install_dir=$tmp_dir/termux-prefix/bin"
+assert_contains "$tmp_dir/termux-source.out" "install_deps=1"
+
+env \
+  KIKO_BUILD_FROM_SOURCE=1 \
+  KIKO_SOURCE_REF=main \
+  KIKO_INSTALL_DEPS=0 \
+  KIKO_INSTALL_DRY_RUN=1 \
+  KIKO_TEST_UNAME_S=Linux \
+  KIKO_TEST_UNAME_M=aarch64 \
+  TERMUX_VERSION=0.119 \
+  PREFIX="$tmp_dir/termux-prefix" \
+  "$installer" >"$tmp_dir/termux-source-ref.out"
+assert_contains "$tmp_dir/termux-source-ref.out" "version=main"
+assert_contains "$tmp_dir/termux-source-ref.out" "source_ref=main"
+assert_contains "$tmp_dir/termux-source-ref.out" "install_deps=0"
+
 run_dry Darwin arm64 "$tmp_dir/macos-arm64.out"
 assert_contains "$tmp_dir/macos-arm64.out" "asset=macos-arm64"
 assert_contains "$tmp_dir/macos-arm64.out" "archive=kiko-v9.9.9-test-macos-arm64.tar.gz"
