@@ -117,6 +117,7 @@ struct DropOnceReporter : ProgressReporter {
   bool dropped = false;
   bool finished = false;
   int retries = 0;
+  std::vector<std::string> resumes;
   std::uint64_t advanced_since_retry = 0;
 
   void file_advance(std::uint64_t delta) override {
@@ -125,6 +126,10 @@ struct DropOnceReporter : ProgressReporter {
       dropped = true;
       throw KikoError("simulated connection interrupted");
     }
+  }
+
+  void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override {
+    resumes.push_back(path + ":" + std::to_string(offset) + "/" + std::to_string(size));
   }
 
   void transfer_retry(int, int, const std::string&) override {
@@ -693,6 +698,87 @@ int main() {
     }
     if (read_file(reconnect_dst / "payload/big.bin") != read_file(reconnect_src / "big.bin")) {
       std::cerr << "FAIL: auto reconnect output mismatch\n";
+      return 1;
+    }
+  }
+
+  {
+    auto reconnect_src = root / "mux-auto-src" / "payload";
+    auto reconnect_dst = root / "mux-auto-out";
+    write_file(reconnect_src / "big.bin", random_blob(768 * 1024));
+
+    BackgroundRelay relay;
+    relay.start(Endpoint{"127.0.0.1", 0});
+
+    SendConfig send_config;
+    send_config.file = reconnect_src;
+    send_config.relay = relay.local_endpoint();
+    send_config.code = "muxretry123";
+    send_config.no_direct = true;
+    send_config.lan_discover = false;
+    send_config.disable_local = true;
+    send_config.show_qrcode = false;
+    send_config.connections = 4;
+    send_config.reconnect_attempts = 3;
+    send_config.reconnect_delay = std::chrono::milliseconds(100);
+
+    RecvConfig recv_config;
+    recv_config.code = send_config.code;
+    recv_config.relay = relay.local_endpoint();
+    recv_config.output_dir = reconnect_dst;
+    recv_config.no_direct = true;
+    recv_config.lan_discover = false;
+    recv_config.disable_local = true;
+    recv_config.reconnect_attempts = 3;
+    recv_config.reconnect_delay = std::chrono::milliseconds(100);
+
+    ProgressReporter sender_reporter;
+    DropOnceReporter receiver_reporter;
+    std::exception_ptr sender_error;
+    std::exception_ptr receiver_error;
+
+    std::thread sender([&] {
+      try {
+        run_send(send_config, sender_reporter);
+      } catch (...) {
+        sender_error = std::current_exception();
+      }
+    });
+    std::thread receiver([&] {
+      try {
+        run_recv(recv_config, receiver_reporter);
+      } catch (...) {
+        receiver_error = std::current_exception();
+      }
+    });
+
+    sender.join();
+    receiver.join();
+    relay.stop();
+
+    if (sender_error || receiver_error) {
+      try {
+        if (sender_error) std::rethrow_exception(sender_error);
+        if (receiver_error) std::rethrow_exception(receiver_error);
+      } catch (const std::exception& e) {
+        std::cerr << "FAIL: mux auto reconnect transfer raised: " << e.what() << "\n";
+      }
+      return 1;
+    }
+    if (!receiver_reporter.dropped || receiver_reporter.retries < 1 || !receiver_reporter.finished) {
+      std::cerr << "FAIL: mux auto reconnect did not retry and finish\n";
+      return 1;
+    }
+    if (receiver_reporter.resumes.empty()) {
+      std::cerr << "FAIL: mux auto reconnect did not resume partial data\n";
+      return 1;
+    }
+    if (read_file(reconnect_dst / "payload/big.bin") != read_file(reconnect_src / "big.bin")) {
+      std::cerr << "FAIL: mux auto reconnect output mismatch\n";
+      return 1;
+    }
+    if (fs::exists(reconnect_dst / "payload/big.bin.kikopart")) {
+      std::cerr << "FAIL: mux auto reconnect left partial file behind\n";
       return 1;
     }
   }
