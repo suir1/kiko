@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common.hpp"
-#include "crypto.hpp"
+#include "security/crypto.hpp"
 #include "file_metadata.hpp"
 #include "protocol.hpp"
 #include "receive_plan.hpp"

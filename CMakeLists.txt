@@ -25,7 +25,7 @@ set(KIKO_CORE_SOURCES
   src/compression.cpp
   src/connect/connectivity.cpp
   src/connect/connectivity_session.cpp
-  src/crypto.cpp
+  src/security/crypto.cpp
   src/connect/direct_session.cpp
   src/discovery.cpp
   src/diagnostics/doctor.cpp
@@ -40,7 +40,7 @@ set(KIKO_CORE_SOURCES
   src/transfer/mux_transfer.cpp
   src/diagnostics/network_probe.cpp
   src/diagnostics/outbound_policy.cpp
-  src/pake.cpp
+  src/security/pake.cpp
   src/profile.cpp
   src/user_config.cpp
   src/tui/tui_advanced.cpp

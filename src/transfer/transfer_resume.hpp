@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common.hpp"
-#include "crypto.hpp"
+#include "security/crypto.hpp"
 #include "progress.hpp"
 #include "protocol.hpp"
 #include "net/socket.hpp"

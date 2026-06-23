@@ -1,7 +1,7 @@
 #include "relay_session.hpp"
 
 #include "cancellation.hpp"
-#include "pake.hpp"
+#include "security/pake.hpp"
 #include "protocol.hpp"
 #include "transfer/transfer.hpp"
 
