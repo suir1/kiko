@@ -32,8 +32,10 @@ ConnectOptions connect_options_for_entry(const RelayRaceEntry& entry, const Conn
 std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const Message& hello,
                                             const ConnectOptions& connect_options,
                                             const std::optional<std::string>& relay_pass,
-                                            std::chrono::milliseconds timeout) {
+                                            std::chrono::milliseconds timeout,
+                                            const std::atomic_bool* cancel) {
   if (connect_options.proxy || timeout.count() <= 0) return std::nullopt;
+  if (cancel && cancel->load()) return std::nullopt;
 
   const auto listen_port = hello.get_u64("listen_port", 0);
   if (listen_port == 0 || listen_port > 65535) return std::nullopt;
@@ -41,7 +43,7 @@ std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const Message
   ConnectOptions probe_options = connect_options;
   probe_options.local_bind = Endpoint{"", static_cast<std::uint16_t>(listen_port)};
 
-  auto socket = connect_tcp(relay, timeout, probe_options);
+  auto socket = connect_tcp(relay, timeout, probe_options, cancel);
   if (!socket.valid()) return std::nullopt;
 
   Message probe{"punch_probe", {{"room", hello.get("room")}, {"role", hello.get("role")}}};
@@ -49,7 +51,7 @@ std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const Message
 
   try {
     send_message(socket, probe);
-    const auto observed = recv_message_timeout(socket, std::min(timeout, kControlFrameReadTimeout));
+    const auto observed = recv_message_timeout(socket, std::min(timeout, kControlFrameReadTimeout), cancel);
     if (!observed || observed->type != "punch_observed") return std::nullopt;
     const auto public_host = observed->get("public_host");
     const auto public_port = observed->get_u64("public_port", 0);
@@ -65,7 +67,9 @@ std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const Message
 std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const Message& hello,
                                                         const ConnectOptions& connect_options,
                                                         const std::optional<std::string>& relay_pass,
-                                                        std::chrono::milliseconds timeout) {
+                                                        std::chrono::milliseconds timeout,
+                                                        const std::atomic_bool* cancel) {
+  if (cancel && cancel->load()) return std::nullopt;
   Message registration = hello;
   if (relay_pass && !relay_pass->empty()) registration.fields["relay_pass"] = *relay_pass;
 
@@ -73,12 +77,12 @@ std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, c
   const auto deadline = std::chrono::steady_clock::now() + timeout;
 
   const auto probe_budget = std::min<std::chrono::milliseconds>(timeout, std::chrono::milliseconds(600));
-  if (auto punch_mapping = probe_punch_mapping(relay, hello, connect_options, relay_pass, probe_budget)) {
+  if (auto punch_mapping = probe_punch_mapping(relay, hello, connect_options, relay_pass, probe_budget, cancel)) {
     registration.fields["punch_public_host"] = punch_mapping->host;
     registration.fields["punch_public_port"] = std::to_string(punch_mapping->port);
   }
 
-  auto socket = connect_tcp(relay, timeout, connect_options);
+  auto socket = connect_tcp(relay, timeout, connect_options, cancel);
   if (!socket.valid()) return std::nullopt;
 
   auto remaining_until_deadline = [&]() {
@@ -92,7 +96,7 @@ std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, c
     return std::nullopt;
   }
   bool pong_ok = false;
-  while (std::chrono::steady_clock::now() < deadline) {
+  while ((!cancel || !cancel->load()) && std::chrono::steady_clock::now() < deadline) {
     const int fd = socket.fd();
     if (fd < 0) break;
     auto remaining = remaining_until_deadline();
@@ -100,7 +104,7 @@ std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, c
     if (net_poll(fd, true, false, static_cast<int>(std::min<std::int64_t>(remaining.count(), 50))) <= 0) continue;
     try {
       const auto read_timeout = std::min<std::chrono::milliseconds>(remaining, kControlFrameReadTimeout);
-      if (auto msg = recv_message_timeout(socket, read_timeout)) {
+      if (auto msg = recv_message_timeout(socket, read_timeout, cancel)) {
         if (msg->type == "pong") {
           pong_ok = true;
           break;
@@ -115,12 +119,12 @@ std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, c
       return std::nullopt;
     }
   }
-  if (!pong_ok) {
+  if (!pong_ok || (cancel && cancel->load())) {
     socket.close();
     return std::nullopt;
   }
 
-  if (remaining_until_deadline().count() <= 0) {
+  if (remaining_until_deadline().count() <= 0 || (cancel && cancel->load())) {
     socket.close();
     return std::nullopt;
   }
@@ -136,9 +140,10 @@ std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, c
 
 std::optional<RelayPeerResult> wait_for_peer_messages(std::vector<TcpSocket>& relays,
                                                       const std::vector<Endpoint>& relay_endpoints,
-                                                      std::chrono::milliseconds timeout) {
+                                                      std::chrono::milliseconds timeout,
+                                                      const std::atomic_bool* cancel) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while (std::chrono::steady_clock::now() < deadline) {
+  while ((!cancel || !cancel->load()) && std::chrono::steady_clock::now() < deadline) {
     const auto now = std::chrono::steady_clock::now();
     for (std::size_t i = 0; i < relays.size(); ++i) {
       if (!relays[i].valid()) continue;
@@ -151,7 +156,7 @@ std::optional<RelayPeerResult> wait_for_peer_messages(std::vector<TcpSocket>& re
       const auto read_timeout = std::min<std::chrono::milliseconds>(remaining, kControlFrameReadTimeout);
       std::optional<Message> msg;
       try {
-        msg = recv_message_timeout(relays[i], read_timeout);
+        msg = recv_message_timeout(relays[i], read_timeout, cancel);
       } catch (const KikoError&) {
         relays[i].close();
         continue;
@@ -178,8 +183,10 @@ std::optional<RelayPeerResult> wait_for_peer_messages(std::vector<TcpSocket>& re
 std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>& entries, const Message& hello,
                                                std::chrono::milliseconds deadline,
                                                const ConnectOptions& connect_options,
-                                               const std::optional<std::string>& relay_pass) {
+                                               const std::optional<std::string>& relay_pass,
+                                               const std::atomic_bool* cancel) {
   if (entries.empty()) return std::nullopt;
+  if (cancel && cancel->load()) return std::nullopt;
 
   struct ConnectOutcome {
     Endpoint endpoint;
@@ -191,11 +198,11 @@ std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>
   auto connect_timeout = std::min<std::chrono::milliseconds>(deadline, std::chrono::seconds(5));
   if (connect_timeout.count() <= 0) connect_timeout = std::chrono::milliseconds(1);
   for (const auto& entry : entries) {
-    futures.push_back(std::async(std::launch::async, [entry, hello, connect_options, relay_pass, connect_timeout]() {
+    futures.push_back(std::async(std::launch::async, [entry, hello, connect_options, relay_pass, connect_timeout, cancel]() {
       ConnectOutcome outcome{entry.endpoint, std::nullopt};
       outcome.socket =
           try_connect_relay_and_register(entry.endpoint, hello, connect_options_for_entry(entry, connect_options),
-                                         relay_pass, connect_timeout);
+                                         relay_pass, connect_timeout, cancel);
       return outcome;
     }));
   }
@@ -205,7 +212,7 @@ std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>
   std::vector<Endpoint> relay_endpoints;
   std::vector<bool> future_done(futures.size(), false);
 
-  while (std::chrono::steady_clock::now() < end) {
+  while ((!cancel || !cancel->load()) && std::chrono::steady_clock::now() < end) {
     for (std::size_t i = 0; i < futures.size(); ++i) {
       if (future_done[i]) continue;
       if (futures[i].wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) continue;
@@ -221,7 +228,7 @@ std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>
       auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(end - std::chrono::steady_clock::now());
       if (remaining.count() <= 0) break;
       const auto poll_budget = std::min<std::chrono::milliseconds>(remaining, kControlFrameReadTimeout);
-      if (auto peer = wait_for_peer_messages(relays, relay_endpoints, poll_budget)) return peer;
+      if (auto peer = wait_for_peer_messages(relays, relay_endpoints, poll_budget, cancel)) return peer;
     }
 
     if (std::all_of(future_done.begin(), future_done.end(), [](bool done) { return done; }) && relays.empty()) {
@@ -231,10 +238,11 @@ std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
 
+  if (cancel && cancel->load()) return std::nullopt;
   if (relays.empty()) return std::nullopt;
   auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(end - std::chrono::steady_clock::now());
   if (remaining.count() <= 0) remaining = std::chrono::milliseconds(1);
-  return wait_for_peer_messages(relays, relay_endpoints, remaining);
+  return wait_for_peer_messages(relays, relay_endpoints, remaining, cancel);
 }
 
 std::int64_t probe_relay_rtt_ms(const Endpoint& relay, const ConnectOptions& connect_options,

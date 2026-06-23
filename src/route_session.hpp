@@ -29,7 +29,8 @@ struct RouteSelection {
                                                    const AdaptivePuncher& puncher, const RoutePlan& route_plan,
                                                    ProgressReporter& reporter,
                                                    std::chrono::milliseconds confirmation_timeout,
-                                                   RouteTiming timing = {});
+                                                   RouteTiming timing = {},
+                                                   const std::atomic_bool* cancel = nullptr);
 
 using DirectAttemptFn = std::function<std::optional<TcpSocket>(const std::atomic_bool*)>;
 
@@ -37,6 +38,7 @@ using DirectAttemptFn = std::function<std::optional<TcpSocket>(const std::atomic
                                                  const AdaptivePuncher& puncher, const RoutePlan& route_plan,
                                                  ProgressReporter& reporter,
                                                  std::chrono::milliseconds confirmation_timeout,
-                                                 RouteTiming timing = {});
+                                                 RouteTiming timing = {},
+                                                 const std::atomic_bool* cancel = nullptr);
 
 }  // namespace kiko

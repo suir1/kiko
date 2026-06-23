@@ -13,7 +13,7 @@ namespace {
 
 bool transfer_finished(TuiState& state) {
   std::lock_guard<std::mutex> lock(state.mutex);
-  return state.finished && !state.failed;
+  return state.finished && !state.failed && !state.canceled;
 }
 
 bool transfer_failed(TuiState& state) {
@@ -23,7 +23,7 @@ bool transfer_failed(TuiState& state) {
 
 bool transfer_has_code(TuiState& state) {
   std::lock_guard<std::mutex> lock(state.mutex);
-  return (state.finished || state.failed) && !state.code.empty();
+  return (state.finished || state.failed || state.canceled) && !state.code.empty();
 }
 
 void copy_transfer_code(TuiState& state, std::string& copy_notice, const std::function<void()>& wake) {

@@ -124,7 +124,8 @@ std::string describe_direct_plan(const RoutePlan& route_plan, const PunchPlan& p
 std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& listener, const Message& peer,
                                                       int connections, const std::string& room,
                                                       const ConnectOptions& connect_options,
-                                                      std::chrono::milliseconds setup_timeout) {
+                                                      std::chrono::milliseconds setup_timeout,
+                                                      const std::atomic_bool* cancel) {
   if (connections <= 1) return {};
   const auto deadline = std::chrono::steady_clock::now() + setup_timeout;
   auto remaining = [&]() {
@@ -136,6 +137,7 @@ std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& li
     std::vector<bool> seen(static_cast<std::size_t>(connections), false);
     seen[0] = true;
     for (int accepted_count = 1; accepted_count < connections; ++accepted_count) {
+      if (cancel && cancel->load()) throw KikoError("transfer canceled");
       auto wait = remaining();
       if (wait.count() <= 0) throw KikoError("timed out accepting auxiliary direct connection");
       auto accepted = listener.accept(std::min(wait, std::chrono::milliseconds(500)));
@@ -143,7 +145,7 @@ std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& li
 
       wait = remaining();
       if (wait.count() <= 0) throw KikoError("timed out reading auxiliary direct hello");
-      auto hello = recv_message_timeout(accepted, std::min(wait, std::chrono::milliseconds(500)));
+      auto hello = recv_message_timeout(accepted, std::min(wait, std::chrono::milliseconds(500)), cancel);
       if (!hello || hello->type != "direct_aux" || hello->get("room") != room) {
         throw KikoError("invalid auxiliary direct connection");
       }
@@ -161,11 +163,12 @@ std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& li
   const auto candidates = peer_candidates(peer);
   if (candidates.empty()) throw KikoError("peer listen candidates missing for direct mux");
   for (int k = 1; k < connections; ++k) {
+    if (cancel && cancel->load()) throw KikoError("transfer canceled");
     TcpSocket connected;
     for (const auto& candidate : candidates) {
       auto wait = remaining();
       if (wait.count() <= 0) break;
-      connected = connect_tcp(candidate.endpoint, std::min(wait, std::chrono::milliseconds(700)), connect_options);
+      connected = connect_tcp(candidate.endpoint, std::min(wait, std::chrono::milliseconds(700)), connect_options, cancel);
       if (connected.valid()) break;
     }
     if (!connected.valid()) throw KikoError("failed to open auxiliary direct connection");
@@ -205,7 +208,8 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
 DirectMuxResult negotiate_direct_mux_channels(TcpSocket primary, Role role, TcpListener& listener, const Message& peer,
                                               int connections, const std::string& room,
                                               const ConnectOptions& connect_options,
-                                              std::chrono::milliseconds setup_timeout) {
+                                              std::chrono::milliseconds setup_timeout,
+                                              const std::atomic_bool* cancel) {
   DirectMuxResult result;
   if (connections <= 1) {
     result.channels.push_back(std::move(primary));
@@ -217,7 +221,8 @@ DirectMuxResult negotiate_direct_mux_channels(TcpSocket primary, Role role, TcpL
   bool local_ready = false;
   std::string local_error;
   try {
-    aux = gather_direct_mux_aux_channels(role, listener, peer, connections, room, connect_options, setup_timeout);
+    aux = gather_direct_mux_aux_channels(role, listener, peer, connections, room, connect_options, setup_timeout,
+                                         cancel);
     local_ready = aux.size() == static_cast<std::size_t>(connections - 1);
     if (!local_ready) local_error = "auxiliary direct connection count mismatch";
   } catch (const std::exception& e) {
@@ -233,7 +238,7 @@ DirectMuxResult negotiate_direct_mux_channels(TcpSocket primary, Role role, TcpL
   try {
     send_message(primary, status);
     const auto status_timeout = setup_timeout + std::chrono::seconds(2);
-    auto peer_status = recv_message_timeout(primary, status_timeout);
+    auto peer_status = recv_message_timeout(primary, status_timeout, cancel);
     if (peer_status && direct_mux_status_ok(*peer_status, room, connections)) {
       peer_ready = peer_status->get("ready") == "1";
       peer_error = peer_status->get("error");

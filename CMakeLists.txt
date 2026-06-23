@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(kiko VERSION 0.1.6 LANGUAGES CXX)
+project(kiko VERSION 0.1.7 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,6 +20,7 @@ set(KIKO_CORE_SOURCES
   src/adaptive.cpp
   src/ai_advisor.cpp
   src/ai_client.cpp
+  src/cancellation.cpp
   src/common.cpp
   src/compression.cpp
   src/connectivity.cpp
@@ -214,6 +215,7 @@ kiko_add_core_test(transfer tests/transfer_test.cpp)
 kiko_add_core_test(progress tests/progress_test.cpp)
 kiko_add_core_test(profile tests/profile_test.cpp)
 kiko_add_core_test(user_config tests/user_config_test.cpp)
+kiko_add_core_test(cancellation tests/cancellation_test.cpp)
 kiko_add_core_test(tui_advanced tests/tui_advanced_test.cpp)
 add_executable(kiko_tui_menu_state_test tests/tui_menu_state_test.cpp src/tui_menu_state.cpp src/tui_transfer_view.cpp)
 target_link_libraries(kiko_tui_menu_state_test PRIVATE kiko_core ftxui::component)

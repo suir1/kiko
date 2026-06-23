@@ -171,6 +171,7 @@ int TcpSocket::fd() const {
 
 asio::ip::tcp::socket& TcpSocket::asio_socket() { return *socket_; }
 const asio::ip::tcp::socket& TcpSocket::asio_socket() const { return *socket_; }
+std::weak_ptr<asio::ip::tcp::socket> TcpSocket::weak_handle() const { return socket_; }
 
 void TcpSocket::close() {
   if (!socket_) return;

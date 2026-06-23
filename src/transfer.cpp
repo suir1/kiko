@@ -1,6 +1,7 @@
 #include "transfer.hpp"
 
 #include "adaptive.hpp"
+#include "cancellation.hpp"
 #include "connectivity.hpp"
 #include "connectivity_session.hpp"
 #include "crypto.hpp"
@@ -125,21 +126,48 @@ std::size_t peer_global_ipv6_count(const Message& peer) {
 }
 
 template <typename Fn>
-int run_with_auto_reconnect(int max_attempts, std::chrono::milliseconds delay, ProgressReporter& reporter, Fn&& fn) {
+int run_with_auto_reconnect(int max_attempts, std::chrono::milliseconds delay, ProgressReporter& reporter,
+                            const std::shared_ptr<TransferCancellation>& cancellation, Fn&& fn) {
   for (int attempt = 1;; ++attempt) {
     try {
+      if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");
       return fn();
     } catch (const std::exception& error) {
+      if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");
       if (attempt >= max_attempts || !is_retryable_transfer_error(error)) throw;
       reporter.transfer_retry(attempt + 1, max_attempts, error.what());
-      if (delay.count() > 0) std::this_thread::sleep_for(delay);
+      auto remaining = delay;
+      while (remaining.count() > 0) {
+        if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");
+        const auto slice = std::min<std::chrono::milliseconds>(remaining, std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(slice);
+        remaining -= slice;
+      }
     }
   }
+}
+
+const std::atomic_bool* cancel_flag(const std::shared_ptr<TransferCancellation>& cancellation) {
+  return cancellation ? cancellation->flag() : nullptr;
+}
+
+void throw_if_cancelled(const std::shared_ptr<TransferCancellation>& cancellation) {
+  if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");
+}
+
+void track_socket(const std::shared_ptr<TransferCancellation>& cancellation, TcpSocket& socket) {
+  if (cancellation) cancellation->track(socket);
+}
+
+void track_sockets(const std::shared_ptr<TransferCancellation>& cancellation, std::vector<TcpSocket>& sockets) {
+  if (!cancellation) return;
+  for (auto& socket : sockets) cancellation->track(socket);
 }
 
 }  // namespace
 
 int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
+  throw_if_cancelled(config.cancellation);
   auto code = config.code.empty() ? random_code(3) : config.code;
   CollectOptions collect_opts;
   collect_opts.use_gitignore = config.use_gitignore;
@@ -252,15 +280,18 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   rendezvous.connect_options = connect_options;
   rendezvous.relay_pass = config.relay_pass;
   rendezvous.failure_message = "failed to connect relay or rendezvous peer";
+  rendezvous.cancel = cancel_flag(config.cancellation);
 
   reporter.route_phase(RoutePhase::Rendezvous, RoutePhaseDetail{"waiting for receiver via relay", {}, false});
   RouteTiming route_timing;
   const auto rendezvous_start = std::chrono::steady_clock::now();
   auto peer_result = wait_for_connectivity_peer(rendezvous);
+  throw_if_cancelled(config.cancellation);
   route_timing.rendezvous_ms = elapsed_ms_since(rendezvous_start);
   lan_cleanup.stop_now();
 
   auto relay = std::move(peer_result.socket);
+  track_socket(config.cancellation, relay);
   auto peer = std::move(peer_result.peer);
   const auto active_relay = peer_result.relay;
 
@@ -306,7 +337,7 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
           resolve_relay_channel(Role::Sender, std::move(relay_channel), listener, local_listen.port, local_addrs, config.no_direct);
     }
     send_files_over_relay(std::move(relay_channel), active_relay, code, connections, connect_options, config.relay_pass,
-                          files, reporter, timing);
+                          files, reporter, timing, config.cancellation.get());
     if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats, profile_relay_path);
     else save_profile_success(network_fingerprint(), "relay", profile_relay_path);
     return 0;
@@ -325,8 +356,10 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
       connect_options,
       kRelayRouteConfirmTimeout,
       route_timing,
+      cancel_flag(config.cancellation),
   };
   auto selected_route = select_connectivity_route(std::move(relay), connectivity_session, puncher, reporter);
+  throw_if_cancelled(config.cancellation);
   emit_punch_report(puncher, reporter);
   if (selected_route.path == RoutePath::Relay) {
     if (selected_route.explain_direct_failure) {
@@ -339,6 +372,7 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
 
   if (selected_route.direct) {
     auto direct_channel = std::move(*selected_route.direct);
+    track_socket(config.cancellation, direct_channel);
     reporter.route_phase(RoutePhase::Securing, RoutePhaseDetail{"securing direct channel", "direct", false});
     auto timing = selected_route.timing;
     const auto securing_start = std::chrono::steady_clock::now();
@@ -350,7 +384,8 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
     if (connections > 1) {
       auto mux =
           negotiate_direct_mux_channels(std::move(direct_channel), Role::Sender, listener, peer, connections, room_token(code),
-                                        connect_options, kDirectMuxSetupTimeout);
+                                        connect_options, kDirectMuxSetupTimeout, cancel_flag(config.cancellation));
+      track_sockets(config.cancellation, mux.channels);
       if (mux.mux_enabled) {
         reporter.status("opening " + std::to_string(connections) + " parallel direct connections");
         send_files_mux(mux.channels, key, files, reporter);
@@ -368,6 +403,7 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
 }
 
 int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
+  throw_if_cancelled(config.cancellation);
   auto listener = TcpListener::bind(config.listen);
   auto local_listen = listener.local_endpoint();
   reporter.status("listening for direct peer on " + local_listen.to_string());
@@ -433,13 +469,16 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   rendezvous.connect_options = connect_options;
   rendezvous.relay_pass = config.relay_pass;
   rendezvous.failure_message = "failed to connect any relay or rendezvous peer";
+  rendezvous.cancel = cancel_flag(config.cancellation);
 
   reporter.route_phase(RoutePhase::Rendezvous, RoutePhaseDetail{"waiting for sender via relay", {}, false});
   RouteTiming route_timing;
   const auto rendezvous_start = std::chrono::steady_clock::now();
   auto peer_result = wait_for_connectivity_peer(rendezvous);
+  throw_if_cancelled(config.cancellation);
   route_timing.rendezvous_ms = elapsed_ms_since(rendezvous_start);
   auto relay = std::move(peer_result.socket);
+  track_socket(config.cancellation, relay);
   auto peer = std::move(peer_result.peer);
   const auto active_relay = peer_result.relay;
 
@@ -501,7 +540,8 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
                                 config.no_direct);
     }
     receive_files_over_relay(std::move(relay_channel), active_relay, config.code, connections, connect_options,
-                             config.relay_pass, config.output_dir, reporter, timing, config.conflict_policy);
+                             config.relay_pass, config.output_dir, reporter, timing, config.conflict_policy,
+                             config.cancellation.get());
     if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats, profile_relay_path);
     else save_profile_success(network_fingerprint(), "relay", profile_relay_path);
     return 0;
@@ -520,8 +560,10 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
       connect_options,
       kRelayRouteConfirmTimeout,
       route_timing,
+      cancel_flag(config.cancellation),
   };
   auto selected_route = select_connectivity_route(std::move(relay), connectivity_session, puncher, reporter);
+  throw_if_cancelled(config.cancellation);
   emit_punch_report(puncher, reporter);
   if (selected_route.path == RoutePath::Relay) {
     if (selected_route.explain_direct_failure) {
@@ -534,6 +576,7 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
 
   if (selected_route.direct) {
     auto direct_channel = std::move(*selected_route.direct);
+    track_socket(config.cancellation, direct_channel);
     reporter.route_phase(RoutePhase::Securing, RoutePhaseDetail{"securing direct channel", "direct", false});
     auto timing = selected_route.timing;
     const auto securing_start = std::chrono::steady_clock::now();
@@ -544,7 +587,9 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
     save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);
     if (connections > 1) {
       auto mux = negotiate_direct_mux_channels(std::move(direct_channel), Role::Receiver, listener, peer, connections,
-                                               room_token(config.code), connect_options, kDirectMuxSetupTimeout);
+                                               room_token(config.code), connect_options, kDirectMuxSetupTimeout,
+                                               cancel_flag(config.cancellation));
+      track_sockets(config.cancellation, mux.channels);
       if (mux.mux_enabled) {
         reporter.status("opening " + std::to_string(connections) + " parallel direct connections");
         receive_files_mux(mux.channels, key, config.output_dir, reporter, config.conflict_policy);
@@ -566,12 +611,13 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
   if (attempt_config.code.empty()) attempt_config.code = random_code(3);
   return run_with_auto_reconnect(
       total_transfer_attempts(attempt_config.auto_reconnect, attempt_config.reconnect_attempts),
-      attempt_config.reconnect_delay, reporter, [&]() { return run_send_once(attempt_config, reporter); });
+      attempt_config.reconnect_delay, reporter, attempt_config.cancellation,
+      [&]() { return run_send_once(attempt_config, reporter); });
 }
 
 int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
   return run_with_auto_reconnect(total_transfer_attempts(config.auto_reconnect, config.reconnect_attempts),
-                                 config.reconnect_delay, reporter,
+                                 config.reconnect_delay, reporter, config.cancellation,
                                  [&]() { return run_recv_once(config, reporter); });
 }
 

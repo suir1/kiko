@@ -53,8 +53,9 @@ std::string format_duration(double seconds) {
 }
 
 std::string connectivity_stage(const TuiState& state) {
-  if (state.finished) return "complete";
   if (state.failed) return "failed";
+  if (state.canceled) return "canceled";
+  if (state.finished) return "complete";
   if (state.handshake && state.files_total > 0 && state.files_done < state.files_total) return "transferring";
   if (state.handshake) return "secure channel ready";
   if (!state.route_phase_label.empty()) return state.route_phase_label;
@@ -169,6 +170,7 @@ void reset_transfer_state(TuiState& state) {
   state.handshake = false;
   state.finished = false;
   state.failed = false;
+  state.canceled = false;
   state.error_message.clear();
   state.doctor_summary.clear();
   state.doctor_running = false;
@@ -426,8 +428,10 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& co
   }
 
   left.push_back(separator());
-  left.push_back(hbox({text("activity: "), text(state.activity) |
-                                              color(state.failed ? Color::Red : Color::GreenLight)}));
+  Color activity_color = Color::GreenLight;
+  if (state.failed) activity_color = Color::Red;
+  if (state.canceled) activity_color = Color::Yellow;
+  left.push_back(hbox({text("activity: "), text(state.activity) | color(activity_color)}));
   left.push_back(hbox({text("secure:   "),
                        text(state.handshake ? "yes (XChaCha20-Poly1305)" : "negotiating...")}));
   left.push_back(separator());
@@ -450,6 +454,10 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& co
     left.push_back(hbox({text("eta:       "), text("~" + format_duration(eta)) | dim}));
   }
 
+  if (state.canceled) {
+    left.push_back(separator());
+    left.push_back(text("canceled") | color(Color::Yellow));
+  }
   if (state.failed) {
     left.push_back(separator());
     left.push_back(text("error: " + state.error_message) | color(Color::Red));
@@ -476,9 +484,9 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& co
   if (state.finished || state.failed) {
     left.push_back(text("Tab to actions below") | dim);
   } else if (quit_confirm_pending) {
-    left.push_back(text("quit? press q or Ctrl+C again, Esc to cancel") | color(Color::Yellow));
+    left.push_back(text("cancel transfer? press q again, Esc to keep running") | color(Color::Yellow));
   } else {
-    left.push_back(text("q / Ctrl+C: quit (confirm while transferring)") | dim);
+    left.push_back(text("q: cancel transfer (confirm while transferring)") | dim);
   }
 
   Element body = vbox(std::move(left)) | flex;

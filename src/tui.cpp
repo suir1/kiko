@@ -1,5 +1,6 @@
 #include "tui.hpp"
 
+#include "cancellation.hpp"
 #include "platform.hpp"
 #include "progress.hpp"
 #include "tui_browser.hpp"
@@ -19,6 +20,7 @@
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -26,24 +28,34 @@
 namespace kiko {
 namespace {
 
-int run_transfer_screen(const std::string& title, const std::function<void(ProgressReporter&)>& run) {
+int run_transfer_screen(
+    const std::string& title,
+    const std::function<void(ProgressReporter&, const std::shared_ptr<TransferCancellation>&)>& run) {
   using namespace ftxui;
 
   TuiState state;
   state.title = title;
+  auto cancellation = std::make_shared<TransferCancellation>();
 
   auto screen = ScreenInteractive::Fullscreen();
   TuiReporter reporter(state, [&] { screen.PostEvent(Event::Custom); });
 
   std::thread worker([&] {
     try {
-      run(reporter);
+      run(reporter, cancellation);
     } catch (const std::exception& e) {
       std::lock_guard<std::mutex> lock(state.mutex);
-      state.failed = true;
       state.finished = true;
-      state.error_message = e.what();
-      state.activity = "error";
+      if (cancellation->requested()) {
+        state.canceled = true;
+        state.failed = false;
+        state.error_message.clear();
+        state.activity = "canceled";
+      } else {
+        state.failed = true;
+        state.error_message = e.what();
+        state.activity = "error";
+      }
     }
     screen.PostEvent(Event::Custom);
   });
@@ -55,7 +67,18 @@ int run_transfer_screen(const std::string& title, const std::function<void(Progr
 
   auto with_events = CatchEvent(renderer, [&](Event event) {
     if (event == Event::Character('q') || event == Event::Escape) {
-      screen.Exit();
+      bool done = false;
+      {
+        std::lock_guard<std::mutex> lock(state.mutex);
+        done = state.finished || state.failed;
+        if (!done) state.activity = "canceling...";
+      }
+      if (done) {
+        screen.Exit();
+      } else {
+        cancellation->request();
+        screen.PostEvent(Event::Custom);
+      }
       return true;
     }
     return false;
@@ -69,6 +92,7 @@ int run_transfer_screen(const std::string& title, const std::function<void(Progr
     std::cerr << "error: " << state.error_message << "\n";
     return 1;
   }
+  if (state.canceled) return 130;
   return 0;
 }
 
@@ -79,7 +103,12 @@ int run_tui_send(const SendConfig& config) {
     CliReporter reporter;
     return run_send(config, reporter);
   }
-  return run_transfer_screen("kiko send", [&](ProgressReporter& reporter) { run_send(config, reporter); });
+  return run_transfer_screen("kiko send", [&](ProgressReporter& reporter,
+                                              const std::shared_ptr<TransferCancellation>& cancellation) {
+    auto run_config = config;
+    run_config.cancellation = cancellation;
+    run_send(run_config, reporter);
+  });
 }
 
 int run_tui_recv(const RecvConfig& config) {
@@ -87,7 +116,12 @@ int run_tui_recv(const RecvConfig& config) {
     CliReporter reporter;
     return run_recv(config, reporter);
   }
-  return run_transfer_screen("kiko receive", [&](ProgressReporter& reporter) { run_recv(config, reporter); });
+  return run_transfer_screen("kiko receive", [&](ProgressReporter& reporter,
+                                                 const std::shared_ptr<TransferCancellation>& cancellation) {
+    auto run_config = config;
+    run_config.cancellation = cancellation;
+    run_recv(run_config, reporter);
+  });
 }
 
 int run_tui_menu(const Endpoint& default_relay) {
@@ -107,6 +141,7 @@ int run_tui_menu(const Endpoint& default_relay) {
   bool worker_started = false;
   std::string copy_notice;
   bool quit_confirm_pending = false;
+  std::shared_ptr<TransferCancellation> transfer_cancellation;
   Endpoint last_transfer_relay = default_relay;
   std::optional<std::string> last_transfer_relay_pass;
 
@@ -116,6 +151,7 @@ int run_tui_menu(const Endpoint& default_relay) {
     if (worker_started && worker.joinable()) {
       worker.join();
       worker_started = false;
+      transfer_cancellation.reset();
     }
   };
 
@@ -167,8 +203,9 @@ int run_tui_menu(const Endpoint& default_relay) {
     reset_transfer_state(transfer_state);
     copy_notice.clear();
     quit_confirm_pending = false;
+    transfer_cancellation = std::make_shared<TransferCancellation>();
 
-    worker = start_tui_transfer(std::move(prepared.spec), transfer_state, wake);
+    worker = start_tui_transfer(std::move(prepared.spec), transfer_state, wake, transfer_cancellation);
     worker_started = true;
     screen_tab = 1;
     save_prefs_from_menu();
@@ -195,6 +232,16 @@ int run_tui_menu(const Endpoint& default_relay) {
 
   auto start_transfer = [&] {
     begin_transfer();
+    wake();
+  };
+
+  auto request_transfer_cancel = [&] {
+    if (transfer_cancellation) transfer_cancellation->request();
+    {
+      std::lock_guard<std::mutex> lock(transfer_state.mutex);
+      if (!transfer_state.finished && !transfer_state.failed) transfer_state.activity = "canceling...";
+    }
+    quit_confirm_pending = false;
     wake();
   };
 
@@ -248,7 +295,7 @@ int run_tui_menu(const Endpoint& default_relay) {
       if (!done && quit_key) {
         if (quit_confirm_pending) {
           save_prefs_from_menu();
-          screen.Exit();
+          request_transfer_cancel();
         } else {
           quit_confirm_pending = true;
         }

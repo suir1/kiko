@@ -9,10 +9,13 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <vector>
 
 namespace kiko {
+
+class TransferCancellation;
 
 enum class SymlinkMode {
   Follow,
@@ -51,6 +54,7 @@ struct SendConfig {
   std::chrono::milliseconds reconnect_delay{1000};
   SymlinkMode symlink_mode = SymlinkMode::Follow;
   bool debug_route = false;
+  std::shared_ptr<TransferCancellation> cancellation;
   // Number of parallel TCP connections to use on the relay path (1 = single
   // stream). The sender controls this; the receiver mirrors it.
   int connections = 4;
@@ -115,6 +119,7 @@ struct RecvConfig {
   std::chrono::milliseconds reconnect_delay{1000};
   ConflictPolicy conflict_policy = ConflictPolicy::Overwrite;
   bool debug_route = false;
+  std::shared_ptr<TransferCancellation> cancellation;
 };
 
 int run_send(const SendConfig& config, ProgressReporter& reporter);

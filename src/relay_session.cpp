@@ -1,5 +1,6 @@
 #include "relay_session.hpp"
 
+#include "cancellation.hpp"
 #include "pake.hpp"
 #include "protocol.hpp"
 #include "transfer.hpp"
@@ -25,15 +26,19 @@ int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
 std::vector<TcpSocket> open_relay_mux_channels(TcpSocket primary, Role role, const Endpoint& active_relay,
                                                const std::string& room, int connections,
                                                const ConnectOptions& connect_options,
-                                               const std::optional<std::string>& relay_pass) {
+                                               const std::optional<std::string>& relay_pass,
+                                               TransferCancellation* cancellation) {
   std::vector<TcpSocket> channels;
   channels.reserve(static_cast<std::size_t>(connections));
   channels.push_back(std::move(primary));
+  if (cancellation) cancellation->track(channels.back());
   auto aux_options = connect_options;
   if (is_loopback_host(active_relay.host)) aux_options.bind_interface.clear();
   for (int k = 1; k < connections; ++k) {
-    auto aux = connect_tcp(active_relay, std::chrono::seconds(5), aux_options);
+    auto aux = connect_tcp(active_relay, std::chrono::seconds(5), aux_options,
+                           cancellation ? cancellation->flag() : nullptr);
     if (!aux.valid()) throw KikoError("failed to open auxiliary relay connection");
+    if (cancellation) cancellation->track(aux);
     Message aux_hello{"hello",
                       {{"room", room},
                        {"role", role_name(role)},
@@ -51,7 +56,9 @@ std::vector<TcpSocket> open_relay_mux_channels(TcpSocket primary, Role role, con
 void send_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay, const std::string& code,
                            int connections, const ConnectOptions& connect_options,
                            const std::optional<std::string>& relay_pass, const std::vector<FileEntry>& files,
-                           ProgressReporter& reporter, RouteTiming timing) {
+                           ProgressReporter& reporter, RouteTiming timing,
+                           TransferCancellation* cancellation) {
+  if (cancellation) cancellation->track(relay_channel);
   reporter.route_phase(RoutePhase::Securing,
                        RoutePhaseDetail{"securing relay channel", "relay", /*relay_fallback_ready=*/true});
   const auto securing_start = std::chrono::steady_clock::now();
@@ -64,7 +71,7 @@ void send_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay
     reporter.status("opening " + std::to_string(connections) + " parallel relay connections");
     auto channels =
         open_relay_mux_channels(std::move(relay_channel), Role::Sender, active_relay, room_token(code), connections,
-                                connect_options, relay_pass);
+                                connect_options, relay_pass, cancellation);
     send_files_mux(channels, key, files, reporter);
     return;
   }
@@ -76,7 +83,9 @@ void receive_files_over_relay(TcpSocket relay_channel, const Endpoint& active_re
                               int connections, const ConnectOptions& connect_options,
                               const std::optional<std::string>& relay_pass,
                               const std::filesystem::path& output_dir, ProgressReporter& reporter,
-                              RouteTiming timing, ConflictPolicy conflict_policy) {
+                              RouteTiming timing, ConflictPolicy conflict_policy,
+                              TransferCancellation* cancellation) {
+  if (cancellation) cancellation->track(relay_channel);
   reporter.route_phase(RoutePhase::Securing,
                        RoutePhaseDetail{"securing relay channel", "relay", /*relay_fallback_ready=*/true});
   const auto securing_start = std::chrono::steady_clock::now();
@@ -89,7 +98,7 @@ void receive_files_over_relay(TcpSocket relay_channel, const Endpoint& active_re
     reporter.status("opening " + std::to_string(connections) + " parallel relay connections");
     auto channels =
         open_relay_mux_channels(std::move(relay_channel), Role::Receiver, active_relay, room_token(code), connections,
-                                connect_options, relay_pass);
+                                connect_options, relay_pass, cancellation);
     receive_files_mux(channels, key, output_dir, reporter, conflict_policy);
     return;
   }

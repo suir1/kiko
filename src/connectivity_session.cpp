@@ -10,7 +10,7 @@ namespace kiko {
 
 RelayPeerResult wait_for_connectivity_peer(const ConnectivityRendezvous& rendezvous) {
   auto peer_result = race_until_peer(rendezvous.entries, rendezvous.hello, rendezvous.deadline,
-                                     rendezvous.connect_options, rendezvous.relay_pass);
+                                     rendezvous.connect_options, rendezvous.relay_pass, rendezvous.cancel);
   if (!peer_result) throw KikoError(rendezvous.failure_message);
   return std::move(*peer_result);
 }
@@ -25,11 +25,11 @@ RouteSelection select_connectivity_route(TcpSocket relay, const ConnectivitySess
 
   if (session.peer.get("route_commit") == "v2") {
     return race_transfer_route(std::move(relay), direct_attempt, puncher, session.route_plan, reporter,
-                               session.confirmation_timeout, session.timing);
+                               session.confirmation_timeout, session.timing, session.cancel);
   }
 
-  return select_transfer_route(std::move(relay), direct_attempt(nullptr), puncher, session.route_plan, reporter,
-                               session.confirmation_timeout, session.timing);
+  return select_transfer_route(std::move(relay), direct_attempt(session.cancel), puncher, session.route_plan, reporter,
+                               session.confirmation_timeout, session.timing, session.cancel);
 }
 
 }  // namespace kiko

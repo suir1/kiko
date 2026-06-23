@@ -126,6 +126,10 @@ std::optional<TcpSocket> finish_direct_future(std::future<std::optional<TcpSocke
   return std::nullopt;
 }
 
+void throw_if_cancelled(const std::atomic_bool* cancel) {
+  if (cancel && cancel->load()) throw KikoError("transfer canceled");
+}
+
 std::optional<TcpSocket> collect_direct_future(std::future<std::optional<TcpSocket>>& future,
                                                ProgressReporter& reporter) {
   try {
@@ -164,7 +168,9 @@ RouteOutcome make_route_outcome(const std::string& data_path, const std::string&
 RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> direct,
                                      const AdaptivePuncher& puncher, const RoutePlan& route_plan,
                                      ProgressReporter& reporter,
-                                     std::chrono::milliseconds confirmation_timeout, RouteTiming timing) {
+                                     std::chrono::milliseconds confirmation_timeout, RouteTiming timing,
+                                     const std::atomic_bool* cancel) {
+  throw_if_cancelled(cancel);
   RouteSelection selection;
   selection.relay = std::move(relay);
   selection.timing = timing;
@@ -173,7 +179,8 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
     reporter.status("direct connection established");
     send_message(selection.relay, Message{"direct_ok", {}});
     const auto confirmation_start = std::chrono::steady_clock::now();
-    auto direct_choice = recv_message_timeout(selection.relay, confirmation_timeout);
+    auto direct_choice = recv_message_timeout(selection.relay, confirmation_timeout, cancel);
+    throw_if_cancelled(cancel);
     if (!direct_choice) throw KikoError("relay closed before route confirmation");
 
     if (direct_choice->type == "relay_start") {
@@ -217,7 +224,8 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
                      relay_reason, /*relay_fallback_ready=*/true);
   const auto commit_start = std::chrono::steady_clock::now();
   send_message(selection.relay, Message{"relay_ready", {}});
-  auto start = recv_message_timeout(selection.relay, confirmation_timeout);
+  auto start = recv_message_timeout(selection.relay, confirmation_timeout, cancel);
+  throw_if_cancelled(cancel);
   if (!start || start->type != "relay_start") throw KikoError("relay did not start stream");
   selection.timing.relay_commit_ms = elapsed_ms_since(commit_start);
   selection.path = RoutePath::Relay;
@@ -234,10 +242,12 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
 
 RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attempt, const AdaptivePuncher& puncher,
                                    const RoutePlan& route_plan, ProgressReporter& reporter,
-                                   std::chrono::milliseconds confirmation_timeout, RouteTiming timing) {
+                                   std::chrono::milliseconds confirmation_timeout, RouteTiming timing,
+                                   const std::atomic_bool* external_cancel) {
+  throw_if_cancelled(external_cancel);
   if (route_plan.skip_direct || !direct_attempt) {
     return select_transfer_route(std::move(relay), std::nullopt, puncher, route_plan, reporter, confirmation_timeout,
-                                 timing);
+                                 timing, external_cancel);
   }
 
   send_message(relay, Message{"relay_standby", {}});
@@ -252,6 +262,10 @@ RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attem
   auto direct_future = std::async(std::launch::async, [&]() { return direct_attempt(&cancel); });
 
   while (direct_future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+    if (external_cancel && external_cancel->load()) {
+      (void)finish_direct_future(direct_future, cancel, /*suppress_errors=*/true);
+      throw_if_cancelled(external_cancel);
+    }
     if (auto relay_msg = recv_relay_control_if_ready(relay, std::chrono::milliseconds(25))) {
       if (relay_msg->type == "relay_start") {
         timing.direct_probe_ms = elapsed_ms_since(direct_probe_start);
@@ -273,6 +287,7 @@ RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attem
   }
 
   timing.direct_probe_ms = elapsed_ms_since(direct_probe_start);
+  throw_if_cancelled(external_cancel);
   auto direct = collect_direct_future(direct_future, reporter);
   if (auto relay_msg = recv_relay_control_if_ready(relay, std::chrono::milliseconds(35))) {
     if (relay_msg->type == "relay_start") {
@@ -291,7 +306,7 @@ RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attem
   }
 
   return select_transfer_route(std::move(relay), std::move(direct), puncher, route_plan, reporter,
-                               confirmation_timeout, timing);
+                               confirmation_timeout, timing, external_cancel);
 }
 
 }  // namespace kiko

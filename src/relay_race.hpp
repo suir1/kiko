@@ -5,6 +5,7 @@
 #include "proxy.hpp"
 #include "socket.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -34,17 +35,20 @@ struct RelayRaceEntry {
                                                                       const ConnectOptions& connect_options,
                                                                       const std::optional<std::string>& relay_pass = std::nullopt,
                                                                       std::chrono::milliseconds timeout =
-                                                                          std::chrono::seconds(5));
+                                                                          std::chrono::seconds(5),
+                                                                      const std::atomic_bool* cancel = nullptr);
 
 [[nodiscard]] std::optional<RelayPeerResult> wait_for_peer_messages(std::vector<TcpSocket>& relays,
                                                                     const std::vector<Endpoint>& relay_endpoints,
-                                                                    std::chrono::milliseconds timeout);
+                                                                    std::chrono::milliseconds timeout,
+                                                                    const std::atomic_bool* cancel = nullptr);
 
 [[nodiscard]] std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>& entries,
                                                              const Message& hello,
                                                              std::chrono::milliseconds deadline,
                                                              const ConnectOptions& connect_options,
-                                                             const std::optional<std::string>& relay_pass = std::nullopt);
+                                                             const std::optional<std::string>& relay_pass = std::nullopt,
+                                                             const std::atomic_bool* cancel = nullptr);
 
 [[nodiscard]] std::int64_t probe_relay_rtt_ms(const Endpoint& relay,
                                               const ConnectOptions& connect_options = ConnectOptions{},

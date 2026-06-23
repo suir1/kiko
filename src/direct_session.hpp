@@ -37,6 +37,7 @@ struct DirectMuxResult {
 [[nodiscard]] DirectMuxResult negotiate_direct_mux_channels(
     TcpSocket primary, Role role, TcpListener& listener, const Message& peer, int connections,
     const std::string& room, const ConnectOptions& connect_options = ConnectOptions{},
-    std::chrono::milliseconds setup_timeout = std::chrono::seconds(5));
+    std::chrono::milliseconds setup_timeout = std::chrono::seconds(5),
+    const std::atomic_bool* cancel = nullptr);
 
 }  // namespace kiko

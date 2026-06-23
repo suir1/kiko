@@ -38,6 +38,7 @@ struct TuiState {
   bool handshake = false;
   bool finished = false;
   bool failed = false;
+  bool canceled = false;
   std::string error_message;
   std::string doctor_summary;
   bool doctor_running = false;

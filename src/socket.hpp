@@ -35,6 +35,7 @@ class TcpSocket {
   [[nodiscard]] int fd() const;
   [[nodiscard]] asio::ip::tcp::socket& asio_socket();
   [[nodiscard]] const asio::ip::tcp::socket& asio_socket() const;
+  [[nodiscard]] std::weak_ptr<asio::ip::tcp::socket> weak_handle() const;
 
   void close();
   void set_no_delay(bool enabled);
