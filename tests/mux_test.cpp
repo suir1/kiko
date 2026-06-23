@@ -60,8 +60,10 @@ std::uint32_t get_mode_bits(const fs::path& path) {
 struct RecordingReporter : ProgressReporter {
   std::vector<std::string> statuses;
   std::vector<std::string> resumes;
+  std::vector<TransferTiming> timings;
 
   void status(const std::string& message) override { statuses.push_back(message); }
+  void transfer_timing(const TransferTiming& timing) override { timings.push_back(timing); }
   void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override {
     resumes.push_back(path + ":" + std::to_string(offset) + "/" + std::to_string(size));
   }
@@ -95,16 +97,17 @@ void make_channels(TcpListener& listener, const Endpoint& endpoint, int n,
 
 bool run_round(TcpListener& listener, const Endpoint& endpoint, int n, const SessionKey& key,
                const std::vector<FileEntry>& files, const fs::path& dst, ProgressReporter* receiver_reporter = nullptr,
-               ConflictPolicy conflict_policy = ConflictPolicy::Overwrite) {
+               ConflictPolicy conflict_policy = ConflictPolicy::Overwrite, ProgressReporter* sender_reporter = nullptr) {
   std::vector<TcpSocket> sc, rc;
   make_channels(listener, endpoint, n, sc, rc);
-  ProgressReporter sender_reporter;
+  ProgressReporter default_sender_reporter;
   ProgressReporter default_receiver_reporter;
+  auto& send_reporter = sender_reporter ? *sender_reporter : default_sender_reporter;
   auto& recv_reporter = receiver_reporter ? *receiver_reporter : default_receiver_reporter;
   bool sender_failed = false;
   std::thread sender([&] {
     try {
-      send_files_mux(sc, key, files, sender_reporter);
+      send_files_mux(sc, key, files, send_reporter);
     } catch (const std::exception& e) {
       std::cerr << "sender error: " << e.what() << "\n";
       sender_failed = true;
@@ -145,8 +148,24 @@ int main() {
   auto endpoint = listener.local_endpoint();
   const int N = 4;
 
-  if (!run_round(listener, endpoint, N, key, files, dst)) {
+  RecordingReporter first_sender_reporter;
+  RecordingReporter first_receiver_reporter;
+  if (!run_round(listener, endpoint, N, key, files, dst, &first_receiver_reporter, ConflictPolicy::Overwrite,
+                 &first_sender_reporter)) {
     std::cerr << "FAIL: mux transfer raised an error\n";
+    return 1;
+  }
+  if (first_sender_reporter.timings.size() != 1 || first_sender_reporter.timings[0].mode != "mux_send" ||
+      first_sender_reporter.timings[0].mux_channels != static_cast<std::size_t>(N) ||
+      first_sender_reporter.timings[0].mux_max_pending_bytes == 0 ||
+      first_sender_reporter.timings[0].payload_bytes != static_cast<std::uint64_t>(blob.size() + 5)) {
+    std::cerr << "FAIL: mux sender timing missing or incomplete\n";
+    return 1;
+  }
+  if (first_receiver_reporter.timings.size() != 1 || first_receiver_reporter.timings[0].mode != "mux_receive" ||
+      first_receiver_reporter.timings[0].mux_channels != static_cast<std::size_t>(N) ||
+      first_receiver_reporter.timings[0].payload_bytes != static_cast<std::uint64_t>(blob.size() + 5)) {
+    std::cerr << "FAIL: mux receiver timing missing or incomplete\n";
     return 1;
   }
 

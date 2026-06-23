@@ -71,6 +71,31 @@ std::string route_timing_summary(const RouteTiming& timing) {
   return line;
 }
 
+void append_counter_field(std::string& line, const std::string& name, std::uint64_t value) {
+  if (value > 0) line += " " + name + "=" + std::to_string(value);
+}
+
+void append_duration_field(std::string& line, const std::string& name, std::int64_t value_ms) {
+  if (value_ms > 0) line += " " + name + "_ms=" + std::to_string(value_ms);
+}
+
+std::string transfer_timing_summary(const TransferTiming& timing) {
+  std::string line = "transfer timing:";
+  if (!timing.mode.empty()) line += " mode=" + timing.mode;
+  append_counter_field(line, "bytes", timing.payload_bytes);
+  append_counter_field(line, "frames", timing.frame_count);
+  append_duration_field(line, "send_frame", timing.send_frame_ms);
+  if (timing.max_send_frame_ms > 0) line += " max_send_frame_ms=" + std::to_string(timing.max_send_frame_ms);
+  append_duration_field(line, "disk_read", timing.disk_read_ms);
+  append_duration_field(line, "disk_write", timing.disk_write_ms);
+  append_duration_field(line, "compress", timing.compress_ms);
+  append_duration_field(line, "decompress", timing.decompress_ms);
+  append_duration_field(line, "hash", timing.hash_ms);
+  append_counter_field(line, "mux_max_pending_bytes", timing.mux_max_pending_bytes);
+  if (timing.mux_channels > 0) line += " mux_channels=" + std::to_string(timing.mux_channels);
+  return line;
+}
+
 }  // namespace
 
 void CliReporter::status(const std::string& message) { std::cout << message << "\n"; }
@@ -89,6 +114,10 @@ void CliReporter::route_outcome(const RouteOutcome& outcome) {
 }
 
 void CliReporter::route_timing(const RouteTiming& timing) { std::cout << route_timing_summary(timing) << "\n"; }
+
+void CliReporter::transfer_timing(const TransferTiming& timing) {
+  std::cout << transfer_timing_summary(timing) << "\n";
+}
 
 void CliReporter::handshake_ok() { std::cout << "pake handshake ok\n"; }
 

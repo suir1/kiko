@@ -48,8 +48,15 @@ struct MuxSendItem {
 
 class MuxSendScheduler {
  public:
-  MuxSendScheduler(std::vector<TcpSocket>& channels, std::vector<StreamCipher>& ciphers, ProgressReporter& reporter)
-      : channels_(channels), ciphers_(ciphers), reporter_(reporter), queues_(channels.size()), pending_(channels.size(), 0) {
+  MuxSendScheduler(std::vector<TcpSocket>& channels, std::vector<StreamCipher>& ciphers, ProgressReporter& reporter,
+                   TransferTiming& timing)
+      : channels_(channels),
+        ciphers_(ciphers),
+        reporter_(reporter),
+        timing_(timing),
+        queues_(channels.size()),
+        pending_(channels.size(), 0) {
+    timing_.mux_channels = channels_.size();
     workers_.reserve(channels_.size());
     for (std::size_t k = 0; k < channels_.size(); ++k) workers_.emplace_back([this, k] { worker(k); });
   }
@@ -74,6 +81,7 @@ class MuxSendScheduler {
     const auto channel_index = choose_channel_locked();
     pending_[channel_index] += payload.size();
     queues_[channel_index].push_back(MuxSendItem{std::move(payload), raw_size});
+    record_pending_peak_locked();
     cv_.notify_all();
   }
 
@@ -99,6 +107,24 @@ class MuxSendScheduler {
       if (pending < best) best = pending;
     }
     return best;
+  }
+
+  std::uint64_t total_pending_locked() const {
+    std::uint64_t total = 0;
+    for (const auto pending : pending_) total += pending;
+    return total;
+  }
+
+  void record_pending_peak_locked() {
+    std::lock_guard<std::mutex> timing_lock(timing_mutex_);
+    timing_.mux_max_pending_bytes = std::max(timing_.mux_max_pending_bytes, total_pending_locked());
+  }
+
+  void record_send_timing(std::int64_t elapsed_ms) {
+    std::lock_guard<std::mutex> timing_lock(timing_mutex_);
+    timing_.send_frame_ms += elapsed_ms;
+    timing_.max_send_frame_ms = std::max(timing_.max_send_frame_ms, static_cast<int>(elapsed_ms));
+    ++timing_.frame_count;
   }
 
   std::size_t choose_channel_locked() {
@@ -133,7 +159,9 @@ class MuxSendScheduler {
       }
 
       try {
+        const auto send_start = TransferClock::now();
         send_tagged(channels_[channel_index], ciphers_[channel_index], StreamTag::Data, item.payload);
+        record_send_timing(transfer_elapsed_ms_since(send_start));
         {
           std::lock_guard<std::mutex> lock(report_mutex_);
           reporter_.file_advance(item.raw_size);
@@ -151,8 +179,10 @@ class MuxSendScheduler {
     }
 
     try {
+      const auto send_start = TransferClock::now();
       send_tagged(channels_[channel_index], ciphers_[channel_index], StreamTag::ChunkEnd,
                   std::span<const std::uint8_t>());
+      record_send_timing(transfer_elapsed_ms_since(send_start));
     } catch (...) {
       set_error(std::current_exception());
     }
@@ -161,11 +191,13 @@ class MuxSendScheduler {
   std::vector<TcpSocket>& channels_;
   std::vector<StreamCipher>& ciphers_;
   ProgressReporter& reporter_;
+  TransferTiming& timing_;
   std::vector<std::deque<MuxSendItem>> queues_;
   std::vector<std::uint64_t> pending_;
   std::vector<std::thread> workers_;
   std::mutex mutex_;
   std::mutex report_mutex_;
+  std::mutex timing_mutex_;
   std::condition_variable cv_;
   std::exception_ptr error_;
   std::size_t next_channel_ = 0;
@@ -185,33 +217,36 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
 
   Bytes buffer(kMuxChunk);
   std::uint64_t grand_total = 0;
+  TransferTiming timing;
+  timing.mode = "mux_send";
+  timing.mux_channels = n;
   send_transfer_manifest(channels[0], ciphers[0], files);
 
   for (const auto& entry : files) {
     if (is_symlink_entry(entry)) {
       auto header = make_file_header(entry);
-      send_tagged_text(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header));
+      send_tagged_text_timed(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header), timing);
       reporter.file_start(entry.relative, 0);
 
       const auto resume = recv_resume_request(channels[0], ciphers[0], entry);
       send_resume_ack(channels[0], ciphers[0], resume.offset);
 
       Message end{"end", {{"sha256", kEmptySha256}}};
-      send_tagged_text(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end));
+      send_tagged_text_timed(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end), timing);
       reporter.file_complete(entry.relative, 0, false);
       continue;
     }
 
     if (is_dir_entry(entry)) {
       auto header = make_file_header(entry);
-      send_tagged_text(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header));
+      send_tagged_text_timed(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header), timing);
       reporter.file_start(entry.relative, 0);
 
       const auto resume = recv_resume_request(channels[0], ciphers[0], entry);
       send_resume_ack(channels[0], ciphers[0], resume.offset);
 
       Message end{"end", {{"sha256", kEmptySha256}}};
-      send_tagged_text(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end));
+      send_tagged_text_timed(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end), timing);
       reporter.file_complete(entry.relative, 0, false);
       continue;
     }
@@ -220,7 +255,7 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
     if (!input) throw KikoError("failed to open input file: " + entry.absolute.string());
 
     auto header = make_file_header(entry);
-    send_tagged_text(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header));
+    send_tagged_text_timed(channels[0], ciphers[0], StreamTag::FileHeader, encode_message(header), timing);
     reporter.file_start(entry.relative, entry.size);
 
     const auto resume = recv_resume_request(channels[0], ciphers[0], entry);
@@ -230,10 +265,10 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
       reporter.file_resume(entry.relative, entry.size, entry.size);
       reporter.file_advance(entry.size);
       for (std::size_t k = 0; k < n; ++k) {
-        send_tagged(channels[k], ciphers[k], StreamTag::ChunkEnd, std::span<const std::uint8_t>());
+        send_tagged_timed(channels[k], ciphers[k], StreamTag::ChunkEnd, std::span<const std::uint8_t>(), timing);
       }
       Message end{"end", {{"sha256", kEmptySha256}}};
-      send_tagged_text(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end));
+      send_tagged_text_timed(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end), timing);
       grand_total += entry.size;
       reporter.file_complete(entry.relative, entry.size, false);
       continue;
@@ -260,20 +295,27 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
     }
 
     const bool use_zstd = should_compress_entry(entry);
-    MuxSendScheduler scheduler(channels, ciphers, reporter);
+    MuxSendScheduler scheduler(channels, ciphers, reporter, timing);
     while (input) {
+      const auto read_start = TransferClock::now();
       input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+      add_transfer_elapsed(timing.disk_read_ms, read_start);
       auto got = input.gcount();
       if (got <= 0) break;
       std::span<const std::uint8_t> chunk(buffer.data(), static_cast<std::size_t>(got));
+      const auto hash_start = TransferClock::now();
       hasher->update(chunk);
+      add_transfer_elapsed(timing.hash_ms, hash_start);
+      timing.payload_bytes += static_cast<std::uint64_t>(got);
 
       Bytes payload;
       payload.reserve(12 + chunk.size());
       put_u64(payload, total);
       put_u32(payload, static_cast<std::uint32_t>(got));
       if (use_zstd) {
+        const auto compress_start = TransferClock::now();
         auto compressed = zstd_compress_block(chunk);
+        add_transfer_elapsed(timing.compress_ms, compress_start);
         payload.insert(payload.end(), compressed.begin(), compressed.end());
       } else {
         payload.insert(payload.end(), chunk.begin(), chunk.end());
@@ -287,14 +329,15 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
 
     auto digest = hasher->finish();
     Message end{"end", {{"sha256", hex_encode(digest)}}};
-    send_tagged_text(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end));
+    send_tagged_text_timed(channels[0], ciphers[0], StreamTag::FileEnd, encode_message(end), timing);
     grand_total += total;
     reporter.file_complete(entry.relative, total, false);
   }
 
-  send_tagged(channels[0], ciphers[0], StreamTag::Done, std::span<const std::uint8_t>());
+  send_tagged_timed(channels[0], ciphers[0], StreamTag::Done, std::span<const std::uint8_t>(), timing);
   auto ack = recv_tagged(channels[0], ciphers[0]);
   if (!ack || ack->tag != StreamTag::Ack) throw KikoError("expected transfer ack");
+  reporter.transfer_timing(timing);
   reporter.transfer_complete(files.size(), grand_total);
 }
 
@@ -308,6 +351,9 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
 
   std::size_t file_count = 0;
   std::uint64_t grand_total = 0;
+  TransferTiming timing;
+  timing.mode = "mux_receive";
+  timing.mux_channels = n;
   bool saw_manifest = false;
   bool saw_file_header = false;
   std::optional<ReceivePlan> receive_plan;
@@ -324,7 +370,8 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       continue;
     }
     if (frame->tag == StreamTag::Done) {
-      send_tagged(channels[0], ciphers[0], StreamTag::Ack, std::span<const std::uint8_t>());
+      send_tagged_timed(channels[0], ciphers[0], StreamTag::Ack, std::span<const std::uint8_t>(), timing);
+      reporter.transfer_timing(timing);
       reporter.transfer_complete(file_count, grand_total);
       return;
     }
@@ -457,6 +504,7 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
 
     std::mutex file_mutex;
     std::mutex report_mutex;
+    std::mutex timing_mutex;
     std::atomic<std::uint64_t> written{have};
     std::atomic<bool> failed{false};
     std::string error_text;
@@ -476,21 +524,33 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
           ensure_declared_space(off, declared_size, static_cast<std::uint64_t>(raw_len), current_relative);
           std::span<const std::uint8_t> comp(f->payload.data() + 12, f->payload.size() - 12);
           Bytes plain;
+          std::int64_t decompress_ms = 0;
           if (use_zstd) {
+            const auto decompress_start = TransferClock::now();
             plain = zstd_decompress_block(comp, raw_len);
+            decompress_ms = transfer_elapsed_ms_since(decompress_start);
           } else {
             if (comp.size() != raw_len) throw KikoError("uncompressed chunk size mismatch");
             plain.assign(comp.begin(), comp.end());
           }
           if (plain.size() != raw_len) throw KikoError("mux decoded chunk size mismatch");
           ensure_declared_space(off, declared_size, static_cast<std::uint64_t>(plain.size()), current_relative);
+          std::int64_t write_ms = 0;
           {
             std::lock_guard<std::mutex> lock(file_mutex);
+            const auto write_start = TransferClock::now();
             out.seekp(static_cast<std::streamoff>(off));
             out.write(reinterpret_cast<const char*>(plain.data()), static_cast<std::streamsize>(plain.size()));
+            write_ms = transfer_elapsed_ms_since(write_start);
             if (!out) throw KikoError("write failed during mux receive");
           }
           written.fetch_add(plain.size());
+          {
+            std::lock_guard<std::mutex> timing_lock(timing_mutex);
+            timing.decompress_ms += decompress_ms;
+            timing.disk_write_ms += write_ms;
+            timing.payload_bytes += plain.size();
+          }
           std::lock_guard<std::mutex> rlock(report_mutex);
           reporter.file_advance(plain.size());
         }

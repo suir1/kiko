@@ -32,8 +32,10 @@ struct RecordingReporter : ProgressReporter {
   std::uint64_t done_bytes = 0;
   bool finished = false;
   bool all_verified = true;
+  std::vector<TransferTiming> timings;
 
   void status(const std::string& message) override { statuses.push_back(message); }
+  void transfer_timing(const TransferTiming& timing) override { timings.push_back(timing); }
   void file_start(const std::string& path, std::uint64_t) override { started.push_back(path); }
   void file_advance(std::uint64_t delta) override { advanced += delta; }
   void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override {
@@ -70,10 +72,10 @@ int main() {
   auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
   auto endpoint = listener.local_endpoint();
 
-  ProgressReporter sender_sink;
+  RecordingReporter sender_rec;
   std::thread sender([&] {
     auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
-    if (socket.valid()) send_files(socket, key, files, sender_sink);
+    if (socket.valid()) send_files(socket, key, files, sender_rec);
   });
 
   RecordingReporter rec;
@@ -99,6 +101,16 @@ int main() {
     std::cerr << "FAIL: file_advance sum=" << rec.advanced << " (expected " << expected_bytes << ")\n";
     return 1;
   }
+  if (sender_rec.timings.size() != 1 || sender_rec.timings[0].mode != "stream_send" ||
+      sender_rec.timings[0].payload_bytes != expected_bytes || sender_rec.timings[0].frame_count == 0) {
+    std::cerr << "FAIL: sender transfer timing missing or incomplete\n";
+    return 1;
+  }
+  if (rec.timings.size() != 1 || rec.timings[0].mode != "stream_receive" ||
+      rec.timings[0].payload_bytes != expected_bytes) {
+    std::cerr << "FAIL: receiver transfer timing missing or incomplete\n";
+    return 1;
+  }
 
   auto resume_dst = root / "resume-out";
   constexpr std::uint64_t kResumeOffset = 300;
@@ -109,7 +121,7 @@ int main() {
 
   std::thread resume_sender([&] {
     auto socket = connect_tcp(resume_endpoint, std::chrono::seconds(2));
-    if (socket.valid()) send_files(socket, key, files, sender_sink);
+    if (socket.valid()) send_files(socket, key, files, sender_rec);
   });
 
   RecordingReporter resume_rec;
@@ -133,7 +145,7 @@ int main() {
 
   std::thread duplicate_sender([&] {
     auto socket = connect_tcp(duplicate_endpoint, std::chrono::seconds(2));
-    if (socket.valid()) send_files(socket, key, files, sender_sink);
+    if (socket.valid()) send_files(socket, key, files, sender_rec);
   });
 
   RecordingReporter duplicate_rec;

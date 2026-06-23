@@ -3,6 +3,8 @@
 #include "compression.hpp"
 #include "transfer_heuristics.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <limits>
 
@@ -97,6 +99,32 @@ std::optional<TaggedFrame> recv_tagged(TcpSocket& socket, StreamCipher& cipher) 
   return frame;
 }
 
+std::int64_t transfer_elapsed_ms_since(TransferClock::time_point start) {
+  const auto elapsed = TransferClock::now() - start;
+  return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+}
+
+void add_transfer_elapsed(std::int64_t& bucket, TransferClock::time_point start) {
+  bucket += transfer_elapsed_ms_since(start);
+}
+
+void send_tagged_timed(TcpSocket& socket, StreamCipher& cipher, StreamTag tag,
+                       std::span<const std::uint8_t> payload, TransferTiming& timing) {
+  const auto start = TransferClock::now();
+  send_tagged(socket, cipher, tag, payload);
+  const auto elapsed = transfer_elapsed_ms_since(start);
+  timing.send_frame_ms += elapsed;
+  timing.max_send_frame_ms = std::max(timing.max_send_frame_ms, static_cast<int>(elapsed));
+  ++timing.frame_count;
+}
+
+void send_tagged_text_timed(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, const std::string& text,
+                            TransferTiming& timing) {
+  send_tagged_timed(socket, cipher, tag,
+                    std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(text.data()), text.size()),
+                    timing);
+}
+
 }  // namespace kiko::detail
 
 namespace kiko {
@@ -108,33 +136,35 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
   StreamCipher cipher(key, /*sender_originates=*/true);
   Bytes buffer(kPlainChunk);
   std::uint64_t grand_total = 0;
+  TransferTiming timing;
+  timing.mode = "stream_send";
   send_transfer_manifest(channel, cipher, files);
 
   for (const auto& entry : files) {
     if (is_symlink_entry(entry)) {
       auto header = make_file_header(entry);
-      send_tagged_text(channel, cipher, StreamTag::FileHeader, encode_message(header));
+      send_tagged_text_timed(channel, cipher, StreamTag::FileHeader, encode_message(header), timing);
       reporter.file_start(entry.relative, 0);
 
       const auto resume = recv_resume_request(channel, cipher, entry);
       send_resume_ack(channel, cipher, resume.offset);
 
       Message end{"end", {{"sha256", kEmptySha256}}};
-      send_tagged_text(channel, cipher, StreamTag::FileEnd, encode_message(end));
+      send_tagged_text_timed(channel, cipher, StreamTag::FileEnd, encode_message(end), timing);
       reporter.file_complete(entry.relative, 0, false);
       continue;
     }
 
     if (is_dir_entry(entry)) {
       auto header = make_file_header(entry);
-      send_tagged_text(channel, cipher, StreamTag::FileHeader, encode_message(header));
+      send_tagged_text_timed(channel, cipher, StreamTag::FileHeader, encode_message(header), timing);
       reporter.file_start(entry.relative, 0);
 
       const auto resume = recv_resume_request(channel, cipher, entry);
       send_resume_ack(channel, cipher, resume.offset);
 
       Message end{"end", {{"sha256", kEmptySha256}}};
-      send_tagged_text(channel, cipher, StreamTag::FileEnd, encode_message(end));
+      send_tagged_text_timed(channel, cipher, StreamTag::FileEnd, encode_message(end), timing);
       reporter.file_complete(entry.relative, 0, false);
       continue;
     }
@@ -143,7 +173,7 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
     if (!input) throw KikoError("failed to open input file: " + entry.absolute.string());
 
     auto header = make_file_header(entry);
-    send_tagged_text(channel, cipher, StreamTag::FileHeader, encode_message(header));
+    send_tagged_text_timed(channel, cipher, StreamTag::FileHeader, encode_message(header), timing);
     reporter.file_start(entry.relative, entry.size);
 
     // The receiver replies with how many leading bytes it already has so we can
@@ -155,7 +185,7 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
       reporter.file_resume(entry.relative, entry.size, entry.size);
       reporter.file_advance(entry.size);
       Message end{"end", {{"sha256", kEmptySha256}}};
-      send_tagged_text(channel, cipher, StreamTag::FileEnd, encode_message(end));
+      send_tagged_text_timed(channel, cipher, StreamTag::FileEnd, encode_message(end), timing);
       grand_total += entry.size;
       reporter.file_complete(entry.relative, entry.size, false);
       continue;
@@ -189,35 +219,45 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
     std::optional<ZstdStreamCompressor> compressor;
     if (use_zstd) compressor.emplace(3);
     while (input) {
+      const auto read_start = TransferClock::now();
       input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+      add_transfer_elapsed(timing.disk_read_ms, read_start);
       auto got = input.gcount();
       if (got <= 0) break;
       std::span<const std::uint8_t> chunk(buffer.data(), static_cast<std::size_t>(got));
+      const auto hash_start = TransferClock::now();
       hasher->update(chunk);
+      add_transfer_elapsed(timing.hash_ms, hash_start);
       total += static_cast<std::uint64_t>(got);
+      timing.payload_bytes += static_cast<std::uint64_t>(got);
       if (use_zstd) {
+        const auto compress_start = TransferClock::now();
         auto compressed = compressor->compress(chunk, false);
-        if (!compressed.empty()) send_tagged(channel, cipher, StreamTag::Data, compressed);
+        add_transfer_elapsed(timing.compress_ms, compress_start);
+        if (!compressed.empty()) send_tagged_timed(channel, cipher, StreamTag::Data, compressed, timing);
       } else {
-        send_tagged(channel, cipher, StreamTag::Data, chunk);
+        send_tagged_timed(channel, cipher, StreamTag::Data, chunk, timing);
       }
       reporter.file_advance(static_cast<std::uint64_t>(got));
     }
     if (use_zstd) {
+      const auto compress_start = TransferClock::now();
       auto trailer = compressor->compress(std::span<const std::uint8_t>(), true);
-      if (!trailer.empty()) send_tagged(channel, cipher, StreamTag::Data, trailer);
+      add_transfer_elapsed(timing.compress_ms, compress_start);
+      if (!trailer.empty()) send_tagged_timed(channel, cipher, StreamTag::Data, trailer, timing);
     }
 
     auto digest = hasher->finish();
     Message end{"end", {{"sha256", hex_encode(digest)}}};
-    send_tagged_text(channel, cipher, StreamTag::FileEnd, encode_message(end));
+    send_tagged_text_timed(channel, cipher, StreamTag::FileEnd, encode_message(end), timing);
     grand_total += total;
     reporter.file_complete(entry.relative, total, false);
   }
 
-  send_tagged(channel, cipher, StreamTag::Done, std::span<const std::uint8_t>());
+  send_tagged_timed(channel, cipher, StreamTag::Done, std::span<const std::uint8_t>(), timing);
   auto ack = recv_tagged(channel, cipher);
   if (!ack || ack->tag != StreamTag::Ack) throw KikoError("expected transfer ack");
+  reporter.transfer_timing(timing);
   reporter.transfer_complete(files.size(), grand_total);
 }
 
@@ -225,6 +265,8 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
                    ProgressReporter& reporter, ConflictPolicy conflict_policy) {
   StreamCipher cipher(key, /*sender_originates=*/false);
   Bytes buffer(kPlainChunk);
+  TransferTiming timing;
+  timing.mode = "stream_receive";
 
   std::ofstream out;
   std::optional<ZstdStreamDecompressor> decompressor;
@@ -388,22 +430,34 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         if (!hasher) throw KikoError("data frame before file header");
         if (use_zstd) {
           if (!decompressor) throw KikoError("data frame before decompressor ready");
+          const auto decompress_start = TransferClock::now();
           auto decompressed = decompressor->decompress(
               frame->payload, declared_remaining_limit(current_total, current_declared_size, current_relative));
+          add_transfer_elapsed(timing.decompress_ms, decompress_start);
           if (!decompressed.empty()) {
+            const auto write_start = TransferClock::now();
             out.write(reinterpret_cast<const char*>(decompressed.data()), static_cast<std::streamsize>(decompressed.size()));
+            add_transfer_elapsed(timing.disk_write_ms, write_start);
+            const auto hash_start = TransferClock::now();
             hasher->update(decompressed);
+            add_transfer_elapsed(timing.hash_ms, hash_start);
             current_total += decompressed.size();
+            timing.payload_bytes += decompressed.size();
             reporter.file_advance(decompressed.size());
           }
         } else {
           if (!frame->payload.empty()) {
             ensure_declared_space(current_total, current_declared_size,
                                   static_cast<std::uint64_t>(frame->payload.size()), current_relative);
+            const auto write_start = TransferClock::now();
             out.write(reinterpret_cast<const char*>(frame->payload.data()),
                       static_cast<std::streamsize>(frame->payload.size()));
+            add_transfer_elapsed(timing.disk_write_ms, write_start);
+            const auto hash_start = TransferClock::now();
             hasher->update(frame->payload);
+            add_transfer_elapsed(timing.hash_ms, hash_start);
             current_total += frame->payload.size();
+            timing.payload_bytes += frame->payload.size();
             reporter.file_advance(frame->payload.size());
           }
         }
@@ -458,7 +512,8 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         break;
       }
       case StreamTag::Done:
-        send_tagged(channel, cipher, StreamTag::Ack, std::span<const std::uint8_t>());
+        send_tagged_timed(channel, cipher, StreamTag::Ack, std::span<const std::uint8_t>(), timing);
+        reporter.transfer_timing(timing);
         reporter.transfer_complete(file_count, grand_total);
         return;
       default:

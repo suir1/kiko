@@ -42,6 +42,21 @@ struct RouteTiming {
   int securing_ms = -1;
 };
 
+struct TransferTiming {
+  std::string mode;
+  std::uint64_t payload_bytes = 0;
+  std::uint64_t frame_count = 0;
+  std::int64_t send_frame_ms = 0;
+  int max_send_frame_ms = 0;
+  std::int64_t disk_read_ms = 0;
+  std::int64_t disk_write_ms = 0;
+  std::int64_t compress_ms = 0;
+  std::int64_t decompress_ms = 0;
+  std::int64_t hash_ms = 0;
+  std::uint64_t mux_max_pending_bytes = 0;
+  std::size_t mux_channels = 0;
+};
+
 // Decouples the transfer core from any particular front-end. The CLI prints
 // lines; the TUI updates widgets. The transfer logic only emits these events.
 class ProgressReporter {
@@ -66,6 +81,10 @@ class ProgressReporter {
 
   // Route timing slices, emitted once a route is selected or secured.
   virtual void route_timing(const RouteTiming& timing) { (void)timing; }
+
+  // Low-cost transfer timing slices. These are observational only; they do not
+  // change flow control or transfer protocol semantics.
+  virtual void transfer_timing(const TransferTiming& timing) { (void)timing; }
 
   // The PAKE handshake succeeded and an encrypted channel is established.
   virtual void handshake_ok() {}
@@ -137,6 +156,7 @@ class CliReporter : public ProgressReporter {
   void transfer_complete(std::size_t file_count, std::uint64_t total_bytes) override;
   void route_outcome(const RouteOutcome& outcome) override;
   void route_timing(const RouteTiming& timing) override;
+  void transfer_timing(const TransferTiming& timing) override;
 
  private:
   std::optional<RouteOutcome> last_route_;

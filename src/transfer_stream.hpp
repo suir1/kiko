@@ -10,6 +10,7 @@
 #include "transfer_receive_paths.hpp"
 #include "transfer_resume.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -57,5 +58,14 @@ void send_transfer_manifest(TcpSocket& socket, StreamCipher& cipher, const std::
 void send_tagged(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, std::span<const std::uint8_t> payload);
 void send_tagged_text(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, const std::string& text);
 [[nodiscard]] std::optional<TaggedFrame> recv_tagged(TcpSocket& socket, StreamCipher& cipher);
+
+using TransferClock = std::chrono::steady_clock;
+
+[[nodiscard]] std::int64_t transfer_elapsed_ms_since(TransferClock::time_point start);
+void add_transfer_elapsed(std::int64_t& bucket, TransferClock::time_point start);
+void send_tagged_timed(TcpSocket& socket, StreamCipher& cipher, StreamTag tag,
+                       std::span<const std::uint8_t> payload, TransferTiming& timing);
+void send_tagged_text_timed(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, const std::string& text,
+                            TransferTiming& timing);
 
 }  // namespace kiko::detail
