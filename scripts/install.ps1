@@ -7,8 +7,43 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Test-TruthyEnv {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+    return $Value.ToLowerInvariant() -in @("1", "true", "yes", "on")
+}
+
+function Get-KikoWindowsArch {
+    if ($env:KIKO_TEST_ARCH) {
+        return $env:KIKO_TEST_ARCH
+    }
+
+    try {
+        $runtimeArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+        if ($null -ne $runtimeArch) {
+            $runtimeArchText = $runtimeArch.ToString()
+            if (-not [string]::IsNullOrWhiteSpace($runtimeArchText)) {
+                return $runtimeArchText
+            }
+        }
+    }
+    catch {
+        # Windows PowerShell 5.1 may not expose RuntimeInformation.OSArchitecture.
+    }
+
+    foreach ($candidate in @($env:PROCESSOR_ARCHITECTURE, $env:PROCESSOR_ARCHITEW6432)) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            return $candidate
+        }
+    }
+
+    return ""
+}
+
 if (-not $DryRun -and $env:KIKO_INSTALL_DRY_RUN) {
-    $DryRun = $env:KIKO_INSTALL_DRY_RUN.ToLowerInvariant() -in @("1", "true", "yes", "on")
+    $DryRun = Test-TruthyEnv $env:KIKO_INSTALL_DRY_RUN
 }
 
 if (-not $Version) {
@@ -41,7 +76,7 @@ if (-not $Version) {
     throw "Could not determine latest kiko release from https://github.com/$Repo/releases. Set KIKO_VERSION=v0.1.8-alpha and retry."
 }
 
-$arch = if ($env:KIKO_TEST_ARCH) { $env:KIKO_TEST_ARCH } else { [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() }
+$arch = Get-KikoWindowsArch
 switch ($arch.ToLowerInvariant()) {
     { $_ -in @("x64", "x86_64", "amd64") } { $asset = "windows-x64"; break }
     default { throw "Unsupported Windows architecture: $arch" }
