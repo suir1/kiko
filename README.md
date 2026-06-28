@@ -17,8 +17,12 @@ curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh 
 Windows PowerShell:
 
 ```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
 ```
+
+If `raw.githubusercontent.com` is blocked by your network, download the Windows zip from
+[Releases](https://github.com/suir1/kiko/releases) and unzip `kiko.exe` into a directory on `PATH`.
 
 The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
 `KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.8-alpha` to install a specific release.
