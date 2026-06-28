@@ -249,6 +249,11 @@ add_executable(kiko_tui_menu_state_test tests/tui_menu_state_test.cpp src/tui/tu
 target_link_libraries(kiko_tui_menu_state_test PRIVATE kiko_core ftxui::component)
 add_test(NAME tui_menu_state COMMAND kiko_tui_menu_state_test)
 
+add_executable(kiko_tui_menu_view_test tests/tui_menu_view_test.cpp src/tui/tui_menu_view.cpp
+               src/tui/tui_menu_state.cpp src/tui/tui_transfer_view.cpp)
+target_link_libraries(kiko_tui_menu_view_test PRIVATE kiko_core ftxui::component)
+add_test(NAME tui_menu_view COMMAND kiko_tui_menu_view_test)
+
 add_executable(kiko_tui_failure_hint_test tests/tui_failure_hint_test.cpp src/tui/tui_failure_hint.cpp)
 target_link_libraries(kiko_tui_failure_hint_test PRIVATE kiko_core)
 add_test(NAME tui_failure_hint COMMAND kiko_tui_failure_hint_test)

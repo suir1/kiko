@@ -20,6 +20,19 @@ void apply_menu_preset(TuiMenuState& menu, int preset, std::string& menu_error, 
 
 }  // namespace
 
+namespace detail {
+
+void invoke_active_browse_callback(int mode, const std::function<void()>& browse_send_path,
+                                   const std::function<void()>& browse_output_dir) {
+  if (mode == 0) {
+    if (browse_send_path) browse_send_path();
+    return;
+  }
+  if (browse_output_dir) browse_output_dir();
+}
+
+}  // namespace detail
+
 TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay, std::string& menu_error,
                                TuiMenuCallbacks callbacks) {
   using namespace ftxui;
@@ -43,8 +56,12 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
   auto code_input = Input(&menu.code, "pairing code");
   auto out_input = Input(&menu.output_dir, "output directory");
 
-  auto path_browse = Button("Browse...", std::move(callbacks.browse_send_path));
-  auto out_browse = Button("Browse...", std::move(callbacks.browse_output_dir));
+  auto browse_send_path = std::move(callbacks.browse_send_path);
+  auto browse_output_dir = std::move(callbacks.browse_output_dir);
+  auto browse_button = Button("Browse...", [&, browse_send_path = std::move(browse_send_path),
+                                            browse_output_dir = std::move(browse_output_dir)] {
+    detail::invoke_active_browse_callback(menu.mode, browse_send_path, browse_output_dir);
+  });
   auto doctor_button = Button("Network check", std::move(callbacks.network_check));
 
   auto preset_wan = Button("公网", [&, wake] { apply_menu_preset(menu, 0, menu_error, wake); });
@@ -89,19 +106,16 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
   auto start_button = Button("Start", std::move(callbacks.start_transfer));
 
   auto path_input_maybe = Maybe(path_input, [&] { return menu.mode == 0; });
-  auto path_browse_maybe = Maybe(path_browse, [&] { return menu.mode == 0; });
   auto out_input_maybe = Maybe(out_input, [&] { return menu.mode == 1; });
-  auto out_browse_maybe = Maybe(out_browse, [&] { return menu.mode == 1; });
 
   auto layout = Container::Vertical({
       mode_toggle,
       relay_input,
       relay_pass_input,
       path_input_maybe,
-      path_browse_maybe,
       code_input,
       out_input_maybe,
-      out_browse_maybe,
+      browse_button,
       preset_row,
       advanced_section,
       doctor_button,
@@ -109,7 +123,7 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
   });
 
   auto root = Renderer(layout, [&, modes, summary_path, summary_cache, mode_toggle, relay_input, relay_pass_input,
-                                path_input, path_browse, code_input, out_input, out_browse, preset_wan, preset_wifi,
+                                path_input, browse_button, code_input, out_input, preset_wan, preset_wifi,
                                 preset_corp, preset_debug, advanced_section, doctor_button, start_button] {
     Elements rows;
     rows.push_back(text("kiko") | bold | hcenter);
@@ -119,7 +133,7 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
                          text(" (" + relay_kind_label(menu.relay, default_relay) + ")") | dim}));
     rows.push_back(hbox({text("pass:  "), relay_pass_input->Render() | flex}));
     if (menu.mode == 0) {
-      rows.push_back(hbox({text("path:  "), path_input->Render() | flex, path_browse->Render()}));
+      rows.push_back(hbox({text("path:  "), path_input->Render() | flex, browse_button->Render()}));
       if (*summary_path != menu.path) {
         *summary_path = menu.path;
         *summary_cache = summarize_path(menu.path);
@@ -130,7 +144,7 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
       rows.push_back(hbox({text("code:  "), code_input->Render() | flex, text(" (optional)") | dim}));
     } else {
       rows.push_back(hbox({text("code:  "), code_input->Render() | flex}));
-      rows.push_back(hbox({text("out:   "), out_input->Render() | flex, out_browse->Render()}));
+      rows.push_back(hbox({text("out:   "), out_input->Render() | flex, browse_button->Render()}));
     }
     rows.push_back(separator());
     rows.push_back(hbox({text("preset: "), text(network_preset_label(menu.network.preset)) | color(Color::Cyan)}));
