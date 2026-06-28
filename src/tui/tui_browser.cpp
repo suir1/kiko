@@ -67,7 +67,9 @@ std::vector<BrowserEntry> list_entries(const std::filesystem::path& dir, TuiPick
     if (ec) break;
     BrowserEntry item;
     item.path = entry.path();
-    item.is_dir = entry.is_directory(ec);
+    std::error_code type_ec;
+    item.is_dir = entry.is_directory(type_ec);
+    if (type_ec) continue;
     const auto name = entry.path().filename().string();
     if (name.empty() || name == ".") continue;
     if (item.is_dir) {
@@ -82,8 +84,12 @@ std::vector<BrowserEntry> list_entries(const std::filesystem::path& dir, TuiPick
   auto by_name = [](const BrowserEntry& a, const BrowserEntry& b) { return a.label < b.label; };
   std::sort(dirs.begin(), dirs.end(), by_name);
   std::sort(files.begin(), files.end(), by_name);
-  out.insert(out.end(), dirs.begin(), dirs.end());
-  out.insert(out.end(), files.begin(), files.end());
+  if (mode == TuiPickMode::FileOrDirectory) {
+    out.insert(out.end(), files.begin(), files.end());
+    out.insert(out.end(), dirs.begin(), dirs.end());
+  } else {
+    out.insert(out.end(), dirs.begin(), dirs.end());
+  }
 
   BrowserEntry pick_here;
   pick_here.path = dir;
@@ -108,6 +114,18 @@ std::vector<BrowserEntry> apply_filter(const std::vector<BrowserEntry>& all, con
 }
 
 }  // namespace
+
+namespace detail {
+
+std::vector<std::string> list_tui_path_picker_labels(const std::filesystem::path& dir, TuiPickMode mode) {
+  std::vector<std::string> labels;
+  const auto entries = list_entries(dir, mode);
+  labels.reserve(entries.size());
+  for (const auto& entry : entries) labels.push_back(entry.label);
+  return labels;
+}
+
+}  // namespace detail
 
 std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::path& start, TuiPickMode mode) {
   using namespace ftxui;
