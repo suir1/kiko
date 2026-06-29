@@ -17,6 +17,8 @@ struct BrowserEntry {
   std::filesystem::path path;
   bool is_dir = false;
   std::string label;
+  std::filesystem::file_time_type modified;
+  bool has_modified = false;
 };
 
 constexpr const char* kParentLabel = "../";
@@ -48,7 +50,27 @@ bool matches_filter_ci(const std::string& label, const std::string& filter) {
   return to_lower(entry_match_name(label)).find(to_lower(filter)) != std::string::npos;
 }
 
-std::vector<BrowserEntry> list_entries(const std::filesystem::path& dir, TuiPickMode mode) {
+void load_modified_time(BrowserEntry& entry) {
+  std::error_code ec;
+  entry.modified = std::filesystem::last_write_time(entry.path, ec);
+  entry.has_modified = !ec;
+}
+
+void sort_entries(std::vector<BrowserEntry>& entries, TuiBrowserSort sort) {
+  auto by_name = [](const BrowserEntry& a, const BrowserEntry& b) { return a.label < b.label; };
+  if (sort == TuiBrowserSort::Name) {
+    std::sort(entries.begin(), entries.end(), by_name);
+    return;
+  }
+
+  std::sort(entries.begin(), entries.end(), [&](const BrowserEntry& a, const BrowserEntry& b) {
+    if (a.has_modified != b.has_modified) return a.has_modified;
+    if (a.has_modified && b.has_modified && a.modified != b.modified) return a.modified > b.modified;
+    return by_name(a, b);
+  });
+}
+
+std::vector<BrowserEntry> list_entries(const std::filesystem::path& dir, TuiPickMode mode, TuiBrowserSort sort) {
   std::vector<BrowserEntry> out;
   std::error_code ec;
   if (!std::filesystem::is_directory(dir, ec) || ec) return out;
@@ -70,6 +92,7 @@ std::vector<BrowserEntry> list_entries(const std::filesystem::path& dir, TuiPick
     std::error_code type_ec;
     item.is_dir = entry.is_directory(type_ec);
     if (type_ec) continue;
+    load_modified_time(item);
     const auto name = entry.path().filename().string();
     if (name.empty() || name == ".") continue;
     if (item.is_dir) {
@@ -81,9 +104,8 @@ std::vector<BrowserEntry> list_entries(const std::filesystem::path& dir, TuiPick
     }
   }
 
-  auto by_name = [](const BrowserEntry& a, const BrowserEntry& b) { return a.label < b.label; };
-  std::sort(dirs.begin(), dirs.end(), by_name);
-  std::sort(files.begin(), files.end(), by_name);
+  sort_entries(dirs, sort);
+  sort_entries(files, sort);
   if (mode == TuiPickMode::FileOrDirectory) {
     out.insert(out.end(), files.begin(), files.end());
     out.insert(out.end(), dirs.begin(), dirs.end());
@@ -117,12 +139,17 @@ std::vector<BrowserEntry> apply_filter(const std::vector<BrowserEntry>& all, con
 
 namespace detail {
 
-std::vector<std::string> list_tui_path_picker_labels(const std::filesystem::path& dir, TuiPickMode mode) {
+std::vector<std::string> list_tui_path_picker_labels(const std::filesystem::path& dir, TuiPickMode mode,
+                                                     TuiBrowserSort sort) {
   std::vector<std::string> labels;
-  const auto entries = list_entries(dir, mode);
+  const auto entries = list_entries(dir, mode, sort);
   labels.reserve(entries.size());
   for (const auto& entry : entries) labels.push_back(entry.label);
   return labels;
+}
+
+std::vector<std::string> list_tui_path_picker_labels(const std::filesystem::path& dir, TuiPickMode mode) {
+  return list_tui_path_picker_labels(dir, mode, TuiBrowserSort::Name);
 }
 
 }  // namespace detail
@@ -131,7 +158,8 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
   using namespace ftxui;
 
   std::filesystem::path current = normalize_dir(start);
-  std::vector<BrowserEntry> all_entries = list_entries(current, mode);
+  TuiBrowserSort sort_mode = TuiBrowserSort::Name;
+  std::vector<BrowserEntry> all_entries = list_entries(current, mode, sort_mode);
   std::vector<BrowserEntry> entries;
   std::vector<std::string> labels;
   std::string filter;
@@ -159,8 +187,16 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
     if (selected < 0) selected = 0;
   };
 
+  auto reload_entries = [&]() {
+    all_entries = list_entries(current, mode, sort_mode);
+    synced_filter.clear();
+    synced_dir.clear();
+    selected = 0;
+    sync_visible();
+  };
+
   auto reload_directory = [&]() {
-    all_entries = list_entries(current, mode);
+    all_entries = list_entries(current, mode, sort_mode);
     filter.clear();
     synced_filter.clear();
     synced_dir.clear();
@@ -174,7 +210,16 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
   filter_opt.multiline = false;
   auto filter_input = Input(&filter, "filter name…", filter_opt);
   auto menu = Menu(&labels, &selected);
-  auto browser_layout = Container::Vertical({filter_input, menu});
+  auto sort_name = Button("Name", [&] {
+    sort_mode = TuiBrowserSort::Name;
+    reload_entries();
+  });
+  auto sort_modified = Button("Modified", [&] {
+    sort_mode = TuiBrowserSort::ModifiedDesc;
+    reload_entries();
+  });
+  auto sort_controls = Container::Horizontal({sort_name, sort_modified});
+  auto browser_layout = Container::Vertical({filter_input, sort_controls, menu});
   auto screen = ScreenInteractive::Fullscreen();
 
   auto layout = Renderer(browser_layout, [&] {
@@ -184,6 +229,9 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
     rows.push_back(text("Select path") | bold | hcenter);
     rows.push_back(text(current.string()) | dim);
     rows.push_back(hbox({text("filter: "), filter_input->Render() | flex}));
+    rows.push_back(hbox({text("sort:   "), sort_name->Render(), text(" "), sort_modified->Render(),
+                         text(sort_mode == TuiBrowserSort::Name ? "  current=name" : "  current=modified desc") |
+                             dim}));
     rows.push_back(separator());
 
     std::size_t match_count = 0;
@@ -204,9 +252,7 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
     }
 
     rows.push_back(separator());
-    rows.push_back(text(mode == TuiPickMode::DirectoryOnly ? "Tab: filter/list  Enter: open/select  Esc: cancel"
-                                                           : "Tab: filter/list  Enter: open/select  Esc: cancel") |
-                   dim);
+    rows.push_back(text("Tab: filter/sort/list  Enter: open/select  Esc: cancel") | dim);
     return vbox(std::move(rows)) | border;
   });
 

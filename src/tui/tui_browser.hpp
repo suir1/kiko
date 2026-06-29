@@ -8,11 +8,14 @@
 namespace kiko {
 
 enum class TuiPickMode { FileOrDirectory, DirectoryOnly };
+enum class TuiBrowserSort { Name, ModifiedDesc };
 
 namespace detail {
 
 [[nodiscard]] std::vector<std::string> list_tui_path_picker_labels(const std::filesystem::path& dir,
                                                                    TuiPickMode mode);
+[[nodiscard]] std::vector<std::string> list_tui_path_picker_labels(const std::filesystem::path& dir,
+                                                                   TuiPickMode mode, TuiBrowserSort sort);
 
 }  // namespace detail
 

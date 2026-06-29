@@ -1,6 +1,7 @@
 #include "tui/tui_browser.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -20,6 +21,15 @@ std::size_t find_label(const std::vector<std::string>& labels, const std::string
 
 bool contains_label(const std::vector<std::string>& labels, const std::string& needle) {
   return find_label(labels, needle) != labels.size();
+}
+
+void set_modified_time(const fs::path& path, fs::file_time_type time) {
+  std::error_code ec;
+  fs::last_write_time(path, time, ec);
+  if (ec) {
+    std::cerr << "FAIL: could not set modified time for " << path << "\n";
+    std::exit(1);
+  }
 }
 
 fs::path make_temp_root() {
@@ -44,6 +54,9 @@ int main() {
     std::ofstream(root / "a.txt") << "a\n";
     std::ofstream(root / "z.txt") << "z\n";
   }
+  const auto now = fs::file_time_type::clock::now();
+  set_modified_time(root / "a.txt", now - std::chrono::hours(2));
+  set_modified_time(root / "z.txt", now - std::chrono::minutes(5));
 
   const auto send_labels = detail::list_tui_path_picker_labels(root, TuiPickMode::FileOrDirectory);
   const auto a_pos = find_label(send_labels, "a.txt");
@@ -61,6 +74,14 @@ int main() {
   }
   if (!contains_label(send_labels, "[Select this folder]")) {
     std::cerr << "FAIL: send picker should allow selecting the current folder\n";
+    fs::remove_all(root, ec);
+    return 1;
+  }
+
+  const auto recent_labels =
+      detail::list_tui_path_picker_labels(root, TuiPickMode::FileOrDirectory, TuiBrowserSort::ModifiedDesc);
+  if (!(find_label(recent_labels, "z.txt") < find_label(recent_labels, "a.txt"))) {
+    std::cerr << "FAIL: modified-time sort should show newer files first\n";
     fs::remove_all(root, ec);
     return 1;
   }
