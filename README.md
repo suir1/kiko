@@ -27,6 +27,18 @@ If `raw.githubusercontent.com` is blocked by your network, download the Windows 
 The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
 `KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.1.8-alpha` to install a specific release.
 Use `KIKO_INSTALL_DRY_RUN=1` to print the release asset URL without downloading it.
+Set `KIKO_ADD_TO_PATH=1` to add the install directory to your user PATH (`~/.zshrc`, `~/.bashrc`,
+`~/.profile`, or Windows User PATH). On macOS/Linux you can also use `KIKO_ADD_TO_PATH=prompt` for
+an interactive prompt when running the script from a terminal.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh | KIKO_ADD_TO_PATH=1 sh
+```
+
+```powershell
+$env:KIKO_ADD_TO_PATH = "1"
+irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
+```
 
 Termux source build:
 

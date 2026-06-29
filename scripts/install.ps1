@@ -2,6 +2,7 @@ param(
     [string]$Repo = $(if ($env:KIKO_REPO) { $env:KIKO_REPO } else { "suir1/kiko" }),
     [string]$Version = $env:KIKO_VERSION,
     [string]$InstallDir = $(if ($env:KIKO_INSTALL_DIR) { $env:KIKO_INSTALL_DIR } else { Join-Path $HOME "bin" }),
+    [switch]$AddToPath,
     [switch]$DryRun
 )
 
@@ -42,8 +43,53 @@ function Get-KikoWindowsArch {
     return ""
 }
 
+function Test-PathContainsDirectory {
+    param(
+        [string]$PathValue,
+        [string]$Directory
+    )
+    if ([string]::IsNullOrWhiteSpace($PathValue)) {
+        return $false
+    }
+    $trimChars = [char[]]@("\", "/")
+    $target = $Directory.TrimEnd($trimChars)
+    foreach ($entry in ($PathValue -split [System.IO.Path]::PathSeparator)) {
+        if ($entry.TrimEnd($trimChars) -ieq $target) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Add-KikoInstallDirToUserPath {
+    param([string]$Directory)
+
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if (Test-PathContainsDirectory -PathValue $userPath -Directory $Directory) {
+        Write-Host "$Directory is already in the user PATH."
+    }
+    else {
+        $newUserPath = if ([string]::IsNullOrWhiteSpace($userPath)) {
+            $Directory
+        }
+        else {
+            $userPath.TrimEnd([System.IO.Path]::PathSeparator) + [System.IO.Path]::PathSeparator + $Directory
+        }
+        [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
+        Write-Host "Added $Directory to the user PATH. Open a new terminal to use 'kiko' from anywhere."
+    }
+
+    if (-not (Test-PathContainsDirectory -PathValue $env:Path -Directory $Directory)) {
+        $env:Path = $Directory + [System.IO.Path]::PathSeparator + $env:Path
+    }
+}
+
 if (-not $DryRun -and $env:KIKO_INSTALL_DRY_RUN) {
     $DryRun = Test-TruthyEnv $env:KIKO_INSTALL_DRY_RUN
+}
+
+if (-not $AddToPath -and $env:KIKO_ADD_TO_PATH) {
+    $AddToPath = Test-TruthyEnv $env:KIKO_ADD_TO_PATH
 }
 
 if (-not $Version) {
@@ -91,6 +137,7 @@ if ($DryRun) {
     Write-Host "archive=$archive"
     Write-Host "url=$url"
     Write-Host "install_dir=$InstallDir"
+    Write-Host "add_to_path=$([int][bool]$AddToPath)"
     return
 }
 
@@ -125,9 +172,11 @@ try {
     Copy-Item -Path (Join-Path $tmpDir "kiko-$Version-$asset/*.dll") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
 
     Write-Host "Installed kiko $Version to $targetPath"
-    $pathEntries = $env:Path -split [System.IO.Path]::PathSeparator
-    if ($pathEntries -notcontains $InstallDir) {
-        Write-Host "Add $InstallDir to PATH to run 'kiko' from anywhere."
+    if ($AddToPath) {
+        Add-KikoInstallDirToUserPath -Directory $InstallDir
+    }
+    elseif (-not (Test-PathContainsDirectory -PathValue $env:Path -Directory $InstallDir)) {
+        Write-Host "Add $InstallDir to PATH to run 'kiko' from anywhere, or rerun with KIKO_ADD_TO_PATH=1."
     }
 }
 finally {

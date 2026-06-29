@@ -98,6 +98,16 @@ run_dry Darwin arm64 "$tmp_dir/macos-arm64.out"
 assert_contains "$tmp_dir/macos-arm64.out" "asset=macos-arm64"
 assert_contains "$tmp_dir/macos-arm64.out" "archive=kiko-v9.9.9-test-macos-arm64.tar.gz"
 
+env \
+  KIKO_VERSION=v9.9.9-test \
+  KIKO_INSTALL_DIR="$tmp_dir/bin" \
+  KIKO_INSTALL_DRY_RUN=1 \
+  KIKO_ADD_TO_PATH=1 \
+  KIKO_TEST_UNAME_S=Darwin \
+  KIKO_TEST_UNAME_M=arm64 \
+  "$installer" >"$tmp_dir/add-path.out"
+assert_contains "$tmp_dir/add-path.out" "add_to_path=1"
+
 if run_dry Linux riscv64 "$tmp_dir/unsupported.out" 2>"$tmp_dir/unsupported.err"; then
   echo "expected unsupported architecture to fail" >&2
   exit 1

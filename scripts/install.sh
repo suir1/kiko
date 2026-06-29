@@ -10,6 +10,7 @@ build_from_source="${KIKO_BUILD_FROM_SOURCE:-}"
 source_ref="${KIKO_SOURCE_REF:-}"
 install_deps="${KIKO_INSTALL_DEPS:-}"
 termux_prefix="${PREFIX:-}"
+add_to_path="${KIKO_ADD_TO_PATH:-}"
 
 is_termux=0
 if [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux/files/usr" ]; then
@@ -43,6 +44,73 @@ need() {
 die() {
   echo "error: $*" >&2
   exit 1
+}
+
+truthy() {
+  case "$1" in
+    1 | true | TRUE | yes | YES | on | ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+shell_quote() {
+  printf "%s" "$1" | sed "s/'/'\\\\''/g; 1s/^/'/; \$s/\$/'/"
+}
+
+path_profile_file() {
+  if [ -n "${KIKO_PATH_PROFILE:-}" ]; then
+    printf "%s\n" "$KIKO_PATH_PROFILE"
+    return
+  fi
+  shell_name="$(basename "${SHELL:-}")"
+  case "$shell_name" in
+    zsh) printf "%s\n" "$HOME/.zshrc" ;;
+    bash) printf "%s\n" "$HOME/.bashrc" ;;
+    *) printf "%s\n" "$HOME/.profile" ;;
+  esac
+}
+
+should_add_to_path() {
+  if truthy "$add_to_path"; then
+    return 0
+  fi
+  if [ "$add_to_path" = "prompt" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    printf "Add %s to PATH for future shells? [y/N] " "$install_dir" >/dev/tty
+    IFS= read -r answer </dev/tty || answer=""
+    case "$answer" in
+      y | Y | yes | YES) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+add_install_dir_to_path() {
+  if ! should_add_to_path; then
+    case ":$PATH:" in
+      *":$install_dir:"*) ;;
+      *) echo "Add $install_dir to PATH to run 'kiko' from anywhere, or rerun with KIKO_ADD_TO_PATH=1." ;;
+    esac
+    return
+  fi
+
+  profile="$(path_profile_file)"
+  mkdir -p "$(dirname "$profile")"
+  if [ -f "$profile" ] && grep -Fq "$install_dir" "$profile"; then
+    echo "$install_dir is already mentioned in $profile"
+    return
+  fi
+
+  quoted_dir="$(shell_quote "$install_dir")"
+  {
+    echo ""
+    echo "# kiko installer PATH"
+    echo "case \":\$PATH:\" in"
+    echo "  *\":$install_dir:\"*) ;;"
+    echo "  *) export PATH=$quoted_dir:\$PATH ;;"
+    echo "esac"
+  } >>"$profile"
+  echo "Added $install_dir to PATH in $profile"
+  echo "Restart your shell, or run: export PATH=$quoted_dir:\$PATH"
 }
 
 termux_source_hint() {
@@ -110,10 +178,7 @@ source_build() {
   chmod +x "$install_dir/kiko"
 
   echo "Installed kiko from source ($source_ref) to $install_dir/kiko"
-  case ":$PATH:" in
-    *":$install_dir:"*) ;;
-    *) echo "Add $install_dir to PATH to run 'kiko' from anywhere." ;;
-  esac
+  add_install_dir_to_path
 }
 
 if [ -z "$version" ] && { [ -z "$build_from_source" ] || [ -z "$source_ref" ]; }; then
@@ -161,6 +226,7 @@ if [ -n "$build_from_source" ]; then
     echo "source_ref=$source_ref"
     echo "install_dir=$install_dir"
     echo "install_deps=$install_deps"
+    echo "add_to_path=${add_to_path:-0}"
     echo "android=$is_android"
     echo "termux=$is_termux"
     exit 0
@@ -220,6 +286,7 @@ if [ -n "$dry_run" ]; then
   echo "archive=$archive"
   echo "url=$url"
   echo "install_dir=$install_dir"
+  echo "add_to_path=${add_to_path:-0}"
   echo "android=$is_android"
   echo "termux=$is_termux"
   exit 0
@@ -265,7 +332,4 @@ cp "$source_path" "$install_dir/kiko"
 chmod +x "$install_dir/kiko"
 
 echo "Installed kiko $version to $install_dir/kiko"
-case ":$PATH:" in
-  *":$install_dir:"*) ;;
-  *) echo "Add $install_dir to PATH to run 'kiko' from anywhere." ;;
-esac
+add_install_dir_to_path
