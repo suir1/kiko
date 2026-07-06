@@ -65,7 +65,7 @@ function Invoke-KikoRest {
         return Invoke-RestMethod -Uri $Uri -Headers $Headers -ErrorAction Stop
     }
     catch {
-        Write-Warning "Could not query $Uri: $(Get-KikoErrorText $_)"
+        Write-Warning "Could not query ${Uri}: $(Get-KikoErrorText $_)"
         return $null
     }
 }
@@ -78,7 +78,7 @@ function Invoke-KikoWebContent {
         return $response.Content
     }
     catch {
-        Write-Warning "Could not fetch $Uri: $(Get-KikoErrorText $_)"
+        Write-Warning "Could not fetch ${Uri}: $(Get-KikoErrorText $_)"
         return $null
     }
 }
