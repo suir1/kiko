@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
@@ -21,6 +22,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <thread>
@@ -33,6 +35,8 @@ using json = nlohmann::json;
 constexpr std::size_t kMaxBodyBytes = 1024 * 1024;
 constexpr std::size_t kMaxLogLines = 120;
 constexpr int kDefaultPairTimeoutSec = static_cast<int>(kDefaultPairTimeout.count());
+constexpr auto kNoteReadPoll = std::chrono::milliseconds(100);
+constexpr auto kNoteHelloTimeout = std::chrono::seconds(20);
 
 std::string lower(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(),
@@ -267,6 +271,17 @@ void close_web_note_runtime(WebNoteRuntime& runtime) {
   runtime.done.store(true);
   if (runtime.channel) runtime.channel->close();
   runtime.changed.notify_all();
+}
+
+std::optional<NoteFrame> recv_web_note_interruptible(TcpSocket& channel, StreamCipher& cipher,
+                                                     const WebNoteRuntime& runtime,
+                                                     const TransferCancellation& cancellation) {
+  while (!runtime.done.load() && !cancellation.requested()) {
+    auto frame = recv_note_frame_timeout(channel, cipher, kNoteReadPoll, cancellation.flag());
+    if (frame) return frame;
+    if (!channel.valid()) return std::nullopt;
+  }
+  return std::nullopt;
 }
 
 class WebJobStore {
@@ -518,7 +533,7 @@ class WebJobStore {
           auto cipher = std::make_unique<StreamCipher>(session.encrypted.key, config.role == Role::Sender);
           send_note_frame(*channel, *cipher, make_note_hello());
           append_log("notepad hello sent");
-          auto hello = recv_note_frame(*channel, *cipher);
+          auto hello = recv_note_frame_timeout(*channel, *cipher, kNoteHelloTimeout, cancellation->flag());
           if (!hello || hello->type != NoteFrameType::Hello) throw KikoError("note peer did not send hello");
           append_log("notepad peer hello received");
 
@@ -545,7 +560,8 @@ class WebJobStore {
               active_cipher = runtime->cipher.get();
             }
             if (!active_channel || !active_cipher) break;
-            auto incoming = recv_note_frame(*active_channel, *active_cipher);
+            auto incoming =
+                recv_web_note_interruptible(*active_channel, *active_cipher, *runtime, *cancellation);
             if (!incoming) break;
             if (incoming->type == NoteFrameType::Bye) break;
             if (incoming->type == NoteFrameType::Ack) {

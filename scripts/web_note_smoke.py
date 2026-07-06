@@ -56,7 +56,7 @@ def terminate(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=3)
 
 
-def communicate_or_terminate(proc: subprocess.Popen[str], timeout: float) -> str:
+def communicate_or_fail(proc: subprocess.Popen[str], timeout: float) -> str:
     try:
         output, _ = proc.communicate(timeout=timeout)
         return output or ""
@@ -65,13 +65,8 @@ def communicate_or_terminate(proc: subprocess.Popen[str], timeout: float) -> str
         if isinstance(partial, bytes):
             partial = partial.decode("utf-8", "replace")
         terminate(proc)
-        tail = ""
-        if proc.stdout:
-            try:
-                tail = proc.stdout.read() or ""
-            except ValueError:
-                tail = ""
-        return tail or partial
+        fail("join did not exit after /quit:\n" + partial[-2000:])
+        return ""
 
 
 def main() -> None:
@@ -177,7 +172,7 @@ def main() -> None:
             fail("join stdin was unavailable")
         join.stdin.write("/quit\n")
         join.stdin.flush()
-        output = communicate_or_terminate(join, timeout=20)
+        output = communicate_or_fail(join, timeout=8)
         if note_text not in output:
             fail("join output did not contain synced note text:\n" + output[-2000:])
     finally:

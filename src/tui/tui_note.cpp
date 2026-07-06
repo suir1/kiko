@@ -26,6 +26,9 @@
 namespace kiko {
 namespace {
 
+constexpr auto kNoteReadPoll = std::chrono::milliseconds(100);
+constexpr auto kNoteHelloTimeout = std::chrono::seconds(20);
+
 struct TuiNoteState {
   std::mutex mutex;
   std::string title = "kiko note";
@@ -126,6 +129,17 @@ void close_runtime(TuiNoteRuntime& runtime) {
   runtime.done.store(true);
   if (runtime.channel) runtime.channel->close();
   runtime.changed.notify_all();
+}
+
+std::optional<NoteFrame> recv_tui_note_interruptible(TcpSocket& channel, StreamCipher& cipher,
+                                                     const TuiNoteRuntime& runtime,
+                                                     const TransferCancellation& cancellation) {
+  while (!runtime.done.load() && !cancellation.requested()) {
+    auto frame = recv_note_frame_timeout(channel, cipher, kNoteReadPoll, cancellation.flag());
+    if (frame) return frame;
+    if (!channel.valid()) return std::nullopt;
+  }
+  return std::nullopt;
 }
 
 bool runtime_connected(TuiNoteRuntime& runtime) {
@@ -264,7 +278,7 @@ int run_tui_note(const NoteConfig& config) {
       auto channel = std::make_unique<TcpSocket>(std::move(session.encrypted.channel));
       auto cipher = std::make_unique<StreamCipher>(session.encrypted.key, run_config.role == Role::Sender);
       send_note_frame(*channel, *cipher, make_note_hello());
-      auto hello = recv_note_frame(*channel, *cipher);
+      auto hello = recv_note_frame_timeout(*channel, *cipher, kNoteHelloTimeout, cancellation->flag());
       if (!hello || hello->type != NoteFrameType::Hello) throw KikoError("note peer did not send hello");
 
       {
@@ -291,7 +305,7 @@ int run_tui_note(const NoteConfig& config) {
           active_cipher = runtime.cipher.get();
         }
         if (!active_channel || !active_cipher) break;
-        auto incoming = recv_note_frame(*active_channel, *active_cipher);
+        auto incoming = recv_tui_note_interruptible(*active_channel, *active_cipher, runtime, *cancellation);
         if (!incoming) break;
         frame = std::move(*incoming);
         if (frame.type == NoteFrameType::Bye) break;

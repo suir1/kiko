@@ -176,6 +176,10 @@ std::weak_ptr<asio::ip::tcp::socket> TcpSocket::weak_handle() const { return soc
 void TcpSocket::close() {
   if (!socket_) return;
   asio::error_code ec;
+  if (socket_->is_open()) {
+    socket_->shutdown(asio::ip::tcp::socket::shutdown_both, ec);
+    ec.clear();
+  }
   socket_->close(ec);
 }
 
@@ -242,7 +246,10 @@ bool TcpSocket::recv_exact_timeout(void* data, std::size_t size, std::chrono::mi
       received += n;
       continue;
     }
-    if (ec == asio::error::eof || ec == asio::error::connection_reset) return false;
+    if (ec == asio::error::eof || ec == asio::error::connection_reset) {
+      close();
+      return false;
+    }
     if (ec != asio::error::would_block && ec != asio::error::try_again) {
       throw KikoError("recv failed: " + ec.message());
     }

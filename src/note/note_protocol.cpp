@@ -116,4 +116,13 @@ std::optional<NoteFrame> recv_note_frame(TcpSocket& socket, StreamCipher& cipher
   return decode_note_frame(std::string(plain.begin(), plain.end()));
 }
 
+std::optional<NoteFrame> recv_note_frame_timeout(TcpSocket& socket, StreamCipher& cipher,
+                                                 std::chrono::milliseconds timeout,
+                                                 const std::atomic_bool* cancel) {
+  auto encrypted = recv_frame_timeout(socket, timeout, cancel);
+  if (!encrypted) return std::nullopt;
+  auto plain = cipher.decrypt(*encrypted);
+  return decode_note_frame(std::string(plain.begin(), plain.end()));
+}
+
 }  // namespace kiko
