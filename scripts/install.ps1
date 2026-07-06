@@ -13,7 +13,8 @@ function Enable-KikoTls {
         $protocols = [Net.ServicePointManager]::SecurityProtocol
         foreach ($name in @("Tls12", "Tls13")) {
             try {
-                $protocols = $protocols -bor ([Net.SecurityProtocolType]::$name)
+                $protocol = [Enum]::Parse([Net.SecurityProtocolType], $name)
+                $protocols = $protocols -bor $protocol
             }
             catch {
                 # Older Windows PowerShell/.NET releases may not expose newer protocol names.
