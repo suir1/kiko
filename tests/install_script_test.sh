@@ -3,6 +3,7 @@ set -eu
 
 root="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 installer="$root/scripts/install.sh"
+ps_installer="$root/scripts/install.ps1"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT INT TERM
 
@@ -113,5 +114,11 @@ if run_dry Linux riscv64 "$tmp_dir/unsupported.out" 2>"$tmp_dir/unsupported.err"
   exit 1
 fi
 assert_contains "$tmp_dir/unsupported.err" "unsupported Linux architecture: riscv64"
+
+assert_contains "$ps_installer" "Enable-KikoTls"
+assert_contains "$ps_installer" "Save-KikoFile"
+assert_contains "$ps_installer" "Get-KikoLatestFromRedirect"
+assert_contains "$ps_installer" "KIKO_ADD_TO_PATH"
+assert_contains "$ps_installer" "Failed to download"
 
 echo "install script dry-run checks passed"

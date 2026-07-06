@@ -8,12 +8,189 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Enable-KikoTls {
+    try {
+        $protocols = [Net.ServicePointManager]::SecurityProtocol
+        foreach ($name in @("Tls12", "Tls13")) {
+            try {
+                $protocols = $protocols -bor ([Net.SecurityProtocolType]::$name)
+            }
+            catch {
+                # Older Windows PowerShell/.NET releases may not expose newer protocol names.
+            }
+        }
+        [Net.ServicePointManager]::SecurityProtocol = $protocols
+    }
+    catch {
+        # PowerShell Core on some platforms may ignore ServicePointManager; downloads can still proceed.
+    }
+}
+
 function Test-TruthyEnv {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) {
         return $false
     }
     return $Value.ToLowerInvariant() -in @("1", "true", "yes", "on")
+}
+
+function Get-KikoErrorText {
+    param([object]$ErrorRecord)
+
+    if ($null -eq $ErrorRecord) {
+        return "unknown error"
+    }
+    $message = $ErrorRecord.Exception.Message
+    try {
+        $response = $ErrorRecord.Exception.Response
+        if ($null -ne $response) {
+            $status = $response.StatusCode
+            if ($null -ne $status) {
+                $message = "$message ($([int]$status) $status)"
+            }
+        }
+    }
+    catch {
+    }
+    return $message
+}
+
+function Invoke-KikoRest {
+    param(
+        [string]$Uri,
+        [hashtable]$Headers = @{}
+    )
+
+    try {
+        return Invoke-RestMethod -Uri $Uri -Headers $Headers -ErrorAction Stop
+    }
+    catch {
+        Write-Warning "Could not query $Uri: $(Get-KikoErrorText $_)"
+        return $null
+    }
+}
+
+function Invoke-KikoWebContent {
+    param([string]$Uri)
+
+    try {
+        $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -ErrorAction Stop
+        return $response.Content
+    }
+    catch {
+        Write-Warning "Could not fetch $Uri: $(Get-KikoErrorText $_)"
+        return $null
+    }
+}
+
+function Get-KikoLatestFromRedirect {
+    param([string]$Repo)
+
+    $latestUrl = "https://github.com/$Repo/releases/latest"
+    try {
+        $response = Invoke-WebRequest -Uri $latestUrl -UseBasicParsing -MaximumRedirection 0 -ErrorAction Stop
+        $location = $response.Headers.Location
+    }
+    catch {
+        $location = $null
+        try {
+            if ($null -ne $_.Exception.Response) {
+                $location = $_.Exception.Response.Headers["Location"]
+            }
+        }
+        catch {
+        }
+    }
+    if ($location -and $location -match "/tag/(v[^/?#]+)") {
+        return $Matches[1]
+    }
+    return ""
+}
+
+function Save-KikoFile {
+    param(
+        [string]$Uri,
+        [string]$OutFile,
+        [string]$Archive,
+        [string]$Version,
+        [string]$Asset,
+        [string]$Repo
+    )
+
+    $errors = New-Object System.Collections.Generic.List[string]
+    try {
+        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
+        return
+    }
+    catch {
+        $errors.Add("Invoke-WebRequest: $(Get-KikoErrorText $_)")
+    }
+
+    try {
+        $client = New-Object System.Net.WebClient
+        $client.Headers.Add("User-Agent", "kiko-install")
+        $client.DownloadFile($Uri, $OutFile)
+        return
+    }
+    catch {
+        $errors.Add("WebClient: $(Get-KikoErrorText $_)")
+    }
+    finally {
+        if ($client) {
+            $client.Dispose()
+        }
+    }
+
+    $releaseUrl = "https://github.com/$Repo/releases/tag/$Version"
+    $message = @(
+        "Failed to download $Archive.",
+        "Tried: $Uri",
+        "Release page: $releaseUrl",
+        "Expected asset: $Asset",
+        "Errors:",
+        "  $($errors -join "`n  ")",
+        "If GitHub is blocked on this network, download the zip manually from the release page and unzip kiko.exe into a directory on PATH."
+    ) -join [Environment]::NewLine
+    throw $message
+}
+
+function Get-KikoAddToPathMode {
+    if ($AddToPath) {
+        return "1"
+    }
+    if ([string]::IsNullOrWhiteSpace($env:KIKO_ADD_TO_PATH)) {
+        return "0"
+    }
+    $value = $env:KIKO_ADD_TO_PATH.ToLowerInvariant()
+    if ($value -eq "prompt") {
+        return "prompt"
+    }
+    if (Test-TruthyEnv $env:KIKO_ADD_TO_PATH) {
+        return "1"
+    }
+    return "0"
+}
+
+function Test-KikoShouldAddToPath {
+    param(
+        [string]$Mode,
+        [string]$Directory
+    )
+
+    if ($Mode -eq "1") {
+        return $true
+    }
+    if ($Mode -eq "prompt") {
+        try {
+            if ([Environment]::UserInteractive) {
+                $answer = Read-Host "Add $Directory to your user PATH for future PowerShell sessions? [y/N]"
+                return $answer -in @("y", "Y", "yes", "YES")
+            }
+        }
+        catch {
+        }
+    }
+    return $false
 }
 
 function Get-KikoWindowsArch {
@@ -92,30 +269,31 @@ if (-not $AddToPath -and $env:KIKO_ADD_TO_PATH) {
     $AddToPath = Test-TruthyEnv $env:KIKO_ADD_TO_PATH
 }
 
+Enable-KikoTls
+$addToPathMode = Get-KikoAddToPathMode
+
 if (-not $Version) {
-    try {
-        $headers = @{
-            Accept = "application/vnd.github+json"
-            "User-Agent" = "kiko-install"
-        }
-        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases" -Headers $headers
-        if ($releases -and $releases[0].tag_name) {
-            $Version = $releases[0].tag_name
-        }
+    $headers = @{
+        Accept = "application/vnd.github+json"
+        "User-Agent" = "kiko-install"
     }
-    catch {
-        $Version = ""
+    $releases = Invoke-KikoRest -Uri "https://api.github.com/repos/$Repo/releases" -Headers $headers
+    $firstRelease = @($releases | Where-Object { $_.tag_name } | Select-Object -First 1)
+    if ($firstRelease -and $firstRelease.tag_name) {
+        $Version = $firstRelease.tag_name
     }
 }
 
 if (-not $Version) {
-    try {
-        [xml]$feed = (Invoke-WebRequest -Uri "https://github.com/$Repo/releases.atom").Content
+    $feedContent = Invoke-KikoWebContent -Uri "https://github.com/$Repo/releases.atom"
+    if ($feedContent) {
+        [xml]$feed = $feedContent
         $Version = @($feed.feed.entry | Where-Object { $_.title -like "v*" } | Select-Object -First 1).title
     }
-    catch {
-        $Version = ""
-    }
+}
+
+if (-not $Version) {
+    $Version = Get-KikoLatestFromRedirect -Repo $Repo
 }
 
 if (-not $Version) {
@@ -137,7 +315,7 @@ if ($DryRun) {
     Write-Host "archive=$archive"
     Write-Host "url=$url"
     Write-Host "install_dir=$InstallDir"
-    Write-Host "add_to_path=$([int][bool]$AddToPath)"
+    Write-Host "add_to_path=$addToPathMode"
     return
 }
 
@@ -148,12 +326,7 @@ New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
 
 try {
     Write-Host "Downloading $url"
-    try {
-        Invoke-WebRequest -Uri $url -OutFile $zipPath
-    }
-    catch {
-        throw "Failed to download $archive. Check that release $Version has a $asset package at https://github.com/$Repo/releases/tag/$Version"
-    }
+    Save-KikoFile -Uri $url -OutFile $zipPath -Archive $archive -Version $Version -Asset $asset -Repo $Repo
 
     try {
         Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
@@ -172,7 +345,7 @@ try {
     Copy-Item -Path (Join-Path $tmpDir "kiko-$Version-$asset/*.dll") -Destination $InstallDir -Force -ErrorAction SilentlyContinue
 
     Write-Host "Installed kiko $Version to $targetPath"
-    if ($AddToPath) {
+    if (Test-KikoShouldAddToPath -Mode $addToPathMode -Directory $InstallDir) {
         Add-KikoInstallDirToUserPath -Directory $InstallDir
     }
     elseif (-not (Test-PathContainsDirectory -PathValue $env:Path -Directory $InstallDir)) {

@@ -43,6 +43,9 @@ jobs:
           KIKO_INSTALL_DIR: ${{ runner.temp }}\kiko-bin
           KIKO_VERSION: ${{ github.event.release.tag_name || inputs.version || '' }}
         run: |
-          irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1 | iex
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          $script = irm https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.ps1
+          if ([string]::IsNullOrWhiteSpace($script)) { throw "failed to download kiko installer" }
+          iex $script
           & "$env:KIKO_INSTALL_DIR\kiko.exe" --help
           & "$env:KIKO_INSTALL_DIR\kiko.exe" doctor --help
