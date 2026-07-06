@@ -219,13 +219,12 @@ std::string random_mnemonic_code(std::size_t words) {
 
 namespace {
 
-bool short_pairing_char(char c) {
-  static constexpr char alphabet[] = "23456789abcdefghijkmnpqrstuvwxyz";
-  return std::strchr(alphabet, c) != nullptr;
+bool pairing_alnum(char c) {
+  return std::isalnum(static_cast<unsigned char>(c)) != 0;
 }
 
 bool mnemonic_pairing_char(char c) {
-  return short_pairing_char(c) || c == '-' || (c >= 'A' && c <= 'Z');
+  return pairing_alnum(c) || c == '-';
 }
 
 }  // namespace
@@ -243,10 +242,10 @@ std::optional<std::string> validate_pairing_code_format(const std::string& code,
   for (const char c : code) {
     if (mnemonic) {
       if (!mnemonic_pairing_char(c)) {
-        return "pairing code has invalid character (use a-z, 0-9, and - for mnemonic codes)";
+        return "pairing code has invalid character (use letters, digits, and - for mnemonic codes)";
       }
-    } else if (!short_pairing_char(c)) {
-      return "pairing code has invalid character (use 23456789abcdefghijkmnpqrstuvwxyz)";
+    } else if (!pairing_alnum(c)) {
+      return "pairing code has invalid character (use letters and digits)";
     }
   }
 

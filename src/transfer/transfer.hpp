@@ -52,6 +52,7 @@ struct SendConfig {
   bool auto_reconnect = true;
   int reconnect_attempts = 3;
   std::chrono::milliseconds reconnect_delay{1000};
+  std::chrono::milliseconds pair_timeout{kDefaultPairTimeout};
   SymlinkMode symlink_mode = SymlinkMode::Follow;
   bool debug_route = false;
   std::shared_ptr<TransferCancellation> cancellation;
@@ -117,6 +118,7 @@ struct RecvConfig {
   bool auto_reconnect = true;
   int reconnect_attempts = 3;
   std::chrono::milliseconds reconnect_delay{1000};
+  std::chrono::milliseconds pair_timeout{kDefaultPairTimeout};
   ConflictPolicy conflict_policy = ConflictPolicy::Overwrite;
   bool debug_route = false;
   std::shared_ptr<TransferCancellation> cancellation;

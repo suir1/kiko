@@ -1,4 +1,5 @@
 #include "core/common.hpp"
+#include "core/cancellation.hpp"
 #include "core/config.hpp"
 #include "diagnostics/doctor.hpp"
 #include "core/progress.hpp"
@@ -7,16 +8,22 @@
 
 #include "relay/relay_server.hpp"
 #include "transfer/transfer.hpp"
+#include "note/notepad.hpp"
 #include "tui/tui.hpp"
+#include "tui/tui_note.hpp"
 #include "platform/user_config.hpp"
+#include "web/web.hpp"
 
 #include <CLI/CLI.hpp>
 
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 
 namespace {
+
+constexpr int kDefaultPairTimeoutSec = static_cast<int>(kiko::kDefaultPairTimeout.count());
 
 kiko::Endpoint parse_endpoint_option(const std::string& value, std::uint16_t default_port) {
   return kiko::parse_endpoint(value, default_port);
@@ -60,6 +67,16 @@ int main(int argc, char** argv) {
   std::string tui_relay = relay_default;
   auto* tui_cmd = app.add_subcommand("tui", "Interactive terminal UI");
   tui_cmd->add_option("--relay", tui_relay, "Default relay address");
+
+  std::string web_relay = relay_default;
+  std::string web_relay_pass;
+  std::string web_listen = "127.0.0.1:0";
+  bool web_no_open = false;
+  auto* web_cmd = app.add_subcommand("web", "Local browser UI");
+  web_cmd->add_option("--relay", web_relay, "Default relay address");
+  web_cmd->add_option("--relay-pass", web_relay_pass, "Relay password");
+  web_cmd->add_option("--listen", web_listen, "Loopback listen address");
+  web_cmd->add_flag("--no-open", web_no_open, "Print the URL without opening a browser");
 
   std::string relay_listen = "[::]:9000";
   std::string relay_pass;
@@ -116,6 +133,7 @@ int main(int argc, char** argv) {
   std::string send_symlinks = "follow";
   int send_connections = 4;
   int send_reconnect_attempts = 3;
+  int send_pair_timeout_sec = kDefaultPairTimeoutSec;
   bool send_tui = false;
   auto* send_cmd = app.add_subcommand("send", "Send a file or directory");
   send_cmd->add_option("path", send_path, "File or directory to send")->required();
@@ -147,6 +165,8 @@ int main(int argc, char** argv) {
   send_cmd->add_flag("--no-reconnect", send_no_reconnect, "Disable automatic reconnect/resume after connection loss");
   send_cmd->add_option("--reconnect-attempts", send_reconnect_attempts, "Total transfer attempts including the first")
       ->check(CLI::PositiveNumber);
+  send_cmd->add_option("--pair-timeout", send_pair_timeout_sec, "Seconds to wait for the receiver to enter the code")
+      ->check(CLI::PositiveNumber);
   send_cmd->add_flag("--remember", send_remember, "Save relay and path to ~/.config/kiko/config.json");
   send_cmd->add_flag("--tui", send_tui, "Show live progress UI");
 
@@ -171,6 +191,7 @@ int main(int argc, char** argv) {
   std::string recv_bind_interface;
   std::string recv_on_conflict = "overwrite";
   int recv_reconnect_attempts = 3;
+  int recv_pair_timeout_sec = kDefaultPairTimeoutSec;
   bool recv_tui = false;
   auto* recv_cmd = app.add_subcommand("recv", "Receive files with a pairing code");
   recv_cmd->add_option("code", recv_code, "Pairing code from sender")->required();
@@ -196,8 +217,88 @@ int main(int argc, char** argv) {
   recv_cmd->add_flag("--no-reconnect", recv_no_reconnect, "Disable automatic reconnect/resume after connection loss");
   recv_cmd->add_option("--reconnect-attempts", recv_reconnect_attempts, "Total transfer attempts including the first")
       ->check(CLI::PositiveNumber);
+  recv_cmd->add_option("--pair-timeout", recv_pair_timeout_sec, "Seconds to wait for the sender to enter the code")
+      ->check(CLI::PositiveNumber);
   recv_cmd->add_flag("--remember", recv_remember, "Save relay and output directory to ~/.config/kiko/config.json");
   recv_cmd->add_flag("--tui", recv_tui, "Show live progress UI");
+
+  std::string note_host_code;
+  std::string note_host_relay = relay_default;
+  std::string note_host_relay_pass;
+  std::string note_host_listen = "[::]:0";
+  bool note_host_no_direct = false;
+  bool note_host_no_lan = false;
+  bool note_host_no_local = false;
+  bool note_host_only_local = false;
+  bool note_host_udp_probe = false;
+  bool note_host_avoid_vpn = false;
+  bool note_host_no_qrcode = false;
+  bool note_host_tui = false;
+  int note_host_pair_timeout_sec = kDefaultPairTimeoutSec;
+  std::string note_host_proxy;
+  std::string note_host_ip;
+  std::string note_host_bind_interface;
+
+  std::string note_join_code;
+  std::string note_join_relay = relay_default;
+  std::string note_join_relay_pass;
+  std::string note_join_listen = "[::]:0";
+  bool note_join_no_direct = false;
+  bool note_join_no_lan = false;
+  bool note_join_no_local = false;
+  bool note_join_only_local = false;
+  bool note_join_udp_probe = false;
+  bool note_join_avoid_vpn = false;
+  bool note_join_tui = false;
+  int note_join_pair_timeout_sec = kDefaultPairTimeoutSec;
+  std::string note_join_proxy;
+  std::string note_join_ip;
+  std::string note_join_bind_interface;
+
+  auto* note_cmd = app.add_subcommand("note", "Shared encrypted plaintext notepad");
+  note_cmd->require_subcommand(1);
+  auto* note_host_cmd = note_cmd->add_subcommand("host", "Host a shared notepad");
+  note_host_cmd->add_option("--code", note_host_code, "Pairing code (auto if omitted)");
+  note_host_cmd->add_option("--relay", note_host_relay, "Relay address");
+  note_host_cmd->add_option("--relay-pass", note_host_relay_pass, "Relay password");
+  note_host_cmd->add_option("--listen", note_host_listen, "Local listen address for direct connections");
+  note_host_cmd->add_flag("--no-direct", note_host_no_direct, "Force relay path");
+  note_host_cmd->add_flag("--no-lan", note_host_no_lan, "Disable LAN multicast discovery");
+  note_host_cmd->add_flag("--no-local", note_host_no_local, "Disable embedded LAN relay on host");
+  note_host_cmd->add_flag("--local", note_host_only_local, "Use only embedded LAN relay");
+  note_host_cmd->add_flag("--udp-probe", note_host_udp_probe, "Run STUN NAT probe during rendezvous");
+  note_host_cmd->add_option("--proxy", note_host_proxy, "Proxy URL (http://host:port or socks5://host:port)");
+  note_host_cmd->add_option("--ip", note_host_ip, "Manual IP override for relay and advertised endpoints");
+  note_host_cmd->add_option("--bind-interface", note_host_bind_interface,
+                            "Bind outbound TCP sockets to an interface (for example en0)");
+  note_host_cmd->add_flag("--avoid-vpn", note_host_avoid_vpn,
+                          "Bind outbound TCP sockets to a non-VPN physical interface when possible");
+  note_host_cmd->add_flag("--no-qrcode", note_host_no_qrcode, "Do not print a terminal QR code for the pairing code");
+  note_host_cmd->add_option("--pair-timeout", note_host_pair_timeout_sec,
+                            "Seconds to wait for a notepad peer to enter the code")
+      ->check(CLI::PositiveNumber);
+  note_host_cmd->add_flag("--tui", note_host_tui, "Open the notepad terminal UI");
+
+  auto* note_join_cmd = note_cmd->add_subcommand("join", "Join a shared notepad");
+  note_join_cmd->add_option("code", note_join_code, "Pairing code from host")->required();
+  note_join_cmd->add_option("--relay", note_join_relay, "Relay address");
+  note_join_cmd->add_option("--relay-pass", note_join_relay_pass, "Relay password");
+  note_join_cmd->add_option("--listen", note_join_listen, "Local listen address for direct connections");
+  note_join_cmd->add_flag("--no-direct", note_join_no_direct, "Force relay path");
+  note_join_cmd->add_flag("--no-lan", note_join_no_lan, "Disable LAN multicast discovery");
+  note_join_cmd->add_flag("--no-local", note_join_no_local, "Disable LAN relay candidates on join");
+  note_join_cmd->add_flag("--local", note_join_only_local, "Use only LAN relay candidates");
+  note_join_cmd->add_flag("--udp-probe", note_join_udp_probe, "Run STUN NAT probe during rendezvous");
+  note_join_cmd->add_option("--proxy", note_join_proxy, "Proxy URL (http://host:port or socks5://host:port)");
+  note_join_cmd->add_option("--ip", note_join_ip, "Manual IP override for relay and advertised endpoints");
+  note_join_cmd->add_option("--bind-interface", note_join_bind_interface,
+                            "Bind outbound TCP sockets to an interface (for example en0)");
+  note_join_cmd->add_flag("--avoid-vpn", note_join_avoid_vpn,
+                          "Bind outbound TCP sockets to a non-VPN physical interface when possible");
+  note_join_cmd->add_option("--pair-timeout", note_join_pair_timeout_sec,
+                            "Seconds to wait for the notepad host to appear")
+      ->check(CLI::PositiveNumber);
+  note_join_cmd->add_flag("--tui", note_join_tui, "Open the notepad terminal UI");
 
   try {
     app.parse(argc, argv);
@@ -208,6 +309,16 @@ int main(int argc, char** argv) {
   try {
     if (app.got_subcommand(tui_cmd)) {
       return kiko::run_tui_menu(parse_endpoint_option(tui_relay, 9000));
+    }
+
+    if (app.got_subcommand(web_cmd)) {
+      kiko::WebOptions opts;
+      opts.listen = parse_bind_endpoint_option(web_listen, 0);
+      opts.relay = parse_endpoint_option(web_relay, 9000);
+      apply_relay_pass_cli(opts.relay_pass, web_relay_pass, user_config);
+      opts.open_browser = !web_no_open;
+      opts.user_config = user_config;
+      return kiko::run_web_console(opts);
     }
 
     if (app.got_subcommand(relay_cmd)) {
@@ -258,6 +369,7 @@ int main(int argc, char** argv) {
       config.auto_connections = send_auto_connections;
       config.auto_reconnect = !send_no_reconnect;
       config.reconnect_attempts = send_reconnect_attempts;
+      config.pair_timeout = std::chrono::seconds(send_pair_timeout_sec);
       int rc = 0;
       if (send_tui) {
         rc = kiko::run_tui_send(config);
@@ -293,6 +405,7 @@ int main(int argc, char** argv) {
       config.ai_route_plan_only = recv_ai_route_plan_only;
       config.auto_reconnect = !recv_no_reconnect;
       config.reconnect_attempts = recv_reconnect_attempts;
+      config.pair_timeout = std::chrono::seconds(recv_pair_timeout_sec);
       int rc = 0;
       if (recv_tui) {
         rc = kiko::run_tui_recv(config);
@@ -304,6 +417,54 @@ int main(int argc, char** argv) {
         kiko::remember_recv_settings(config.relay.to_string(), config.relay_pass, recv_out);
       }
       return rc;
+    }
+
+    if (app.got_subcommand(note_cmd)) {
+      kiko::NoteConfig config;
+      bool note_tui = false;
+      if (note_cmd->got_subcommand(note_host_cmd)) {
+        config.role = kiko::Role::Sender;
+        config.code = note_host_code;
+        config.relay = parse_endpoint_option(note_host_relay, 9000);
+        config.listen = parse_bind_endpoint_option(note_host_listen, 0);
+        config.no_direct = note_host_no_direct;
+        config.lan_discover = !note_host_no_lan;
+        config.disable_local = note_host_no_local;
+        config.only_local = note_host_only_local;
+        config.udp_probe = note_host_udp_probe;
+        config.show_qrcode = !note_host_no_qrcode;
+        if (!note_host_proxy.empty()) config.proxy = kiko::parse_proxy_url(note_host_proxy);
+        if (!note_host_ip.empty()) config.manual_ip = note_host_ip;
+        config.bind_interface = note_host_bind_interface;
+        config.avoid_vpn = note_host_avoid_vpn;
+        config.pair_timeout = std::chrono::seconds(note_host_pair_timeout_sec);
+        apply_relay_pass_cli(config.relay_pass, note_host_relay_pass, user_config);
+        note_tui = note_host_tui;
+      } else if (note_cmd->got_subcommand(note_join_cmd)) {
+        config.role = kiko::Role::Receiver;
+        config.code = note_join_code;
+        config.relay = parse_endpoint_option(note_join_relay, 9000);
+        config.listen = parse_bind_endpoint_option(note_join_listen, 0);
+        config.no_direct = note_join_no_direct;
+        config.lan_discover = !note_join_no_lan;
+        config.disable_local = note_join_no_local;
+        config.only_local = note_join_only_local;
+        config.udp_probe = note_join_udp_probe;
+        if (!note_join_proxy.empty()) config.proxy = kiko::parse_proxy_url(note_join_proxy);
+        if (!note_join_ip.empty()) config.manual_ip = note_join_ip;
+        config.bind_interface = note_join_bind_interface;
+        config.avoid_vpn = note_join_avoid_vpn;
+        config.pair_timeout = std::chrono::seconds(note_join_pair_timeout_sec);
+        apply_relay_pass_cli(config.relay_pass, note_join_relay_pass, user_config);
+        note_tui = note_join_tui;
+      } else {
+        return 2;
+      }
+      config.app = "note";
+      config.cancellation = std::make_shared<kiko::TransferCancellation>();
+      if (note_tui) return kiko::run_tui_note(config);
+      kiko::CliReporter reporter;
+      return kiko::run_note(config, reporter);
     }
 
     return 2;

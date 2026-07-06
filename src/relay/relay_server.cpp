@@ -229,7 +229,9 @@ std::optional<std::size_t> native_recv_some(int fd, char* data, std::size_t size
     const int err = net_last_error();
     if (err == kErrIntr) continue;
     if (err == kErrWouldBlock) {
-      if (net_poll(fd, /*want_read=*/true, /*want_write=*/false, 250) <= 0) return std::nullopt;
+      const int poll = net_poll(fd, /*want_read=*/true, /*want_write=*/false, 250);
+      if (poll < 0) return std::nullopt;
+      if (poll == 0) continue;
       continue;
     }
     return std::nullopt;

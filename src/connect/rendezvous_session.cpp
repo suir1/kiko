@@ -36,8 +36,8 @@ void apply_manual_ip(std::vector<std::string>& local_addrs, Endpoint& listen,
 std::vector<RelayRaceEntry> relay_race_entries_for_send(bool use_embedded, const Endpoint& embedded_ep,
                                                         bool only_local, const Endpoint& external_relay) {
   std::vector<RelayRaceEntry> entries;
-  if (use_embedded) entries.push_back(RelayRaceEntry{Endpoint{"127.0.0.1", embedded_ep.port}, false});
-  if (!only_local) entries.push_back(RelayRaceEntry{external_relay, true});
+  if (use_embedded) entries.push_back(RelayRaceEntry{Endpoint{"127.0.0.1", embedded_ep.port}, false, 0});
+  if (!only_local) entries.push_back(RelayRaceEntry{external_relay, true, use_embedded ? 1u : 0u});
   return entries;
 }
 
@@ -45,9 +45,20 @@ std::vector<RelayRaceEntry> relay_race_entries_for_recv(const std::vector<Endpoi
                                                         const Endpoint& external_relay) {
   std::vector<RelayRaceEntry> entries;
   entries.reserve(relay_targets.size());
+  bool has_local_relay = false;
+  for (const auto& target : relay_targets) {
+    if (!(target.host == external_relay.host && target.port == external_relay.port)) {
+      has_local_relay = true;
+      break;
+    }
+  }
   for (const auto& target : relay_targets) {
     const bool external = target.host == external_relay.host && target.port == external_relay.port;
-    entries.push_back(RelayRaceEntry{target, external});
+    entries.push_back(RelayRaceEntry{target,
+                                     external,
+                                     external ? 1u : 0u,
+                                     external && has_local_relay ? std::chrono::milliseconds(650)
+                                                                 : std::chrono::milliseconds(0)});
   }
   return entries;
 }

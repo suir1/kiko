@@ -1,5 +1,6 @@
 #include "relay_session.hpp"
 
+#include "connect/encrypted_session.hpp"
 #include "core/cancellation.hpp"
 #include "core/pake.hpp"
 #include "core/protocol.hpp"
@@ -16,11 +17,6 @@ void apply_relay_pass_fields(Message& msg, const std::optional<std::string>& rel
 
 bool is_loopback_host(const std::string& host) {
   return host == "127.0.0.1" || host == "::1" || host == "localhost";
-}
-
-int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
-  const auto elapsed = std::chrono::steady_clock::now() - start;
-  return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
 std::vector<TcpSocket> open_relay_mux_channels(TcpSocket primary, Role role, const Endpoint& active_relay,
@@ -58,14 +54,10 @@ void send_files_over_relay(TcpSocket relay_channel, const Endpoint& active_relay
                            const std::optional<std::string>& relay_pass, const std::vector<FileEntry>& files,
                            ProgressReporter& reporter, RouteTiming timing,
                            TransferCancellation* cancellation) {
-  if (cancellation) cancellation->track(relay_channel);
-  reporter.route_phase(RoutePhase::Securing,
-                       RoutePhaseDetail{"securing relay channel", "relay", /*relay_fallback_ready=*/true});
-  const auto securing_start = std::chrono::steady_clock::now();
-  auto key = perform_handshake(relay_channel, Role::Sender, code);
-  timing.securing_ms = elapsed_ms_since(securing_start);
-  reporter.route_timing(timing);
-  reporter.handshake_ok();
+  auto session =
+      secure_encrypted_session(std::move(relay_channel), Role::Sender, code, "relay", timing, reporter, cancellation);
+  relay_channel = std::move(session.channel);
+  auto key = std::move(session.key);
 
   if (connections > 1) {
     reporter.status("opening " + std::to_string(connections) + " parallel relay connections");
@@ -85,14 +77,10 @@ void receive_files_over_relay(TcpSocket relay_channel, const Endpoint& active_re
                               const std::filesystem::path& output_dir, ProgressReporter& reporter,
                               RouteTiming timing, ConflictPolicy conflict_policy,
                               TransferCancellation* cancellation) {
-  if (cancellation) cancellation->track(relay_channel);
-  reporter.route_phase(RoutePhase::Securing,
-                       RoutePhaseDetail{"securing relay channel", "relay", /*relay_fallback_ready=*/true});
-  const auto securing_start = std::chrono::steady_clock::now();
-  auto key = perform_handshake(relay_channel, Role::Receiver, code);
-  timing.securing_ms = elapsed_ms_since(securing_start);
-  reporter.route_timing(timing);
-  reporter.handshake_ok();
+  auto session =
+      secure_encrypted_session(std::move(relay_channel), Role::Receiver, code, "relay", timing, reporter, cancellation);
+  relay_channel = std::move(session.channel);
+  auto key = std::move(session.key);
 
   if (connections > 1) {
     reporter.status("opening " + std::to_string(connections) + " parallel relay connections");

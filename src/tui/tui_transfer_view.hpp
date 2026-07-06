@@ -85,7 +85,7 @@ class TuiReporter : public ProgressReporter {
 
 void reset_transfer_state(TuiState& state);
 
-[[nodiscard]] ftxui::Element render_transfer_view(const TuiState& state, const std::string& copy_notice = {},
+[[nodiscard]] ftxui::Element render_transfer_view(const TuiState& state, const std::string& action_notice = {},
                                                   bool quit_confirm_pending = false,
                                                   const FailureRecoveryHint* recovery_hint = nullptr);
 

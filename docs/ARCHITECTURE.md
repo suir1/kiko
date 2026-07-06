@@ -1,63 +1,69 @@
 # kiko architecture
 
-`kiko` is currently a single CMake project with one core static library, one CLI/TUI executable,
-and one lightweight `kiko-relayd` executable for server relay deployment.
-The structure is still workable, but the source tree is moving from a small flat layout toward a
-project that needs explicit module boundaries.
+`kiko` is currently a single CMake project with one core static library, one CLI/TUI/Web executable,
+and one lightweight `kiko-relayd` executable for server relay deployment. The source tree has moved
+from a small flat layout into explicit module directories; future work should preserve those
+boundaries instead of reintroducing cross-layer feature files.
 
 ## Current modules
 
-- `core`: protocol framing, crypto, compression, metadata, file manifests, progress reporting.
-- `transfer`: send/recv orchestration, transfer streams, mux transfer, resume, heuristics.
-- `network`: sockets, relay sessions, direct sessions, LAN discovery, LAN upgrade, UDP punch, probes, proxy.
-- `relay`: rendezvous relay server and relay control path.
-- `connectivity`: route planning, outbound policy, NAT/adaptive decisions, rendezvous wait/race,
-  post-rendezvous route selection, doctor diagnostics.
-- `config`: runtime profile and user config.
-- `ui`: FTXUI menu/progress screens, path browser, clipboard, advanced network options.
+- `app`: CLI entry points for `kiko` and `kiko-relayd`.
+- `core`: protocol framing, sockets, crypto, compression, PAKE, QR output, progress reporting.
+- `connect`: peer/session setup, relay/direct route selection, LAN discovery, LAN upgrade, UDP punch,
+  profile memory, STUN/NAT route planning, and encrypted session helpers.
+- `relay`: rendezvous relay server, relay control path, relay room state, and relay route state.
+- `transfer`: send/recv orchestration, transfer streams, mux transfer, resume, receive planning,
+  metadata, symlink handling, and transfer heuristics.
+- `note`: temporary shared plaintext notepad protocol and CLI fallback loop.
+- `tui`: FTXUI menu/progress screens, path browser, transfer actions, doctor modal, and notepad UI.
+- `web`: loopback-only Web console, embedded assets, local filesystem browser API, Web reporter,
+  and Web notepad endpoints.
+- `platform`: runtime user config and platform shims.
+- `diagnostics`: doctor, network probes, outbound relay path probing, and BYOK AI route advice.
 - `ai`: BYOK route advice and doctor explanations.
 - `release`: GitHub Actions release packaging and installer smoke tests.
 
-The code still lives mostly under flat `src/` and `tests/` directories. That is acceptable for now,
-but new work should preserve these conceptual modules even before directories are physically moved.
+Tests still live in a mostly flat `tests/` directory, with script-based smoke tests under `scripts/`.
+That is acceptable for now; production code should remain in the layer directory that owns the behavior.
 
 ## Friction points
 
 ### Transfer file size
 
-`src/transfer_stream.cpp` remains the largest transfer file. It now delegates receive-plan
-preflight to `src/receive_plan.*`, manifest JSON encode/decode to `src/transfer_manifest.*`,
-resume negotiation / `.kikopart` helpers to `src/transfer_resume.*`, and receive path/finalize
-helpers to `src/transfer_receive_paths.*`,
+`src/transfer/transfer_stream.cpp` remains the largest transfer file. It now delegates receive-plan
+preflight to `src/transfer/receive_plan.*`, manifest JSON encode/decode to
+`src/transfer/transfer_manifest.*`, resume negotiation / `.kikopart` helpers to
+`src/transfer/transfer_resume.*`, and receive path/finalize helpers to
+`src/transfer/transfer_receive_paths.*`,
 but still carries several responsibilities:
 
 - tagged transfer frame helpers
 - single-stream send/receive loops
 
 This is now the most important architecture cleanup target. New transfer behavior should avoid adding
-more logic directly to `src/transfer_stream.cpp`; keep new receive-side filesystem behavior in
-`src/transfer_receive_paths.*` or `src/receive_plan.*` instead.
+more logic directly to `src/transfer/transfer_stream.cpp`; keep new receive-side filesystem behavior in
+`src/transfer/transfer_receive_paths.*` or `src/transfer/receive_plan.*` instead.
 
 ### Flat source tree
 
-The flat `src/` directory makes it harder to see ownership. A future directory move should be
-mechanical and preserve names, for example:
+The current source directories are the intended layering target:
 
 ```text
 src/
-  app/
-  core/
-  transfer/
-  network/
-  relay/
-  connectivity/
-  config/
-  ui/
-  ai/
+  app/          main.cpp, relayd_main.cpp
+  core/         common, io, socket, crypto, pake, protocol, cancellation
+  connect/      connectivity, route_session, route_planner, direct_session, udp_punch, peer_session
+  relay/        relay_server, relay_session, relay_room_state, relay_route_state
+  transfer/     transfer, transfer_stream, mux, receive_plan, manifest, resume
+  note/         notepad protocol and CLI loop
+  tui/          TUI menu, transfer, browser, doctor, notepad
+  web/          loopback HTTP server and embedded browser UI
+  platform/     user_config and platform shims
+  diagnostics/  doctor, AI advisor, network_probe, outbound_policy
 ```
 
-Do this only after current TUI/config work settles, because a large file move during active feature
-work creates unnecessary merge friction.
+Avoid another broad directory reshuffle unless ownership boundaries change; most next improvements
+should be small extractions inside these directories.
 
 ### CMake growth
 
@@ -66,14 +72,14 @@ do not add repeated `add_executable` / `target_link_libraries` / `add_test` bloc
 
 ## Recommended transfer refactors
 
-`src/receive_plan.*` now owns receive preflight, collision detection, conflict action selection,
-manifest/header validation, and planned resume offsets. `src/transfer_manifest.*` owns manifest
-encoding/decoding, and `src/transfer_resume.*` owns resume frames, prefix hashing, `.kikopart`
-helpers, and completed-file fast-skip. `src/transfer_receive_paths.*` owns safe output paths,
+`src/transfer/receive_plan.*` now owns receive preflight, collision detection, conflict action selection,
+manifest/header validation, and planned resume offsets. `src/transfer/transfer_manifest.*` owns manifest
+encoding/decoding, and `src/transfer/transfer_resume.*` owns resume frames, prefix hashing, `.kikopart`
+helpers, and completed-file fast-skip. `src/transfer/transfer_receive_paths.*` owns safe output paths,
 conflict rename helpers, symlink creation, and part-file verification/finalization. Continue
-splitting `src/transfer_stream.cpp` in this order:
+splitting `src/transfer/transfer_stream.cpp` in this order:
 
-1. Keep `src/transfer_stream.cpp` as the single-stream send/receive coordinator.
+1. Keep `src/transfer/transfer_stream.cpp` as the single-stream send/receive coordinator.
 2. Only extract tagged frame helpers if another transfer mode needs them without the stream loop.
 
 Stop before moving directories unless a future feature needs it; small focused extractions create
@@ -81,20 +87,34 @@ less merge noise than a full tree reshuffle.
 
 ## Recommended TUI refactors
 
-The transfer progress view has been split into `src/tui_transfer_view.*`, the network check modal
-has been split into `src/tui_doctor_modal.*`, menu loading/saving helper state lives in
-`src/tui_menu_state.*`, transfer launch parameters live in `src/tui_transfer_spec.hpp`, and
-worker-thread transfer execution now lives in `src/tui_session.*`. Transfer completion actions
-live in `src/tui_transfer_actions.*`, and menu rendering/control layout lives in `src/tui_menu_view.*`.
-Only continue splitting `src/tui.cpp` if a future TUI feature needs it:
+The transfer progress view has been split into `src/tui/tui_transfer_view.*`, the network check modal
+has been split into `src/tui/tui_doctor_modal.*`, menu loading/saving helper state lives in
+`src/tui/tui_menu_state.*`, transfer launch parameters live in `src/tui/tui_transfer_spec.hpp`, and
+worker-thread transfer execution now lives in `src/tui/tui_session.*`. Transfer completion actions
+live in `src/tui/tui_transfer_actions.*`, menu rendering/control layout lives in
+`src/tui/tui_menu_view.*`, and shared notepad UI lives in `src/tui/tui_note.*`.
+Only continue splitting `src/tui/tui.cpp` if a future TUI feature needs it:
 
 1. Expand `tui_menu_state.*`: remaining menu rendering helper labels and form-only decisions.
 2. Expand `tui_session.*`: retry, return-to-menu, quit confirmation.
-3. Consider stopping here unless a future TUI feature needs another seam. `src/tui.cpp` is now
+3. Consider stopping here unless a future TUI feature needs another seam. `src/tui/tui.cpp` is now
    small enough to act as the menu/session coordinator.
 
-Keep `src/tui.cpp` as the entry glue for `run_tui_send`, `run_tui_recv`, and `run_tui_menu`.
-The target size for `src/tui.cpp` after this split is roughly 150-250 lines.
+Keep `src/tui/tui.cpp` as the entry glue for `run_tui_send`, `run_tui_recv`, and `run_tui_menu`.
+The target size for `src/tui/tui.cpp` after this split is roughly 150-250 lines.
+
+## Recommended Note/Web boundaries
+
+Notepad intentionally avoids system clipboard integration. Keep clipboard backends out of the tree
+unless that feature is deliberately restarted with a separate design.
+
+- `src/note/*` owns the encrypted note data protocol and non-TTY CLI fallback.
+- `src/tui/tui_note.*` owns terminal editing behavior, debounce, cancel, and TUI status.
+- `src/web/*` owns browser controls, token-gated local APIs, Web notepad state, and path browsing.
+- `src/connect/peer_session.*` is the reusable encrypted peer-session helper for non-file features.
+
+Do not add note-specific route selection or relay logic to `src/note/*`; route setup belongs in
+`src/connect/*`, and note should only consume an encrypted `PeerSession`.
 
 ## Testing expectations
 

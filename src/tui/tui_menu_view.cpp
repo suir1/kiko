@@ -28,7 +28,7 @@ void invoke_active_browse_callback(int mode, const std::function<void()>& browse
     if (browse_send_path) browse_send_path();
     return;
   }
-  if (browse_output_dir) browse_output_dir();
+  if (mode == 1 && browse_output_dir) browse_output_dir();
 }
 
 }  // namespace detail
@@ -37,11 +37,13 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
                                TuiMenuCallbacks callbacks) {
   using namespace ftxui;
 
-  auto modes = std::make_shared<std::vector<std::string>>(std::vector<std::string>{"Send", "Receive"});
+  auto modes = std::make_shared<std::vector<std::string>>(std::vector<std::string>{"Send", "Receive", "Notepad"});
+  auto note_roles = std::make_shared<std::vector<std::string>>(std::vector<std::string>{"Host", "Join"});
   auto summary_path = std::make_shared<std::string>();
   auto summary_cache = std::make_shared<PathSummary>();
   auto wake = callbacks.wake;
   auto mode_toggle = Toggle(modes.get(), &menu.mode);
+  auto note_role_toggle = Toggle(note_roles.get(), &menu.note_role);
 
   InputOption relay_opt;
   relay_opt.multiline = false;
@@ -105,26 +107,30 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
 
   auto start_button = Button("Start", std::move(callbacks.start_transfer));
 
+  auto note_role_maybe = Maybe(note_role_toggle, [&] { return menu.mode == 2; });
   auto path_input_maybe = Maybe(path_input, [&] { return menu.mode == 0; });
   auto out_input_maybe = Maybe(out_input, [&] { return menu.mode == 1; });
+  auto browse_button_maybe = Maybe(browse_button, [&] { return menu.mode != 2; });
 
   auto layout = Container::Vertical({
       mode_toggle,
       relay_input,
       relay_pass_input,
+      note_role_maybe,
       path_input_maybe,
       code_input,
       out_input_maybe,
-      browse_button,
+      browse_button_maybe,
       preset_row,
       advanced_section,
       doctor_button,
       start_button,
   });
 
-  auto root = Renderer(layout, [&, modes, summary_path, summary_cache, mode_toggle, relay_input, relay_pass_input,
-                                path_input, browse_button, code_input, out_input, preset_wan, preset_wifi,
-                                preset_corp, preset_debug, advanced_section, doctor_button, start_button] {
+  auto root = Renderer(layout, [&, modes, note_roles, summary_path, summary_cache, mode_toggle, note_role_toggle,
+                                relay_input, relay_pass_input, path_input, browse_button, code_input, out_input,
+                                preset_wan, preset_wifi, preset_corp, preset_debug, advanced_section, doctor_button,
+                                start_button] {
     Elements rows;
     rows.push_back(text("kiko") | bold | hcenter);
     rows.push_back(separator());
@@ -142,9 +148,13 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
         rows.push_back(hbox({text("       "), text(summary_cache->text) | dim}));
       }
       rows.push_back(hbox({text("code:  "), code_input->Render() | flex, text(" (optional)") | dim}));
-    } else {
+    } else if (menu.mode == 1) {
       rows.push_back(hbox({text("code:  "), code_input->Render() | flex}));
       rows.push_back(hbox({text("out:   "), out_input->Render() | flex, browse_button->Render()}));
+    } else {
+      rows.push_back(hbox({text("role:  "), note_role_toggle->Render()}));
+      rows.push_back(hbox({text("code:  "), code_input->Render() | flex,
+                           text(menu.note_role == 0 ? " (optional)" : " (required)") | dim}));
     }
     rows.push_back(separator());
     rows.push_back(hbox({text("preset: "), text(network_preset_label(menu.network.preset)) | color(Color::Cyan)}));
@@ -162,7 +172,7 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
     return vbox(std::move(rows)) | border;
   });
 
-  return {root, modes};
+  return {root, modes, note_roles};
 }
 
 }  // namespace kiko

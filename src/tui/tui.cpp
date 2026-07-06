@@ -8,6 +8,7 @@
 #include "tui_failure_hint.hpp"
 #include "tui_menu_state.hpp"
 #include "tui_menu_view.hpp"
+#include "tui_note.hpp"
 #include "tui_session.hpp"
 #include "tui_transfer_actions.hpp"
 #include "tui_transfer_view.hpp"
@@ -22,6 +23,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -125,7 +127,9 @@ int run_tui_recv(const RecvConfig& config) {
   });
 }
 
-int run_tui_menu(const Endpoint& default_relay) {
+namespace {
+
+int run_tui_menu_screen(const Endpoint& default_relay, std::optional<NoteConfig>& note_request) {
   using namespace ftxui;
 
   if (!stdin_is_tty()) {
@@ -140,7 +144,7 @@ int run_tui_menu(const Endpoint& default_relay) {
   TuiState transfer_state;
   std::thread worker;
   bool worker_started = false;
-  std::string copy_notice;
+  std::string action_notice;
   bool quit_confirm_pending = false;
   std::shared_ptr<TransferCancellation> transfer_cancellation;
   Endpoint last_transfer_relay = default_relay;
@@ -202,7 +206,7 @@ int run_tui_menu(const Endpoint& default_relay) {
 
     transfer_state.title = prepared.title;
     reset_transfer_state(transfer_state);
-    copy_notice.clear();
+    action_notice.clear();
     quit_confirm_pending = false;
     transfer_cancellation = std::make_shared<TransferCancellation>();
 
@@ -216,7 +220,7 @@ int run_tui_menu(const Endpoint& default_relay) {
   auto repeat_transfer = [&]() {
     join_worker_if_needed();
     reset_transfer_state(transfer_state);
-    copy_notice.clear();
+    action_notice.clear();
     quit_confirm_pending = false;
     begin_transfer();
     wake();
@@ -226,7 +230,7 @@ int run_tui_menu(const Endpoint& default_relay) {
     join_worker_if_needed();
     save_prefs_from_menu();
     screen_tab = 0;
-    copy_notice.clear();
+    action_notice.clear();
     quit_confirm_pending = false;
     wake();
   };
@@ -234,6 +238,23 @@ int run_tui_menu(const Endpoint& default_relay) {
   auto start_transfer = [&] {
     begin_transfer();
     wake();
+  };
+
+  auto start_action = [&] {
+    if (menu.mode != 2) {
+      start_transfer();
+      return;
+    }
+    menu_error.clear();
+    auto prepared = prepare_tui_note(menu);
+    if (!prepared.ok) {
+      menu_error = std::move(prepared.error);
+      wake();
+      return;
+    }
+    save_prefs_from_menu();
+    note_request = std::move(prepared.config);
+    screen.Exit();
   };
 
   auto request_transfer_cancel = [&] {
@@ -247,7 +268,7 @@ int run_tui_menu(const Endpoint& default_relay) {
   };
 
   auto transfer_actions = make_tui_transfer_actions(
-      transfer_state, menu, copy_notice, [&] { repeat_transfer(); },
+      transfer_state, menu, action_notice, [&] { repeat_transfer(); },
       [&] {
         show_doctor_modal(last_transfer_relay, last_transfer_relay_pass, menu.network.udp_probe);
         wake();
@@ -255,7 +276,7 @@ int run_tui_menu(const Endpoint& default_relay) {
       [&] { return_to_menu(); }, [&] { screen.Exit(); }, wake);
 
   auto menu_view = make_tui_menu_view(menu, default_relay, menu_error,
-                                      {browse_send_path, browse_output_dir, network_check, start_transfer, wake});
+                                      {browse_send_path, browse_output_dir, network_check, start_action, wake});
 
   auto transfer_layout = Container::Vertical({transfer_actions.visible_actions});
 
@@ -269,7 +290,7 @@ int run_tui_menu(const Endpoint& default_relay) {
       failed = transfer_state.failed;
       if (failed) recovery_hint = suggest_failure_recovery(transfer_state, menu);
       transfer_view =
-          render_transfer_view(transfer_state, copy_notice, quit_confirm_pending,
+          render_transfer_view(transfer_state, action_notice, quit_confirm_pending,
                                failed && recovery_hint ? &*recovery_hint : nullptr);
       done = transfer_state.finished || transfer_state.failed;
     }
@@ -320,6 +341,7 @@ int run_tui_menu(const Endpoint& default_relay) {
   screen.Loop(with_events);
 
   join_worker_if_needed();
+  if (note_request) return 0;
 
   std::lock_guard<std::mutex> lock(transfer_state.mutex);
   if (transfer_state.failed) {
@@ -327,6 +349,19 @@ int run_tui_menu(const Endpoint& default_relay) {
     return 1;
   }
   return 0;
+}
+
+}  // namespace
+
+int run_tui_menu(const Endpoint& default_relay) {
+  while (true) {
+    std::optional<NoteConfig> note_request;
+    const int menu_result = run_tui_menu_screen(default_relay, note_request);
+    if (menu_result != 0 || !note_request) return menu_result;
+
+    const int note_result = run_tui_note(*note_request);
+    if (note_result != 0 && note_result != 130) return note_result;
+  }
 }
 
 }  // namespace kiko

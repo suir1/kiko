@@ -7,6 +7,7 @@
 #include "core/crypto.hpp"
 #include "connect/direct_session.hpp"
 #include "connect/discovery.hpp"
+#include "connect/encrypted_session.hpp"
 #include "diagnostics/doctor.hpp"
 #include "connect/lan_upgrade.hpp"
 #include "diagnostics/outbound_policy.hpp"
@@ -113,11 +114,6 @@ std::string describe_route_plan_for_transfer(const RoutePlan& plan) {
   return line;
 }
 
-int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
-  const auto elapsed = std::chrono::steady_clock::now() - start;
-  return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
-}
-
 std::size_t peer_global_ipv6_count(const Message& peer) {
   auto hosts = split_csv(peer.get("peer_local_candidates"));
   const auto listen_host = peer.get("peer_listen_host");
@@ -167,11 +163,17 @@ void track_sockets(const std::shared_ptr<TransferCancellation>& cancellation, st
   for (auto& socket : sockets) cancellation->track(socket);
 }
 
+int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+}
+
 }  // namespace
 
 int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   throw_if_cancelled(config.cancellation);
   auto code = config.code.empty() ? random_code(3) : config.code;
+  if (auto error = validate_pairing_code_format(code, true)) throw KikoError(*error);
   CollectOptions collect_opts;
   collect_opts.use_gitignore = config.use_gitignore;
   collect_opts.symlink_mode = config.symlink_mode;
@@ -282,6 +284,7 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   rendezvous.hello = hello;
   rendezvous.connect_options = connect_options;
   rendezvous.relay_pass = config.relay_pass;
+  rendezvous.deadline = config.pair_timeout;
   rendezvous.failure_message = "failed to connect relay or rendezvous peer";
   rendezvous.cancel = cancel_flag(config.cancellation);
 
@@ -297,6 +300,7 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   track_socket(config.cancellation, relay);
   auto peer = std::move(peer_result.peer);
   const auto active_relay = peer_result.relay;
+  reporter.status("rendezvous relay: " + active_relay.to_string());
 
   Endpoint reflexive{peer.get("your_public_host"), message_port_or(peer, "your_public_port", 0, true)};
   auto self_nat = classify_nat(local_addrs, reflexive);
@@ -374,15 +378,10 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   }
 
   if (selected_route.direct) {
-    auto direct_channel = std::move(*selected_route.direct);
-    track_socket(config.cancellation, direct_channel);
-    reporter.route_phase(RoutePhase::Securing, RoutePhaseDetail{"securing direct channel", "direct", false});
-    auto timing = selected_route.timing;
-    const auto securing_start = std::chrono::steady_clock::now();
-    auto key = perform_handshake(direct_channel, Role::Sender, code);
-    timing.securing_ms = elapsed_ms_since(securing_start);
-    reporter.route_timing(timing);
-    reporter.handshake_ok();
+    auto session = secure_encrypted_session(std::move(*selected_route.direct), Role::Sender, code, "direct",
+                                            selected_route.timing, reporter, config.cancellation.get());
+    auto direct_channel = std::move(session.channel);
+    auto key = std::move(session.key);
     save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);
     if (connections > 1) {
       auto mux =
@@ -407,6 +406,7 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
 
 int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   throw_if_cancelled(config.cancellation);
+  if (auto error = validate_pairing_code_format(config.code, true)) throw KikoError(*error);
   auto listener = TcpListener::bind(config.listen);
   auto local_listen = listener.local_endpoint();
   reporter.status("listening for direct peer on " + local_listen.to_string());
@@ -471,6 +471,7 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   rendezvous.hello = hello;
   rendezvous.connect_options = connect_options;
   rendezvous.relay_pass = config.relay_pass;
+  rendezvous.deadline = config.pair_timeout;
   rendezvous.failure_message = "failed to connect any relay or rendezvous peer";
   rendezvous.cancel = cancel_flag(config.cancellation);
 
@@ -484,6 +485,7 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   track_socket(config.cancellation, relay);
   auto peer = std::move(peer_result.peer);
   const auto active_relay = peer_result.relay;
+  reporter.status("rendezvous relay: " + active_relay.to_string());
 
   reporter.transfer_overview(peer.get_u64("file_count", 0), peer.get_u64("total_size", 0));
   std::filesystem::create_directories(config.output_dir);
@@ -578,15 +580,10 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   }
 
   if (selected_route.direct) {
-    auto direct_channel = std::move(*selected_route.direct);
-    track_socket(config.cancellation, direct_channel);
-    reporter.route_phase(RoutePhase::Securing, RoutePhaseDetail{"securing direct channel", "direct", false});
-    auto timing = selected_route.timing;
-    const auto securing_start = std::chrono::steady_clock::now();
-    auto key = perform_handshake(direct_channel, Role::Receiver, config.code);
-    timing.securing_ms = elapsed_ms_since(securing_start);
-    reporter.route_timing(timing);
-    reporter.handshake_ok();
+    auto session = secure_encrypted_session(std::move(*selected_route.direct), Role::Receiver, config.code, "direct",
+                                            selected_route.timing, reporter, config.cancellation.get());
+    auto direct_channel = std::move(session.channel);
+    auto key = std::move(session.key);
     save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);
     if (connections > 1) {
       auto mux = negotiate_direct_mux_channels(std::move(direct_channel), Role::Receiver, listener, peer, connections,

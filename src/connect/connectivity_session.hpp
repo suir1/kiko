@@ -21,7 +21,7 @@ struct ConnectivityRendezvous {
   Message hello;
   ConnectOptions connect_options;
   std::optional<std::string> relay_pass;
-  std::chrono::milliseconds deadline = std::chrono::seconds(30);
+  std::chrono::milliseconds deadline = kDefaultPairTimeout;
   std::string failure_message = "failed to connect relay or rendezvous peer";
   const std::atomic_bool* cancel = nullptr;
 };

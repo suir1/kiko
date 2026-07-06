@@ -9,6 +9,10 @@
 
 namespace {
 
+#ifndef KIKO_VERSION
+#define KIKO_VERSION "dev"
+#endif
+
 std::string next_arg(int& index, int argc, char** argv, const char* name) {
   if (index + 1 >= argc) throw kiko::KikoError(std::string("missing value for ") + name);
   return argv[++index];
@@ -47,6 +51,9 @@ int main(int argc, char** argv) {
         config.cleanup_interval = std::chrono::seconds(*value);
       } else if (arg == "--help" || arg == "-h") {
         print_help();
+        return 0;
+      } else if (arg == "--version") {
+        std::cout << "kiko-relayd " << KIKO_VERSION << "\n";
         return 0;
       } else {
         throw kiko::KikoError("unknown argument: " + arg);

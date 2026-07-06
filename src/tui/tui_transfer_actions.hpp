@@ -16,7 +16,7 @@ struct TuiTransferActions {
 };
 
 [[nodiscard]] TuiTransferActions make_tui_transfer_actions(TuiState& state, TuiMenuState& menu,
-                                                           std::string& copy_notice,
+                                                           std::string& action_notice,
                                                            std::function<void()> repeat_transfer,
                                                            std::function<void()> diagnose_transfer,
                                                            std::function<void()> return_to_menu,

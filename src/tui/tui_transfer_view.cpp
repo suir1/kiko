@@ -406,7 +406,7 @@ void TuiReporter::update_network_summary(const std::string& message) {
   }
 }
 
-ftxui::Element render_transfer_view(const TuiState& state, const std::string& copy_notice,
+ftxui::Element render_transfer_view(const TuiState& state, const std::string& action_notice,
                                     bool quit_confirm_pending, const FailureRecoveryHint* recovery_hint) {
   using namespace ftxui;
 
@@ -537,9 +537,9 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& co
       left.push_back(text("  preset: " + std::string(network_preset_label(recovery_hint->preset))) | dim);
     }
   }
-  if (!copy_notice.empty()) {
+  if (!action_notice.empty()) {
     left.push_back(separator());
-    left.push_back(text(copy_notice) | color(Color::GreenLight));
+    left.push_back(text(action_notice) | color(Color::GreenLight));
   }
   left.push_back(separator());
   if (state.finished || state.failed) {

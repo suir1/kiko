@@ -12,6 +12,7 @@
 namespace kiko {
 
 using Bytes = std::vector<std::uint8_t>;
+inline constexpr std::chrono::seconds kDefaultPairTimeout{300};
 
 class KikoError : public std::runtime_error {
  public:

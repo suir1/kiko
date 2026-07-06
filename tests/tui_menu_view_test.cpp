@@ -20,6 +20,12 @@ int main() {
     return 1;
   }
 
+  kiko::detail::invoke_active_browse_callback(2, send_browse, output_browse);
+  if (send_browse_count != 1 || output_browse_count != 1) {
+    std::cerr << "FAIL: notepad mode should not open a path browser\n";
+    return 1;
+  }
+
   std::cout << "tui_menu_view_test ok\n";
   return 0;
 }

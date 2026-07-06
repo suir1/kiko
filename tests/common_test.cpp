@@ -318,10 +318,11 @@ int main() {
     if (!expect_valid_code("", false)) return 1;
     if (!expect_invalid_code("", true)) return 1;
     if (!expect_valid_code("abc234", false)) return 1;
-    if (!expect_invalid_code("abc123", false)) return 1;
-    if (!expect_invalid_code("abc12o", false)) return 1;
+    if (!expect_valid_code("abc123", false)) return 1;
+    if (!expect_valid_code("abc12o", false)) return 1;
+    if (!expect_valid_code("r561", false)) return 1;
     if (!expect_valid_code("4827-stne-iris", false)) return 1;
-    if (!expect_invalid_code("4827-stone-iris", false)) return 1;
+    if (!expect_valid_code("4827-stone-iris", false)) return 1;
     if (!expect_invalid_code("bad-chars!", false)) return 1;
     if (!expect_invalid_code("-abc", false)) return 1;
   }

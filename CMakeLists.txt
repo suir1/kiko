@@ -41,7 +41,9 @@ set(KIKO_CONNECT_LAYER_SOURCES
   src/connect/connectivity_session.cpp
   src/connect/direct_session.cpp
   src/connect/discovery.cpp
+  src/connect/encrypted_session.cpp
   src/connect/lan_upgrade.cpp
+  src/connect/peer_session.cpp
   src/connect/profile.cpp
   src/connect/rendezvous_session.cpp
   src/connect/route_planner.cpp
@@ -75,6 +77,11 @@ set(KIKO_TRANSFER_LAYER_SOURCES
   src/transfer/transfer_stream.cpp
 )
 
+set(KIKO_NOTE_LAYER_SOURCES
+  src/note/note_protocol.cpp
+  src/note/notepad.cpp
+)
+
 set(KIKO_DIAGNOSTICS_LAYER_SOURCES
   src/diagnostics/ai_advisor.cpp
   src/diagnostics/ai_client.cpp
@@ -93,6 +100,7 @@ set(KIKO_CORE_SOURCES
   ${KIKO_CONNECT_LAYER_SOURCES}
   ${KIKO_RELAY_LAYER_SOURCES}
   ${KIKO_TRANSFER_LAYER_SOURCES}
+  ${KIKO_NOTE_LAYER_SOURCES}
   ${KIKO_DIAGNOSTICS_LAYER_SOURCES}
   ${KIKO_TUI_LAYER_SOURCES}
 )
@@ -198,7 +206,9 @@ set(KIKO_APP_SOURCES
   src/tui/tui_transfer_actions.cpp
   src/tui/tui_transfer_view.cpp
   src/tui/tui_failure_hint.cpp
-  src/platform/clipboard.cpp
+  src/tui/tui_note.cpp
+  src/web/web.cpp
+  src/web/web_assets.cpp
 )
 
 add_executable(kiko ${KIKO_APP_SOURCES})
@@ -221,7 +231,7 @@ set(KIKO_RELAYD_SOURCES
 add_executable(kiko-relayd ${KIKO_RELAYD_SOURCES})
 target_include_directories(kiko-relayd PRIVATE src)
 target_link_libraries(kiko-relayd PRIVATE asio::asio nlohmann_json::nlohmann_json Threads::Threads)
-target_compile_definitions(kiko-relayd PRIVATE ASIO_STANDALONE)
+target_compile_definitions(kiko-relayd PRIVATE ASIO_STANDALONE "KIKO_VERSION=\"${PROJECT_VERSION}\"")
 if(WIN32)
   target_link_libraries(kiko-relayd PRIVATE ws2_32 iphlpapi)
 endif()
@@ -229,6 +239,8 @@ endif()
 enable_testing()
 add_test(NAME cli_version COMMAND $<TARGET_FILE:kiko> --version)
 set_tests_properties(cli_version PROPERTIES DEPENDS kiko PASS_REGULAR_EXPRESSION "kiko ${PROJECT_VERSION}")
+add_test(NAME relayd_version COMMAND $<TARGET_FILE:kiko-relayd> --version)
+set_tests_properties(relayd_version PROPERTIES DEPENDS kiko-relayd PASS_REGULAR_EXPRESSION "kiko-relayd ${PROJECT_VERSION}")
 
 function(kiko_add_core_test name source)
   add_executable(kiko_${name}_test ${source})
@@ -265,6 +277,11 @@ add_test(NAME tui_failure_hint COMMAND kiko_tui_failure_hint_test)
 add_executable(kiko_tui_browser_test tests/tui_browser_test.cpp src/tui/tui_browser.cpp)
 target_link_libraries(kiko_tui_browser_test PRIVATE kiko_core ftxui::component)
 add_test(NAME tui_browser COMMAND kiko_tui_browser_test)
+
+add_executable(kiko_web_test tests/web_test.cpp src/web/web.cpp src/web/web_assets.cpp)
+target_link_libraries(kiko_web_test PRIVATE kiko_core)
+add_test(NAME web COMMAND kiko_web_test)
+kiko_add_core_test(note_protocol tests/note_protocol_test.cpp)
 kiko_add_core_test(mux tests/mux_test.cpp)
 kiko_add_core_test(adaptive tests/adaptive_test.cpp)
 kiko_add_core_test(connectivity tests/connectivity_test.cpp)
@@ -285,6 +302,16 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(relay_transfer_smoke PROPERTIES DEPENDS kiko TIMEOUT 120)
   add_test(NAME relayd_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/relayd_smoke.py $<TARGET_FILE:kiko-relayd>)
   set_tests_properties(relayd_smoke PROPERTIES DEPENDS kiko-relayd TIMEOUT 20)
+  add_test(NAME web_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/web_smoke.py $<TARGET_FILE:kiko>)
+  set_tests_properties(web_smoke PROPERTIES DEPENDS kiko TIMEOUT 20)
+  add_test(NAME web_note_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/web_note_smoke.py
+           $<TARGET_FILE:kiko> $<TARGET_FILE:kiko-relayd>)
+  set_tests_properties(web_note_smoke PROPERTIES DEPENDS "kiko;kiko-relayd" TIMEOUT 30)
+  add_test(NAME pair_timeout_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/pair_timeout_smoke.py
+           $<TARGET_FILE:kiko> $<TARGET_FILE:kiko-relayd>)
+  set_tests_properties(pair_timeout_smoke PROPERTIES DEPENDS "kiko;kiko-relayd" TIMEOUT 12)
+  add_test(NAME web_browser_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/web_browser_smoke.py $<TARGET_FILE:kiko>)
+  set_tests_properties(web_browser_smoke PROPERTIES DEPENDS kiko TIMEOUT 30 SKIP_RETURN_CODE 77)
 endif()
 
 if(NOT WIN32 AND Python3_Interpreter_FOUND)

@@ -114,6 +114,51 @@ int main() {
 
   {
     auto state = base_menu();
+    state.mode = 2;
+    state.note_role = 0;
+    state.network.no_direct = true;
+    const auto prepared = prepare_tui_note(state);
+    if (!prepared.ok || prepared.config.role != Role::Sender || !prepared.config.code.empty() ||
+        prepared.config.relay.host != "127.0.0.1" || !prepared.config.no_direct ||
+        prepared.config.app != "note") {
+      std::cerr << "FAIL: notepad host config was not prepared correctly\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
+  {
+    auto state = base_menu();
+    state.mode = 2;
+    state.note_role = 1;
+    if (prepare_tui_note(state).ok) {
+      std::cerr << "FAIL: notepad join should require a pairing code\n";
+      fs::remove(send_path);
+      return 1;
+    }
+    state.code = "abc234";
+    const auto prepared = prepare_tui_note(state);
+    if (!prepared.ok || prepared.config.role != Role::Receiver || prepared.config.code != "abc234") {
+      std::cerr << "FAIL: notepad join config was not prepared correctly\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
+  {
+    auto state = base_menu();
+    state.mode = 1;
+    state.code = "r561";
+    const auto prepared = prepare_tui_transfer(state);
+    if (!prepared.ok || prepared.spec.code != "r561") {
+      std::cerr << "FAIL: receive should accept alphanumeric pairing code r561\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
+  {
+    auto state = base_menu();
     state.mode = 1;
     state.code = "abc234";
     state.output_dir = "/tmp/kiko-out";

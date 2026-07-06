@@ -14,7 +14,6 @@ TuiMenuState load_tui_menu_state(const Endpoint& default_relay) {
   if (auto env_pass = relay_pass_from_env()) state.relay_pass = *env_pass;
 
   const UserConfig saved = load_user_config();
-  if (!saved.relay.empty()) state.relay = saved.relay;
   if (!saved.relay_pass.empty() && !relay_pass_from_env()) state.relay_pass = saved.relay_pass;
   if (!saved.last_send_path.empty()) state.path = saved.last_send_path;
   if (!saved.last_recv_out_dir.empty()) state.output_dir = saved.last_recv_out_dir;
@@ -34,7 +33,7 @@ void save_tui_menu_state(const TuiMenuState& state) {
   prefs.relay_pass = copy.relay_pass;
   prefs.last_send_path = copy.path;
   prefs.last_recv_out_dir = copy.output_dir;
-  prefs.last_mode = copy.mode;
+  if (copy.mode == 0 || copy.mode == 1) prefs.last_mode = copy.mode;
   save_network_options(prefs, copy.network);
   save_user_config(prefs);
 }
@@ -50,6 +49,9 @@ std::optional<std::string> apply_connections_text(TuiMenuState& state) {
 }
 
 TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
+  if (state.mode != 0 && state.mode != 1) {
+    return {.error = "select Send or Receive for a file transfer"};
+  }
   if (state.mode == 0 && state.path.empty()) {
     return {.error = "path is required — type a path or press Browse"};
   }
@@ -87,6 +89,45 @@ TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
   prepared.spec.relay = relay_ep;
   prepared.spec.relay_pass = resolve_relay_pass(state.relay_pass);
   prepared.spec.network = state.network;
+  return prepared;
+}
+
+TuiPreparedNote prepare_tui_note(TuiMenuState& state) {
+  if (state.mode != 2) return {.error = "select Notepad first"};
+  if (auto code_error = validate_pairing_code_format(state.code, state.note_role == 1)) {
+    return {.error = *code_error};
+  }
+  if (auto net_error = validate_network_options(state.network, state.mode)) {
+    return {.error = *net_error};
+  }
+
+  Endpoint relay_ep;
+  try {
+    relay_ep = parse_endpoint(state.relay);
+  } catch (const std::exception& e) {
+    return {.error = std::string("invalid relay: ") + e.what()};
+  }
+
+  TuiPreparedNote prepared;
+  prepared.ok = true;
+  prepared.config.role = state.note_role == 0 ? Role::Sender : Role::Receiver;
+  prepared.config.code = state.code;
+  prepared.config.relay = relay_ep;
+  prepared.config.relay_pass = resolve_relay_pass(state.relay_pass);
+  prepared.config.no_direct = state.network.no_direct;
+  prepared.config.lan_discover = state.network.lan_discover;
+  prepared.config.disable_local = state.network.disable_local;
+  prepared.config.only_local = state.network.only_local;
+  prepared.config.udp_probe = state.network.udp_probe;
+  prepared.config.show_qrcode = false;
+  prepared.config.manual_ip =
+      state.network.manual_ip.empty() ? std::nullopt : std::optional<std::string>(state.network.manual_ip);
+  prepared.config.bind_interface = state.network.bind_interface;
+  prepared.config.avoid_vpn = state.network.avoid_vpn;
+  prepared.config.app = "note";
+  if (!state.network.proxy_url.empty()) {
+    prepared.config.proxy = parse_proxy_url(state.network.proxy_url);
+  }
   return prepared;
 }
 

@@ -84,6 +84,7 @@ kiko recv <code> --out ./downloads
 ## Features
 
 - **Short pairing codes** – auto-generated 6-character codes (e.g. `x7k9m2`). Pass any custom code with `--code` (short alphanumeric, or croc-style `4827-stone-iris-lake-ruby` with `-` splitting room label and PAKE secret).
+- **Human-sized pairing window** – send/recv/note wait up to 5 minutes by default for the other side to enter the code. Use `--pair-timeout SEC` to tune it.
 - **Terminal QR code** – when sending from a TTY, a QR code for the pairing code is printed (disable with `--no-qrcode`).
 - **IPv6 + IPv4 dual stack** – `AF_UNSPEC` resolve, dual-stack listeners (`::`), IPv6-first dial with IPv4 fallback. Bracketed endpoints: `[::1]:9000`.
 - **Resume** – preflights the file manifest, writes to `<name>.kikopart`, renames on success, and reports the resume offset when continuing. Re-run the same send/recv pair to continue; SHA-256 verifies the whole file. **imohash** fingerprints skip files you already have.
@@ -98,6 +99,8 @@ kiko recv <code> --out ./downloads
 - **NAT awareness** – LAN candidates first, then reflexive addresses; adaptive punch timing before relay fallback.
 - **Connectivity planning** – STUN NAT probe (`--udp-probe`), rule-based `RoutePlan`, VPN-filtered LAN candidates, relay outbound path probing, and `~/.config/kiko/profile.json` success memory.
 - **Doctor** – `kiko doctor [--udp-probe] [--json] [--ai-explain]` probes relay reachability and suggests a transfer path.
+- **Shared notepad** – `kiko note host --tui` and `kiko note join CODE --tui` synchronize a temporary plaintext note over the same direct/relay and PAKE-encrypted path.
+- **Local Web console** – `kiko web` opens a loopback-only browser UI for send, receive, notepad, doctor, path browsing, live progress, and cancel.
 - **AI assist (BYOK, opt-in)** – OpenAI-compatible route advice and human-readable doctor explanations via env-configured API key.
 
 ## Security model
@@ -135,6 +138,34 @@ Interactive TUI:
 ```sh
 ./build/kiko tui
 ```
+
+Shared notepad:
+
+```sh
+# Select Notepad from the main TUI, or launch it directly:
+./build/kiko tui
+
+# First device
+./build/kiko note host --tui
+
+# Second device
+./build/kiko note join <code> --tui
+```
+
+The note is temporary and kept only in memory. Edits are sent after a 250 ms pause, and the status changes to
+`synced` after the peer acknowledges applying that revision. `Esc` returns to the main menu when launched from
+`kiko tui`.
+
+Local browser UI:
+
+```sh
+./build/kiko web
+./build/kiko web --no-open --listen 127.0.0.1:0
+```
+
+`kiko web` prints a one-time tokenized local URL and only accepts loopback listeners in this version.
+The Web Notepad tab uses the same pairing code and encrypted direct/relay path as `kiko note`; it is plaintext,
+temporary, and kept only in memory.
 
 Run a relay (LAN-announced via multicast):
 
@@ -228,7 +259,7 @@ export KIKO_AI_BASE_URL=https://api.openai.com/v1   # or http://localhost:11434/
 export KIKO_AI_MODEL=gpt-4o-mini
 ```
 
-Flags: `--relay-pass`, `--remember`, `--auto-connections`, `--debug-route`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--symlinks`, `--on-conflict`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
+Flags: `--relay-pass`, `--pair-timeout`, `--remember`, `--auto-connections`, `--debug-route`, `--no-direct`, `--no-lan`, `--no-local`, `--local`, `--ip`, `--udp-probe`, `--ai-route`, `--ai-route-plan-only`, `--no-gitignore`, `--symlinks`, `--on-conflict`, `--no-qrcode`, `--proxy`, `--bind-interface`, `--avoid-vpn`, `--tui`.
 
 `--ip` overrides the relay target (port from `--relay`) and the addresses advertised to the peer for direct/punch paths. When set, LAN relay discovery is skipped.
 
@@ -315,5 +346,5 @@ git push origin v0.1.9-alpha
 | Network | Standalone Asio + C++20 coroutines (relay) / sync I/O (transfer) |
 | Compression | zstd |
 | CLI | CLI11 + nlohmann-json control messages |
-| UI | FTXUI (optional `--tui`) |
+| UI | FTXUI (`tui` / `--tui`) and embedded loopback Web UI (`web`) |
 | QR | Nayuki qrcodegen (vcpkg) |

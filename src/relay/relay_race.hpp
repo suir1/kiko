@@ -6,6 +6,7 @@
 #include "core/socket.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -29,6 +30,8 @@ struct RelayPeerResult {
 struct RelayRaceEntry {
   Endpoint endpoint;
   bool use_proxy = false;
+  std::size_t priority = 0;
+  std::chrono::milliseconds start_delay{0};
 };
 
 [[nodiscard]] std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const Message& hello,
