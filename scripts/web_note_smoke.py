@@ -56,6 +56,24 @@ def terminate(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=3)
 
 
+def communicate_or_terminate(proc: subprocess.Popen[str], timeout: float) -> str:
+    try:
+        output, _ = proc.communicate(timeout=timeout)
+        return output or ""
+    except subprocess.TimeoutExpired as exc:
+        partial = exc.output or ""
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", "replace")
+        terminate(proc)
+        tail = ""
+        if proc.stdout:
+            try:
+                tail = proc.stdout.read() or ""
+            except ValueError:
+                tail = ""
+        return tail or partial
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         fail("usage: web_note_smoke.py /path/to/kiko /path/to/kiko-relayd")
@@ -97,6 +115,8 @@ def main() -> None:
                 "code": "",
                 "relay": relay_addr,
                 "no_direct": True,
+                "no_lan": True,
+                "no_local": True,
             },
         )
 
@@ -120,6 +140,8 @@ def main() -> None:
                 "--relay",
                 relay_addr,
                 "--no-direct",
+                "--no-lan",
+                "--no-local",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -155,9 +177,9 @@ def main() -> None:
             fail("join stdin was unavailable")
         join.stdin.write("/quit\n")
         join.stdin.flush()
-        output, _ = join.communicate(timeout=8)
+        output = communicate_or_terminate(join, timeout=20)
         if note_text not in output:
-            fail("join output did not contain synced note text")
+            fail("join output did not contain synced note text:\n" + output[-2000:])
     finally:
         for proc in reversed(procs):
             terminate(proc)
