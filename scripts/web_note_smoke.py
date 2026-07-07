@@ -168,6 +168,24 @@ def main() -> None:
         else:
             fail("web notepad did not receive ack")
 
+        api(base, "/api/note/pad/create" + token_path, {})
+        pad_text = "hello from web note pad two"
+        api(base, "/api/note/update" + token_path, {"text": pad_text})
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            job = api(base, "/api/job" + token_path)
+            pads = job.get("note_pads") or []
+            if (
+                job.get("note_synced")
+                and job.get("note_active_pad") == "pad-2"
+                and job.get("note_text") == pad_text
+                and len(pads) >= 2
+            ):
+                break
+            time.sleep(0.1)
+        else:
+            fail("web notepad second pad did not sync")
+
         if not join.stdin:
             fail("join stdin was unavailable")
         join.stdin.write("/quit\n")
@@ -175,6 +193,8 @@ def main() -> None:
         output = communicate_or_fail(join, timeout=8)
         if note_text not in output:
             fail("join output did not contain synced note text:\n" + output[-2000:])
+        if pad_text not in output:
+            fail("join output did not contain second pad note text:\n" + output[-2000:])
     finally:
         for proc in reversed(procs):
             terminate(proc)

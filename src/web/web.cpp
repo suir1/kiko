@@ -184,6 +184,11 @@ json job_to_json(const WebJobSnapshot& snapshot) {
   out["doctor_json"] = snapshot.doctor_json;
   out["doctor_summary"] = snapshot.doctor_summary;
   out["note_text"] = snapshot.note_text;
+  out["note_active_pad"] = snapshot.note_active_pad;
+  out["note_pads"] = json::array();
+  for (const auto& pad : snapshot.note_pads) {
+    out["note_pads"].push_back({{"id", pad.id}, {"title", pad.title}, {"revision", pad.revision}});
+  }
   out["note_revision"] = snapshot.note_revision;
   out["note_local_revision"] = snapshot.note_local_revision;
   out["note_acked_revision"] = snapshot.note_acked_revision;
@@ -265,7 +270,9 @@ struct WebNoteRuntime {
   std::unique_ptr<TcpSocket> channel;
   std::unique_ptr<StreamCipher> cipher;
   std::deque<NoteFrame> outgoing;
-  NoteDocument document;
+  std::map<std::string, NoteDocument> documents;
+  std::string active_pad = "main";
+  int next_pad_number = 2;
   std::string error;
   std::atomic_bool done{false};
 };
@@ -286,6 +293,33 @@ std::optional<NoteFrame> recv_web_note_interruptible(TcpSocket& channel, StreamC
     if (!channel.valid()) return std::nullopt;
   }
   return std::nullopt;
+}
+
+NoteDocument& ensure_web_note_pad_locked(WebNoteRuntime& runtime, const std::string& pad_id,
+                                         const std::string& title = {}) {
+  const auto id = pad_id.empty() ? std::string("main") : pad_id;
+  auto [it, inserted] = runtime.documents.try_emplace(id);
+  if (inserted) {
+    it->second.pad_id = id;
+    it->second.title = title.empty() ? (id == "main" ? "Note 1" : id) : title;
+  } else if (!title.empty()) {
+    it->second.title = title;
+  }
+  return it->second;
+}
+
+std::vector<WebNotePadSnapshot> web_note_pads_snapshot_locked(WebNoteRuntime& runtime) {
+  std::vector<WebNotePadSnapshot> pads;
+  pads.reserve(runtime.documents.size());
+  for (auto& [id, document] : runtime.documents) {
+    pads.push_back(WebNotePadSnapshot{id, document.title.empty() ? id : document.title, document.revision});
+  }
+  std::sort(pads.begin(), pads.end(), [](const WebNotePadSnapshot& a, const WebNotePadSnapshot& b) {
+    if (a.id == "main") return true;
+    if (b.id == "main") return false;
+    return a.id < b.id;
+  });
+  return pads;
 }
 
 class WebJobStore {
@@ -479,12 +513,22 @@ class WebJobStore {
       auto cancellation = std::make_shared<TransferCancellation>();
       config.cancellation = cancellation;
       auto runtime = std::make_shared<WebNoteRuntime>();
+      {
+        std::lock_guard<std::mutex> lock(runtime->mutex);
+        ensure_web_note_pad_locked(*runtime, "main", "Note 1");
+      }
       if (!begin_task("note", cancellation, error)) return false;
       {
         std::lock_guard<std::mutex> lock(mutex_);
         note_runtime_ = runtime;
         state_.activity = config.role == Role::Sender ? "hosting notepad" : "joining notepad";
         state_.code = config.code;
+        state_.note_active_pad = "main";
+        state_.note_pads = {WebNotePadSnapshot{"main", "Note 1", 0}};
+        state_.note_text.clear();
+        state_.note_revision = 0;
+        state_.note_local_revision = 0;
+        state_.note_acked_revision = 0;
       }
 
       worker_ = std::thread([this, config = std::move(config), cancellation = std::move(cancellation),
@@ -581,21 +625,31 @@ class WebJobStore {
             bool applied = false;
             std::string text;
             std::uint64_t revision = 0;
+            std::string pad_id;
+            std::vector<WebNotePadSnapshot> pads;
+            bool active = false;
             {
               std::lock_guard<std::mutex> lock(runtime->mutex);
-              applied = apply_note_update(runtime->document, *incoming);
+              auto& document = ensure_web_note_pad_locked(*runtime, incoming->pad_id, incoming->title);
+              applied = apply_note_update(document, *incoming);
               if (applied) {
-                text = runtime->document.text;
-                revision = runtime->document.revision;
-                runtime->outgoing.push_back(make_note_ack(incoming->revision));
+                text = document.text;
+                revision = document.revision;
+                pad_id = document.pad_id;
+                pads = web_note_pads_snapshot_locked(*runtime);
+                active = runtime->active_pad == pad_id;
+                runtime->outgoing.push_back(make_note_ack(pad_id, incoming->revision));
               }
             }
             if (applied) {
               runtime->changed.notify_one();
               update([&](WebJobSnapshot& state) {
-                state.note_text = text;
-                state.note_revision = revision;
-                state.activity = "remote note update";
+                state.note_pads = pads;
+                if (active) {
+                  state.note_text = text;
+                  state.note_revision = revision;
+                }
+                state.activity = active ? "remote note update" : "remote note updated " + pad_id;
               });
             }
           }
@@ -640,20 +694,29 @@ class WebJobStore {
 
     NoteFrame frame;
     std::uint64_t revision = 0;
+    std::string pad_id;
+    std::string title;
+    std::vector<WebNotePadSnapshot> pads;
     {
       std::lock_guard<std::mutex> lock(runtime->mutex);
       if (runtime->done.load()) {
         error = "notepad is closed";
         return false;
       }
-      frame = make_note_update(runtime->document.revision + 1, text);
-      (void)apply_note_update(runtime->document, frame);
+      auto& document = ensure_web_note_pad_locked(*runtime, runtime->active_pad);
+      pad_id = document.pad_id;
+      title = document.title;
+      frame = make_note_update(pad_id, document.revision + 1, text, title);
+      (void)apply_note_update(document, frame);
       revision = frame.revision;
+      pads = web_note_pads_snapshot_locked(*runtime);
       runtime->outgoing.push_back(frame);
     }
     runtime->changed.notify_one();
     update([&](WebJobSnapshot& state) {
       state.note_text = text;
+      state.note_active_pad = pad_id;
+      state.note_pads = pads;
       state.note_revision = revision;
       state.note_local_revision = std::max(state.note_local_revision, revision);
       state.activity = "notepad syncing";
@@ -666,23 +729,101 @@ class WebJobStore {
     if (!runtime) return false;
 
     std::uint64_t revision = 0;
+    std::string pad_id;
+    std::vector<WebNotePadSnapshot> pads;
     {
       std::lock_guard<std::mutex> lock(runtime->mutex);
       if (runtime->done.load()) {
         error = "notepad is closed";
         return false;
       }
-      auto frame = make_note_clear(runtime->document.revision + 1);
-      (void)apply_note_update(runtime->document, frame);
+      auto& document = ensure_web_note_pad_locked(*runtime, runtime->active_pad);
+      pad_id = document.pad_id;
+      auto frame = make_note_clear(pad_id, document.revision + 1, document.title);
+      (void)apply_note_update(document, frame);
       revision = frame.revision;
+      pads = web_note_pads_snapshot_locked(*runtime);
       runtime->outgoing.push_back(std::move(frame));
     }
     runtime->changed.notify_one();
     update([&](WebJobSnapshot& state) {
       state.note_text.clear();
+      state.note_active_pad = pad_id;
+      state.note_pads = pads;
       state.note_revision = revision;
       state.note_local_revision = std::max(state.note_local_revision, revision);
       state.activity = "notepad syncing";
+    });
+    return true;
+  }
+
+  [[nodiscard]] bool create_note_pad(std::string& error) {
+    auto runtime = current_note_runtime(error);
+    if (!runtime) return false;
+
+    std::string pad_id;
+    std::string title;
+    std::vector<WebNotePadSnapshot> pads;
+    {
+      std::lock_guard<std::mutex> lock(runtime->mutex);
+      if (runtime->done.load()) {
+        error = "notepad is closed";
+        return false;
+      }
+      const int number = runtime->next_pad_number++;
+      pad_id = "pad-" + std::to_string(number);
+      title = "Note " + std::to_string(number);
+      auto& document = ensure_web_note_pad_locked(*runtime, pad_id, title);
+      document.title = title;
+      auto frame = make_note_update(pad_id, document.revision + 1, document.text, title);
+      (void)apply_note_update(document, frame);
+      runtime->active_pad = pad_id;
+      pads = web_note_pads_snapshot_locked(*runtime);
+      runtime->outgoing.push_back(std::move(frame));
+    }
+    runtime->changed.notify_one();
+    update([&](WebJobSnapshot& state) {
+      state.note_active_pad = pad_id;
+      state.note_pads = pads;
+      state.note_text.clear();
+      state.note_revision = 1;
+      state.note_local_revision = std::max<std::uint64_t>(state.note_local_revision, 1);
+      state.activity = "created " + title;
+    });
+    return true;
+  }
+
+  [[nodiscard]] bool select_note_pad(const json& body, std::string& error) {
+    auto runtime = current_note_runtime(error);
+    if (!runtime) return false;
+
+    const auto pad_id = json_string(body, "pad_id");
+    if (pad_id.empty()) {
+      error = "note pad id is required";
+      return false;
+    }
+
+    std::string text;
+    std::uint64_t revision = 0;
+    std::vector<WebNotePadSnapshot> pads;
+    {
+      std::lock_guard<std::mutex> lock(runtime->mutex);
+      const auto it = runtime->documents.find(pad_id);
+      if (it == runtime->documents.end()) {
+        error = "note pad not found";
+        return false;
+      }
+      runtime->active_pad = pad_id;
+      text = it->second.text;
+      revision = it->second.revision;
+      pads = web_note_pads_snapshot_locked(*runtime);
+    }
+    update([&](WebJobSnapshot& state) {
+      state.note_active_pad = pad_id;
+      state.note_pads = pads;
+      state.note_text = text;
+      state.note_revision = revision;
+      state.activity = "selected " + pad_id;
     });
     return true;
   }
@@ -1028,13 +1169,16 @@ class WebServer {
       return;
     }
     if (req.method == "POST" &&
-        (req.path == "/api/note/start" || req.path == "/api/note/update" || req.path == "/api/note/clear")) {
+        (req.path == "/api/note/start" || req.path == "/api/note/update" || req.path == "/api/note/clear" ||
+         req.path == "/api/note/pad/create" || req.path == "/api/note/pad/select")) {
       const auto body = parse_body_json(req);
       std::string error;
       bool ok = false;
       if (req.path == "/api/note/start") ok = jobs_.start_note(body, error);
       if (req.path == "/api/note/update") ok = jobs_.update_note(body, error);
       if (req.path == "/api/note/clear") ok = jobs_.clear_note(error);
+      if (req.path == "/api/note/pad/create") ok = jobs_.create_note_pad(error);
+      if (req.path == "/api/note/pad/select") ok = jobs_.select_note_pad(body, error);
       if (!ok) {
         const int status = error.find("already running") != std::string::npos ? 409 : 400;
         send_json(socket, status, status == 409 ? "Conflict" : "Bad Request", error_json(error));

@@ -31,6 +31,15 @@ int main() {
   assert(ack.revision == 3);
   assert(!apply_note_update(document, ack));
 
+  NoteDocument second_pad;
+  auto second = make_note_update("pad-2", 1, "second note", "Note 2");
+  assert(apply_note_update(second_pad, second));
+  assert(second_pad.pad_id == "pad-2");
+  assert(second_pad.title == "Note 2");
+  assert(second_pad.text == "second note");
+  auto second_ack = make_note_ack("pad-2", second_pad.revision);
+  assert(second_ack.pad_id == "pad-2");
+
   bool oversized = false;
   try {
     (void)make_note_update(4, std::string(kNoteMaxBytes + 1, 'x'));

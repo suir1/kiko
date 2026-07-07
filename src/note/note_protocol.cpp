@@ -14,6 +14,8 @@ std::string encode_note_frame(const NoteFrame& frame) {
               {{"kind", note_frame_type_name(frame.type)},
                {"revision", std::to_string(frame.revision)},
                {"timestamp_ms", std::to_string(frame.timestamp_ms)},
+               {"pad_id", frame.pad_id.empty() ? "main" : frame.pad_id},
+               {"title", frame.title},
                {"text", frame.text}}};
   return encode_message(msg);
 }
@@ -26,6 +28,9 @@ NoteFrame decode_note_frame(const std::string& payload) {
   frame.type = parse_note_frame_type(msg.get("kind"));
   frame.revision = msg.get_u64("revision", 0);
   frame.timestamp_ms = msg.get_u64("timestamp_ms", 0);
+  frame.pad_id = msg.get("pad_id", "main");
+  if (frame.pad_id.empty()) frame.pad_id = "main";
+  frame.title = msg.get("title");
   frame.text = msg.get("text");
   if (frame.text.size() > kNoteMaxBytes) throw KikoError("note text exceeds 1 MiB limit");
   return frame;
@@ -69,26 +74,41 @@ NoteFrame make_note_hello() {
 }
 
 NoteFrame make_note_update(std::uint64_t revision, std::string text) {
+  return make_note_update("main", revision, std::move(text));
+}
+
+NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::string text, std::string title) {
   if (text.size() > kNoteMaxBytes) throw KikoError("note text exceeds 1 MiB limit");
   NoteFrame frame;
   frame.type = NoteFrameType::Update;
   frame.revision = revision;
   frame.timestamp_ms = now_ms();
+  frame.pad_id = pad_id.empty() ? "main" : std::move(pad_id);
+  frame.title = std::move(title);
   frame.text = std::move(text);
   return frame;
 }
 
 NoteFrame make_note_clear(std::uint64_t revision) {
-  auto frame = make_note_update(revision, {});
+  return make_note_clear("main", revision);
+}
+
+NoteFrame make_note_clear(std::string pad_id, std::uint64_t revision, std::string title) {
+  auto frame = make_note_update(std::move(pad_id), revision, {}, std::move(title));
   frame.type = NoteFrameType::Clear;
   return frame;
 }
 
 NoteFrame make_note_ack(std::uint64_t revision) {
+  return make_note_ack("main", revision);
+}
+
+NoteFrame make_note_ack(std::string pad_id, std::uint64_t revision) {
   NoteFrame frame;
   frame.type = NoteFrameType::Ack;
   frame.revision = revision;
   frame.timestamp_ms = now_ms();
+  frame.pad_id = pad_id.empty() ? "main" : std::move(pad_id);
   return frame;
 }
 
@@ -98,6 +118,8 @@ bool apply_note_update(NoteDocument& document, const NoteFrame& frame) {
   if (frame.revision == document.revision && frame.timestamp_ms <= document.timestamp_ms) return false;
   document.revision = frame.revision;
   document.timestamp_ms = frame.timestamp_ms;
+  document.pad_id = frame.pad_id.empty() ? "main" : frame.pad_id;
+  if (!frame.title.empty()) document.title = frame.title;
   document.text = frame.type == NoteFrameType::Clear ? std::string{} : frame.text;
   return true;
 }

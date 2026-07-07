@@ -33,6 +33,12 @@ struct WebDirectoryEntry {
   bool has_modified = false;
 };
 
+struct WebNotePadSnapshot {
+  std::string id;
+  std::string title;
+  std::uint64_t revision = 0;
+};
+
 enum class WebPickMode { FileOrDirectory, DirectoryOnly };
 enum class WebBrowserSort { Name, ModifiedDesc };
 
@@ -65,6 +71,8 @@ struct WebJobSnapshot {
   std::string doctor_json;
   std::string doctor_summary;
   std::string note_text;
+  std::string note_active_pad = "main";
+  std::vector<WebNotePadSnapshot> note_pads;
   std::uint64_t note_revision = 0;
   std::uint64_t note_local_revision = 0;
   std::uint64_t note_acked_revision = 0;

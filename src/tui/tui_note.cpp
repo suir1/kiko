@@ -17,6 +17,7 @@
 #include <deque>
 #include <exception>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -168,6 +169,36 @@ std::vector<std::string> split_lines(const std::string& text) {
   return lines;
 }
 
+NoteDocument& ensure_tui_note_pad(std::map<std::string, NoteDocument>& documents, const std::string& pad_id,
+                                  const std::string& title = {}) {
+  const auto id = pad_id.empty() ? std::string("main") : pad_id;
+  auto [it, inserted] = documents.try_emplace(id);
+  if (inserted) {
+    it->second.pad_id = id;
+    it->second.title = title.empty() ? (id == "main" ? "Note 1" : id) : title;
+  } else if (!title.empty()) {
+    it->second.title = title;
+  }
+  return it->second;
+}
+
+std::vector<std::string> sorted_tui_note_pads(const std::map<std::string, NoteDocument>& documents) {
+  std::vector<std::string> ids;
+  ids.reserve(documents.size());
+  for (const auto& [id, _] : documents) ids.push_back(id);
+  std::sort(ids.begin(), ids.end(), [](const std::string& a, const std::string& b) {
+    if (a == "main") return true;
+    if (b == "main") return false;
+    return a < b;
+  });
+  return ids;
+}
+
+std::string note_pad_title(const NoteDocument& document) {
+  if (!document.title.empty()) return document.title;
+  return document.pad_id.empty() ? "main" : document.pad_id;
+}
+
 }  // namespace
 
 int run_tui_note(const NoteConfig& config) {
@@ -190,7 +221,10 @@ int run_tui_note(const NoteConfig& config) {
   TuiNoteReporter reporter(state, wake);
 
   std::string editor_text;
-  NoteDocument document;
+  std::map<std::string, NoteDocument> documents;
+  std::string active_pad = "main";
+  int next_pad_number = 2;
+  (void)ensure_tui_note_pad(documents, active_pad, "Note 1");
   bool local_dirty = false;
   bool applying_remote = false;
   std::string note_qr;
@@ -217,7 +251,8 @@ int run_tui_note(const NoteConfig& config) {
     if (!local_dirty || !dirty_since || !runtime_connected(runtime)) return;
     if (editor_text.size() > kNoteMaxBytes) return;
     if (std::chrono::steady_clock::now() - *dirty_since < std::chrono::milliseconds(250)) return;
-    auto frame = make_note_update(document.revision + 1, editor_text);
+    auto& document = ensure_tui_note_pad(documents, active_pad);
+    auto frame = make_note_update(document.pad_id, document.revision + 1, editor_text, document.title);
     (void)apply_note_update(document, frame);
     const auto revision = frame.revision;
     queue_runtime_frame(runtime, std::move(frame));
@@ -227,6 +262,35 @@ int run_tui_note(const NoteConfig& config) {
     std::lock_guard<std::mutex> lock(state.mutex);
     state.latest_local_revision = std::max(state.latest_local_revision, revision);
     state.status = "syncing";
+  };
+
+  auto flush_active_editor = [&] {
+    if (!local_dirty || editor_text.size() > kNoteMaxBytes) return;
+    auto& document = ensure_tui_note_pad(documents, active_pad);
+    auto frame = make_note_update(document.pad_id, document.revision + 1, editor_text, document.title);
+    (void)apply_note_update(document, frame);
+    const auto revision = frame.revision;
+    if (runtime_connected(runtime)) queue_runtime_frame(runtime, std::move(frame));
+    local_dirty = false;
+    debounce_pending.store(false);
+    dirty_since.reset();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    state.latest_local_revision = std::max(state.latest_local_revision, revision);
+    state.status = runtime_connected(runtime) ? "syncing" : "edited locally";
+  };
+
+  auto switch_active_pad = [&](const std::string& pad_id) {
+    if (pad_id.empty() || pad_id == active_pad) return;
+    flush_active_editor();
+    active_pad = pad_id;
+    auto& document = ensure_tui_note_pad(documents, active_pad);
+    applying_remote = true;
+    editor_text = document.text;
+    note_qr.clear();
+    applying_remote = false;
+    local_dirty = false;
+    debounce_pending.store(false);
+    dirty_since.reset();
   };
 
   auto apply_remote_updates = [&] {
@@ -242,15 +306,18 @@ int run_tui_note(const NoteConfig& config) {
       frames.swap(state.pending_remote);
     }
     for (const auto& frame : frames) {
+      auto& document = ensure_tui_note_pad(documents, frame.pad_id, frame.title);
       if (apply_note_update(document, frame)) {
-        applying_remote = true;
-        editor_text = document.text;
-        note_qr.clear();
-        applying_remote = false;
-        local_dirty = false;
-        debounce_pending.store(false);
-        dirty_since.reset();
-        queue_runtime_frame(runtime, make_note_ack(frame.revision));
+        if (document.pad_id == active_pad) {
+          applying_remote = true;
+          editor_text = document.text;
+          note_qr.clear();
+          applying_remote = false;
+          local_dirty = false;
+          debounce_pending.store(false);
+          dirty_since.reset();
+        }
+        queue_runtime_frame(runtime, make_note_ack(document.pad_id, frame.revision));
       }
     }
   };
@@ -376,7 +443,8 @@ int run_tui_note(const NoteConfig& config) {
   auto clear_button = Button("Clear", [&] {
     editor_text.clear();
     note_qr.clear();
-    auto frame = make_note_clear(document.revision + 1);
+    auto& document = ensure_tui_note_pad(documents, active_pad);
+    auto frame = make_note_clear(document.pad_id, document.revision + 1, document.title);
     (void)apply_note_update(document, frame);
     const auto revision = frame.revision;
     queue_runtime_frame(runtime, std::move(frame));
@@ -387,6 +455,39 @@ int run_tui_note(const NoteConfig& config) {
       std::lock_guard<std::mutex> lock(state.mutex);
       state.latest_local_revision = std::max(state.latest_local_revision, revision);
       state.status = "syncing";
+    }
+    wake();
+  });
+  auto prev_button = Button("Prev", [&] {
+    const auto ids = sorted_tui_note_pads(documents);
+    if (ids.size() <= 1) return;
+    const auto it = std::find(ids.begin(), ids.end(), active_pad);
+    const auto index = it == ids.end() ? 0 : static_cast<std::size_t>(std::distance(ids.begin(), it));
+    switch_active_pad(ids[(index + ids.size() - 1) % ids.size()]);
+    wake();
+  });
+  auto next_button = Button("Next", [&] {
+    const auto ids = sorted_tui_note_pads(documents);
+    if (ids.size() <= 1) return;
+    const auto it = std::find(ids.begin(), ids.end(), active_pad);
+    const auto index = it == ids.end() ? 0 : static_cast<std::size_t>(std::distance(ids.begin(), it));
+    switch_active_pad(ids[(index + 1) % ids.size()]);
+    wake();
+  });
+  auto new_button = Button("New", [&] {
+    flush_active_editor();
+    const int number = next_pad_number++;
+    const auto pad_id = "pad-" + std::to_string(number);
+    const auto title = "Note " + std::to_string(number);
+    auto& document = ensure_tui_note_pad(documents, pad_id, title);
+    auto frame = make_note_update(document.pad_id, document.revision + 1, document.text, document.title);
+    (void)apply_note_update(document, frame);
+    if (runtime_connected(runtime)) queue_runtime_frame(runtime, frame);
+    switch_active_pad(pad_id);
+    {
+      std::lock_guard<std::mutex> lock(state.mutex);
+      state.latest_local_revision = std::max(state.latest_local_revision, frame.revision);
+      state.status = "created " + title;
     }
     wake();
   });
@@ -425,7 +526,7 @@ int run_tui_note(const NoteConfig& config) {
     close_runtime(runtime);
     screen.Exit();
   });
-  auto controls = Container::Horizontal({clear_button, qr_button, quit_button});
+  auto controls = Container::Horizontal({prev_button, next_button, new_button, clear_button, qr_button, quit_button});
   auto layout = Container::Vertical({editor, controls});
 
   auto renderer = Renderer(layout, [&] {
@@ -454,6 +555,14 @@ int run_tui_note(const NoteConfig& config) {
     header.push_back(text(title) | bold);
     if (!code.empty()) header.push_back(text("code: " + code));
     if (!route.empty()) header.push_back(text("route: " + route));
+    const auto pad_ids = sorted_tui_note_pads(documents);
+    const auto pad_it = documents.find(active_pad);
+    const auto pad_title = pad_it == documents.end() ? active_pad : note_pad_title(pad_it->second);
+    const auto active_index_it = std::find(pad_ids.begin(), pad_ids.end(), active_pad);
+    const auto active_index =
+        active_index_it == pad_ids.end() ? 0 : static_cast<std::size_t>(std::distance(pad_ids.begin(), active_index_it));
+    header.push_back(text("pad: " + pad_title + " (" + std::to_string(active_index + 1) + "/" +
+                          std::to_string(std::max<std::size_t>(pad_ids.size(), 1)) + ")"));
     header.push_back(text("status: " + status));
     if (failed) header.push_back(text("error: " + error) | color(Color::Red));
     if (canceled) header.push_back(text("canceled") | color(Color::Yellow));
@@ -482,8 +591,10 @@ int run_tui_note(const NoteConfig& config) {
                separator(),
                editor_panel,
                separator(),
-               hbox({clear_button->Render(), text(" "), qr_button->Render(), text(" "),
-                     quit_button->Render(), filler(), text("Esc to cancel") | dim}),
+               hbox({prev_button->Render(), text(" "), next_button->Render(), text(" "),
+                     new_button->Render(), text(" "), clear_button->Render(), text(" "),
+                     qr_button->Render(), text(" "), quit_button->Render(), filler(),
+                     text("Esc to cancel") | dim}),
            }) |
            border;
   });

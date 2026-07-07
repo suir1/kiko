@@ -35,6 +35,9 @@ std::string_view web_index_html() {
     .row { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: end; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
     .actions button { width: auto; }
+    .note-pads { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+    .note-pads button { width: auto; background: transparent; color: var(--text); border-color: var(--line); padding: 6px 8px; font-size: 12px; }
+    .note-pads button.active { background: var(--accent); color: white; border-color: var(--accent); }
     .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
     .checks label { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--text); }
     .checks input { width: auto; }
@@ -147,10 +150,12 @@ std::string_view web_index_html() {
           </div>
         </details>
         <button id="note-start" onclick="startNote()">Start notepad</button>
+        <div id="note-pads" class="note-pads"></div>
         <label>Shared note</label>
         <textarea id="note-text" placeholder="Start the notepad, then type here..." disabled oninput="queueNoteUpdate()"></textarea>
         <div id="note-meta" class="muted" style="margin-top:8px">not running</div>
         <div class="actions">
+          <button id="note-new-pad" class="secondary inline" onclick="createNotePad()" disabled>New note</button>
           <button id="note-copy-code" class="secondary inline" onclick="copyNoteCode()" disabled>Copy code</button>
           <button id="note-copy-note" class="secondary inline" onclick="copyNoteText()" disabled>Copy note</button>
           <button id="note-qr" class="secondary inline" onclick="showNoteQr()" disabled>QR</button>
@@ -215,6 +220,7 @@ std::string_view web_index_html() {
     let noteUpdateTimer = null;
     let noteEditGeneration = 0;
     let noteRole = 'host';
+    let noteActivePad = 'main';
     const noteQrMaxBytes = 1200;
 
     function api(path, options = {}) {
@@ -353,6 +359,7 @@ std::string_view web_index_html() {
       clearHint();
       const code = qs('note-code').value.trim();
       noteRole = code && !qs('note-custom-host').checked ? 'join' : 'host';
+      noteActivePad = 'main';
       const body = {
         role: noteRole, code: qs('note-code').value, relay: qs('note-relay').value,
         no_direct: qs('note-no-direct').checked, no_lan: !qs('note-lan').checked,
@@ -363,6 +370,7 @@ std::string_view web_index_html() {
         noteDirty = false;
         noteEditGeneration = 0;
         qs('note-text').disabled = false;
+        qs('note-new-pad').disabled = false;
         qs('note-clear').disabled = false;
         startPolling();
       }).catch(showError);
@@ -396,6 +404,45 @@ std::string_view web_index_html() {
       qs('note-text').value = '';
       noteApplying = false;
       api('/api/note/clear', {method:'POST', body:'{}'}).then(loadJob).catch(showError);
+    }
+    function flushNoteUpdate() {
+      if (noteUpdateTimer) { clearTimeout(noteUpdateTimer); noteUpdateTimer = null; }
+      if (!noteDirty) return Promise.resolve();
+      const generation = noteEditGeneration;
+      const text = qs('note-text').value;
+      return api('/api/note/update', {method:'POST', body: JSON.stringify({text})}).then(() => {
+        if (generation === noteEditGeneration) noteDirty = false;
+      });
+    }
+    function createNotePad() {
+      clearHint();
+      flushNoteUpdate()
+        .then(() => api('/api/note/pad/create', {method:'POST', body:'{}'}))
+        .then(() => { noteDirty = false; noteEditGeneration += 1; loadJob(); })
+        .catch(showError);
+    }
+    function selectNotePad(padId) {
+      if (!padId || padId === noteActivePad) return;
+      clearHint();
+      flushNoteUpdate()
+        .then(() => api('/api/note/pad/select', {method:'POST', body: JSON.stringify({pad_id: padId})}))
+        .then(() => { noteDirty = false; noteEditGeneration += 1; loadJob(); })
+        .catch(showError);
+    }
+    function renderNotePads(j) {
+      const root = qs('note-pads');
+      root.innerHTML = '';
+      const pads = Array.isArray(j.note_pads) && j.note_pads.length ? j.note_pads : [{id:'main', title:'Note 1', revision:0}];
+      const active = j.note_active_pad || noteActivePad || 'main';
+      for (const pad of pads) {
+        const btn = document.createElement('button');
+        btn.className = pad.id === active ? 'active' : '';
+        btn.type = 'button';
+        btn.textContent = pad.title || pad.id;
+        btn.disabled = !j.running;
+        btn.onclick = () => selectNotePad(pad.id);
+        root.appendChild(btn);
+      }
     }
     function copyText(text, label) {
       if (!text) {
@@ -487,11 +534,14 @@ std::string_view web_index_html() {
       const editable = isNote && j.running && !j.failed && !j.canceled;
       const noteText = j.note_text || '';
       const hasCode = !!(j.code || qs('note-code').value.trim());
+      noteActivePad = j.note_active_pad || noteActivePad || 'main';
       qs('note-text').disabled = !editable;
+      qs('note-new-pad').disabled = !editable;
       qs('note-clear').disabled = !editable;
       qs('note-copy-code').disabled = !hasCode;
       qs('note-copy-note').disabled = !noteText && !qs('note-text').value;
       qs('note-qr').disabled = !noteText && !qs('note-text').value;
+      renderNotePads(j);
       if (isNote && j.code && noteRole === 'host' && !qs('note-code').value.trim()) {
         qs('note-code').value = j.code;
       }
@@ -502,9 +552,13 @@ std::string_view web_index_html() {
       }
       if (isNote) {
         const sync = j.note_synced ? 'synced' : (j.running ? (j.note_connected ? 'connected' : 'connecting') : 'closed');
-        qs('note-meta').textContent = 'rev ' + Number(j.note_revision || 0) + ' · ' + sync;
+        const pads = Array.isArray(j.note_pads) ? j.note_pads : [];
+        const active = pads.find(p => p.id === noteActivePad);
+        qs('note-meta').textContent = (active && active.title ? active.title + ' · ' : '') +
+          'rev ' + Number(j.note_revision || 0) + ' · ' + sync;
       } else {
         qs('note-meta').textContent = 'not running';
+        renderNotePads({});
       }
     }
     function resultText(j) {
