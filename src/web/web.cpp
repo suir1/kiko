@@ -1,6 +1,7 @@
 #include "web.hpp"
 
 #include "core/cancellation.hpp"
+#include "core/qrcode_print.hpp"
 #include "diagnostics/doctor.hpp"
 #include "note/note_protocol.hpp"
 #include "note/notepad.hpp"
@@ -34,6 +35,7 @@ using json = nlohmann::json;
 
 constexpr std::size_t kMaxBodyBytes = 1024 * 1024;
 constexpr std::size_t kMaxLogLines = 120;
+constexpr std::size_t kMaxQrTextBytes = 1200;
 constexpr int kDefaultPairTimeoutSec = static_cast<int>(kDefaultPairTimeout.count());
 constexpr auto kNoteReadPoll = std::chrono::milliseconds(100);
 constexpr auto kNoteHelloTimeout = std::chrono::seconds(20);
@@ -989,6 +991,25 @@ class WebServer {
     if (req.method == "POST" && req.path == "/api/job/cancel") {
       jobs_.cancel();
       send_json(socket, 200, "OK", json{{"ok", true}});
+      return;
+    }
+    if (req.method == "POST" && req.path == "/api/qr") {
+      const auto body = parse_body_json(req);
+      const auto text = json_string(body, "text");
+      if (text.empty()) {
+        send_json(socket, 400, "Bad Request", error_json("QR text is empty"));
+        return;
+      }
+      if (text.size() > kMaxQrTextBytes) {
+        send_json(socket, 400, "Bad Request", error_json("QR text exceeds 1200 byte limit"));
+        return;
+      }
+      const auto svg = qrcode_svg(text);
+      if (!svg) {
+        send_json(socket, 400, "Bad Request", error_json("QR code is unavailable or text is too large"));
+        return;
+      }
+      send_json(socket, 200, "OK", json{{"svg", *svg}});
       return;
     }
     if (req.method == "POST" && (req.path == "/api/send" || req.path == "/api/recv" || req.path == "/api/doctor")) {

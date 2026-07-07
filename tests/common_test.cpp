@@ -1,4 +1,5 @@
 #include "core/common.hpp"
+#include "core/qrcode_print.hpp"
 #include "platform/platform.hpp"
 #include "core/proxy.hpp"
 #include "core/protocol.hpp"
@@ -335,6 +336,13 @@ int main() {
     if (!expect_invalid_code("bad-chars!", false)) return 1;
     if (!expect_invalid_code("r5 61", false)) return 1;
     if (!expect_invalid_code("-abc", false)) return 1;
+  }
+
+  if (auto svg = kiko::qrcode_svg("hello")) {
+    if (svg->find("<svg") == std::string::npos || svg->find("<path") == std::string::npos) {
+      std::cerr << "FAIL: QR SVG output is malformed\n";
+      return 1;
+    }
   }
 
   std::cout << "common_test ok\n";

@@ -54,6 +54,11 @@ int main() {
   assert(html.find("Custom code host") != std::string::npos);
   assert(html.find("note-custom-host") != std::string::npos);
   assert(html.find("noteRole = code && !qs('note-custom-host').checked ? 'join' : 'host'") != std::string::npos);
+  assert(html.find("Copy code") != std::string::npos);
+  assert(html.find("Copy note") != std::string::npos);
+  assert(html.find("showNoteQr") != std::string::npos);
+  assert(html.find("/api/qr") != std::string::npos);
+  assert(html.find("QR contains the note text directly") != std::string::npos);
   assert(html.find("Host notepad") == std::string::npos);
   assert(html.find("Join notepad") == std::string::npos);
   assert(html.find("note-role") == std::string::npos);

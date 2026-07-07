@@ -33,6 +33,8 @@ std::string_view web_index_html() {
     .tabs button { background: transparent; color: var(--text); border-color: var(--line); }
     .tabs button.active { background: var(--accent); color: white; border-color: var(--accent); }
     .row { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: end; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
+    .actions button { width: auto; }
     .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
     .checks label { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--text); }
     .checks input { width: auto; }
@@ -57,6 +59,11 @@ std::string_view web_index_html() {
     .error { color: var(--danger); }
     .result { margin-top: 8px; font-weight: 700; }
     .hint { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.42); display: grid; place-items: center; padding: 16px; z-index: 10; }
+    .modal-backdrop.hidden { display: none; }
+    .modal { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; box-shadow: 0 18px 60px rgba(0,0,0,.28); }
+    .qr-box { display: grid; place-items: center; padding: 12px; background: #fff; border-radius: 8px; margin: 10px 0; }
+    .qr-box svg { width: min(320px, 80vw); height: auto; display: block; }
     @media (max-width: 820px) { main { grid-template-columns: 1fr; } .status-grid { grid-template-columns: 1fr 1fr; } .browser-head { grid-template-columns: 1fr 96px; } }
   </style>
 </head>
@@ -142,8 +149,11 @@ std::string_view web_index_html() {
         <button id="note-start" onclick="startNote()">Start notepad</button>
         <label>Shared note</label>
         <textarea id="note-text" placeholder="Start the notepad, then type here..." disabled oninput="queueNoteUpdate()"></textarea>
-        <div class="row" style="margin-top:8px">
-          <div id="note-meta" class="muted">not running</div>
+        <div id="note-meta" class="muted" style="margin-top:8px">not running</div>
+        <div class="actions">
+          <button id="note-copy-code" class="secondary inline" onclick="copyNoteCode()" disabled>Copy code</button>
+          <button id="note-copy-note" class="secondary inline" onclick="copyNoteText()" disabled>Copy note</button>
+          <button id="note-qr" class="secondary inline" onclick="showNoteQr()" disabled>QR</button>
           <button id="note-clear" class="secondary" onclick="clearNote()" disabled>Clear</button>
         </div>
       </div>
@@ -160,6 +170,17 @@ std::string_view web_index_html() {
         <div id="browser-entries" class="entries"></div>
       </div>
     </section>
+
+    <div id="qr-modal" class="modal-backdrop hidden">
+      <div class="modal">
+        <h2>Note QR</h2>
+        <div id="qr-content" class="qr-box"></div>
+        <div id="qr-meta" class="muted"></div>
+        <div class="actions">
+          <button class="secondary inline" onclick="closeQr()">Close</button>
+        </div>
+      </div>
+    </div>
 
     <section>
       <h2>Status</h2>
@@ -194,6 +215,7 @@ std::string_view web_index_html() {
     let noteUpdateTimer = null;
     let noteEditGeneration = 0;
     let noteRole = 'host';
+    const noteQrMaxBytes = 1200;
 
     function api(path, options = {}) {
       const url = path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
@@ -349,6 +371,8 @@ std::string_view web_index_html() {
       if (noteApplying) return;
       noteDirty = true;
       noteEditGeneration += 1;
+      qs('note-copy-note').disabled = !qs('note-text').value;
+      qs('note-qr').disabled = !qs('note-text').value;
       if (noteUpdateTimer) clearTimeout(noteUpdateTimer);
       noteUpdateTimer = setTimeout(sendNoteUpdate, 250);
     }
@@ -372,6 +396,47 @@ std::string_view web_index_html() {
       qs('note-text').value = '';
       noteApplying = false;
       api('/api/note/clear', {method:'POST', body:'{}'}).then(loadJob).catch(showError);
+    }
+    function copyText(text, label) {
+      if (!text) {
+        showHint(label + ' is empty.');
+        return;
+      }
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        showHint('Clipboard API is unavailable in this browser.');
+        return;
+      }
+      navigator.clipboard.writeText(text)
+        .then(() => showHint(label + ' copied.'))
+        .catch(() => showHint('Clipboard permission denied.'));
+    }
+    function copyNoteCode() {
+      copyText(qs('note-code').value.trim() || qs('m-code').textContent.trim(), 'Code');
+    }
+    function copyNoteText() {
+      copyText(qs('note-text').value, 'Note');
+    }
+    function showNoteQr() {
+      clearHint();
+      const text = qs('note-text').value;
+      if (!text) {
+        showHint('Note is empty.');
+        return;
+      }
+      if (new TextEncoder().encode(text).length > noteQrMaxBytes) {
+        showHint('Note is too large for QR. Keep it under 1200 bytes.');
+        return;
+      }
+      api('/api/qr', {method:'POST', body: JSON.stringify({text})}).then(r => {
+        qs('qr-content').innerHTML = r.svg || '';
+        qs('qr-meta').textContent = 'QR contains the note text directly; no server URL is embedded.';
+        qs('qr-modal').classList.remove('hidden');
+      }).catch(showError);
+    }
+    function closeQr() {
+      qs('qr-modal').classList.add('hidden');
+      qs('qr-content').innerHTML = '';
+      qs('qr-meta').textContent = '';
     }
     function cancelJob() {
       qs('cancel').disabled = true;
@@ -420,14 +485,19 @@ std::string_view web_index_html() {
     function updateNotePanel(j) {
       const isNote = j.kind === 'note' && (j.running || j.finished || j.note_revision || j.note_text);
       const editable = isNote && j.running && !j.failed && !j.canceled;
+      const noteText = j.note_text || '';
+      const hasCode = !!(j.code || qs('note-code').value.trim());
       qs('note-text').disabled = !editable;
       qs('note-clear').disabled = !editable;
+      qs('note-copy-code').disabled = !hasCode;
+      qs('note-copy-note').disabled = !noteText && !qs('note-text').value;
+      qs('note-qr').disabled = !noteText && !qs('note-text').value;
       if (isNote && j.code && noteRole === 'host' && !qs('note-code').value.trim()) {
         qs('note-code').value = j.code;
       }
-      if (isNote && !noteDirty && qs('note-text').value !== (j.note_text || '')) {
+      if (isNote && !noteDirty && qs('note-text').value !== noteText) {
         noteApplying = true;
-        qs('note-text').value = j.note_text || '';
+        qs('note-text').value = noteText;
         noteApplying = false;
       }
       if (isNote) {
