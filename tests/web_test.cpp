@@ -50,6 +50,13 @@ int main() {
   assert(token_a != token_b);
   const auto html = std::string(web_index_html());
   assert(html.find("Notepad") != std::string::npos);
+  assert(html.find("Start notepad") != std::string::npos);
+  assert(html.find("Custom code host") != std::string::npos);
+  assert(html.find("note-custom-host") != std::string::npos);
+  assert(html.find("noteRole = code && !qs('note-custom-host').checked ? 'join' : 'host'") != std::string::npos);
+  assert(html.find("Host notepad") == std::string::npos);
+  assert(html.find("Join notepad") == std::string::npos);
+  assert(html.find("note-role") == std::string::npos);
   assert(html.find("/api/note/start") != std::string::npos);
   assert(html.find("/api/note/update") != std::string::npos);
   assert(html.find("noteEditGeneration") != std::string::npos);

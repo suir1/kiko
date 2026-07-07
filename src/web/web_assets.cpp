@@ -126,10 +126,9 @@ std::string_view web_index_html() {
 
       <div id="panel-note" class="hidden">
         <h2>Notepad</h2>
-        <label>Role</label>
-        <select id="note-role"><option value="host">host</option><option value="join">join</option></select>
-        <label>Code</label><input id="note-code" placeholder="leave empty to generate when hosting">
+        <label>Code</label><input id="note-code" placeholder="empty to host, enter code to join">
         <label>Relay</label><input id="note-relay">
+        <label><input id="note-custom-host" type="checkbox"> Custom code host</label>
         <details>
           <summary>Advanced network options</summary>
           <div class="checks">
@@ -194,6 +193,7 @@ std::string_view web_index_html() {
     let noteApplying = false;
     let noteUpdateTimer = null;
     let noteEditGeneration = 0;
+    let noteRole = 'host';
 
     function api(path, options = {}) {
       const url = path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
@@ -329,12 +329,10 @@ std::string_view web_index_html() {
     }
     function startNote() {
       clearHint();
-      if (qs('note-role').value === 'join' && !qs('note-code').value.trim()) {
-        showHint('Choose Join only after entering the host notepad code.');
-        return;
-      }
+      const code = qs('note-code').value.trim();
+      noteRole = code && !qs('note-custom-host').checked ? 'join' : 'host';
       const body = {
-        role: qs('note-role').value, code: qs('note-code').value, relay: qs('note-relay').value,
+        role: noteRole, code: qs('note-code').value, relay: qs('note-relay').value,
         no_direct: qs('note-no-direct').checked, no_lan: !qs('note-lan').checked,
         no_local: !qs('note-local-relay').checked, udp_probe: qs('note-udp-probe').checked,
         avoid_vpn: qs('note-avoid-vpn').checked
@@ -424,7 +422,7 @@ std::string_view web_index_html() {
       const editable = isNote && j.running && !j.failed && !j.canceled;
       qs('note-text').disabled = !editable;
       qs('note-clear').disabled = !editable;
-      if (isNote && j.code && qs('note-role').value === 'host' && !qs('note-code').value.trim()) {
+      if (isNote && j.code && noteRole === 'host' && !qs('note-code').value.trim()) {
         qs('note-code').value = j.code;
       }
       if (isNote && !noteDirty && qs('note-text').value !== (j.note_text || '')) {
