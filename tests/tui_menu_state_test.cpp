@@ -115,7 +115,6 @@ int main() {
   {
     auto state = base_menu();
     state.mode = 2;
-    state.note_role = 0;
     state.network.no_direct = true;
     const auto prepared = prepare_tui_note(state);
     if (!prepared.ok || prepared.config.role != Role::Sender || !prepared.config.code.empty() ||
@@ -130,16 +129,23 @@ int main() {
   {
     auto state = base_menu();
     state.mode = 2;
-    state.note_role = 1;
-    if (prepare_tui_note(state).ok) {
-      std::cerr << "FAIL: notepad join should require a pairing code\n";
-      fs::remove(send_path);
-      return 1;
-    }
     state.code = "abc234";
     const auto prepared = prepare_tui_note(state);
     if (!prepared.ok || prepared.config.role != Role::Receiver || prepared.config.code != "abc234") {
-      std::cerr << "FAIL: notepad join config was not prepared correctly\n";
+      std::cerr << "FAIL: notepad should join when code is present\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
+  {
+    auto state = base_menu();
+    state.mode = 2;
+    state.code = "abc234";
+    state.note_custom_host = true;
+    const auto prepared = prepare_tui_note(state);
+    if (!prepared.ok || prepared.config.role != Role::Sender || prepared.config.code != "abc234") {
+      std::cerr << "FAIL: notepad custom code host should host with the provided code\n";
       fs::remove(send_path);
       return 1;
     }
@@ -160,10 +166,9 @@ int main() {
   {
     auto state = base_menu();
     state.mode = 2;
-    state.note_role = 1;
     state.code = " 4827-Stone-IRIS ";
     const auto prepared = prepare_tui_note(state);
-    if (!prepared.ok || prepared.config.code != "4827-stone-iris") {
+    if (!prepared.ok || prepared.config.role != Role::Receiver || prepared.config.code != "4827-stone-iris") {
       std::cerr << "FAIL: notepad join should normalize mnemonic pairing code\n";
       fs::remove(send_path);
       return 1;

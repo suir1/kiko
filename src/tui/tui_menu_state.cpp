@@ -96,7 +96,8 @@ TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
 TuiPreparedNote prepare_tui_note(TuiMenuState& state) {
   if (state.mode != 2) return {.error = "select Notepad first"};
   const auto code = normalize_pairing_code(state.code);
-  if (auto code_error = validate_pairing_code_format(code, state.note_role == 1)) {
+  const bool join = !code.empty() && !state.note_custom_host;
+  if (auto code_error = validate_pairing_code_format(code, join)) {
     return {.error = *code_error};
   }
   if (auto net_error = validate_network_options(state.network, state.mode)) {
@@ -112,7 +113,7 @@ TuiPreparedNote prepare_tui_note(TuiMenuState& state) {
 
   TuiPreparedNote prepared;
   prepared.ok = true;
-  prepared.config.role = state.note_role == 0 ? Role::Sender : Role::Receiver;
+  prepared.config.role = join ? Role::Receiver : Role::Sender;
   prepared.config.code = code;
   prepared.config.relay = relay_ep;
   prepared.config.relay_pass = resolve_relay_pass(state.relay_pass);

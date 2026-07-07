@@ -30,7 +30,6 @@ struct TuiMenuCallbacks {
 struct TuiMenuView {
   ftxui::Component root;
   std::shared_ptr<std::vector<std::string>> modes;
-  std::shared_ptr<std::vector<std::string>> note_roles;
 };
 
 [[nodiscard]] TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay,

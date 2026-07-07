@@ -12,7 +12,7 @@ namespace kiko {
 
 struct TuiMenuState {
   int mode = 0;
-  int note_role = 0;
+  bool note_custom_host = false;
   std::string relay;
   std::string relay_pass;
   std::string path;
