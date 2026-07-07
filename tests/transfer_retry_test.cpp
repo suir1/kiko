@@ -44,6 +44,8 @@ int main() {
       {"connect: No connection could be made because the target machine actively refused it.", true},
       {"write: The network name is no longer available.", true},
       {"read: The I/O operation has been aborted because of either a thread exit or an application request.", true},
+      {"failed to connect relay or rendezvous peer", false},
+      {"failed to connect any relay or rendezvous peer", false},
       {"bad_password", false},
       {"invalid_hello from relay", false},
       {"invalid relay endpoint", false},

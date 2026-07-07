@@ -32,6 +32,7 @@ bool is_retryable_transfer_error_message(std::string_view message) {
                        "bad password",
                        "invalid_hello",
                        "invalid hello",
+                       "rendezvous peer",
                        "pairing code",
                        "control message field",
                        "invalid relay",
