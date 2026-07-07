@@ -55,7 +55,8 @@ TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
   if (state.mode == 0 && state.path.empty()) {
     return {.error = "path is required — type a path or press Browse"};
   }
-  if (auto code_error = validate_pairing_code_format(state.code, state.mode == 1)) {
+  const auto code = normalize_pairing_code(state.code);
+  if (auto code_error = validate_pairing_code_format(code, state.mode == 1)) {
     return {.error = *code_error};
   }
   if (auto connections_error = apply_connections_text(state)) {
@@ -84,7 +85,7 @@ TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
   prepared.title = state.mode == 0 ? "kiko send" : "kiko receive";
   prepared.spec.mode = state.mode;
   prepared.spec.path = state.path;
-  prepared.spec.code = state.code;
+  prepared.spec.code = code;
   prepared.spec.output_dir = state.output_dir;
   prepared.spec.relay = relay_ep;
   prepared.spec.relay_pass = resolve_relay_pass(state.relay_pass);
@@ -94,7 +95,8 @@ TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
 
 TuiPreparedNote prepare_tui_note(TuiMenuState& state) {
   if (state.mode != 2) return {.error = "select Notepad first"};
-  if (auto code_error = validate_pairing_code_format(state.code, state.note_role == 1)) {
+  const auto code = normalize_pairing_code(state.code);
+  if (auto code_error = validate_pairing_code_format(code, state.note_role == 1)) {
     return {.error = *code_error};
   }
   if (auto net_error = validate_network_options(state.network, state.mode)) {
@@ -111,7 +113,7 @@ TuiPreparedNote prepare_tui_note(TuiMenuState& state) {
   TuiPreparedNote prepared;
   prepared.ok = true;
   prepared.config.role = state.note_role == 0 ? Role::Sender : Role::Receiver;
-  prepared.config.code = state.code;
+  prepared.config.code = code;
   prepared.config.relay = relay_ep;
   prepared.config.relay_pass = resolve_relay_pass(state.relay_pass);
   prepared.config.no_direct = state.network.no_direct;

@@ -80,7 +80,7 @@ std::string describe_peer_route_plan(const RoutePlan& plan) {
 PeerSession open_peer_session(const PeerSessionConfig& config, ProgressReporter& reporter) {
   throw_if_cancelled(config.cancellation);
   const bool is_host = config.role == Role::Sender;
-  const auto code = is_host && config.code.empty() ? random_code(3) : config.code;
+  const auto code = is_host && config.code.empty() ? random_code(3) : normalize_pairing_code(config.code);
   if (auto error = validate_pairing_code_format(code, true)) throw KikoError(*error);
 
   auto listener = TcpListener::bind(config.listen);

@@ -229,17 +229,30 @@ bool mnemonic_pairing_char(char c) {
 
 }  // namespace
 
+std::string normalize_pairing_code(const std::string& code) {
+  auto begin = std::find_if_not(code.begin(), code.end(), [](unsigned char c) { return std::isspace(c); });
+  auto end = std::find_if_not(code.rbegin(), code.rend(), [](unsigned char c) { return std::isspace(c); }).base();
+  if (begin >= end) return {};
+
+  std::string out(begin, end);
+  std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return out;
+}
+
 std::optional<std::string> validate_pairing_code_format(const std::string& code, bool required) {
-  if (code.empty()) {
+  const auto normalized = normalize_pairing_code(code);
+  if (normalized.empty()) {
     return required ? std::optional<std::string>("pairing code is required") : std::nullopt;
   }
-  if (code.size() > 200) return "pairing code is too long (max 200)";
-  for (const char c : code) {
+  if (normalized.size() > 200) return "pairing code is too long (max 200)";
+  for (const char c : normalized) {
     if (c == '\n' || c == '\r' || c == '\t') return "pairing code contains invalid whitespace";
   }
 
-  const bool mnemonic = code.find('-') != std::string::npos;
-  for (const char c : code) {
+  const bool mnemonic = normalized.find('-') != std::string::npos;
+  for (const char c : normalized) {
     if (mnemonic) {
       if (!mnemonic_pairing_char(c)) {
         return "pairing code has invalid character (use letters, digits, and - for mnemonic codes)";
@@ -250,15 +263,15 @@ std::optional<std::string> validate_pairing_code_format(const std::string& code,
   }
 
   if (mnemonic) {
-    if (code.front() == '-' || code.back() == '-') return "pairing code has empty mnemonic segment";
+    if (normalized.front() == '-' || normalized.back() == '-') return "pairing code has empty mnemonic segment";
     std::size_t start = 0;
-    while (start < code.size()) {
-      const auto end = code.find('-', start);
-      const auto len = (end == std::string::npos ? code.size() : end) - start;
+    while (start < normalized.size()) {
+      const auto end = normalized.find('-', start);
+      const auto len = (end == std::string::npos ? normalized.size() : end) - start;
       if (len == 0) return "pairing code has empty mnemonic segment";
-      start = end == std::string::npos ? code.size() : end + 1;
+      start = end == std::string::npos ? normalized.size() : end + 1;
     }
-  } else if (code.size() < 2) {
+  } else if (normalized.size() < 2) {
     return "pairing code is too short";
   }
 

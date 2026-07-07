@@ -172,7 +172,7 @@ int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
 
 int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   throw_if_cancelled(config.cancellation);
-  auto code = config.code.empty() ? random_code(3) : config.code;
+  auto code = config.code.empty() ? random_code(3) : normalize_pairing_code(config.code);
   if (auto error = validate_pairing_code_format(code, true)) throw KikoError(*error);
   CollectOptions collect_opts;
   collect_opts.use_gitignore = config.use_gitignore;
@@ -406,7 +406,8 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
 
 int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   throw_if_cancelled(config.cancellation);
-  if (auto error = validate_pairing_code_format(config.code, true)) throw KikoError(*error);
+  const auto code = normalize_pairing_code(config.code);
+  if (auto error = validate_pairing_code_format(code, true)) throw KikoError(*error);
   auto listener = TcpListener::bind(config.listen);
   auto local_listen = listener.local_endpoint();
   reporter.status("listening for direct peer on " + local_listen.to_string());
@@ -455,7 +456,7 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   auto advertised_listen = local_listen;
   apply_manual_ip(local_addrs, advertised_listen, config.manual_ip);
   Message hello{"hello",
-                {{"room", room_token(config.code)},
+                {{"room", room_token(code)},
                  {"role", "receiver"},
                  {"listen_host", advertised_listen.host},
                  {"listen_port", std::to_string(local_listen.port)},
@@ -544,7 +545,7 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
           resolve_relay_channel(Role::Receiver, std::move(relay_channel), listener, local_listen.port, local_addrs,
                                 config.no_direct);
     }
-    receive_files_over_relay(std::move(relay_channel), active_relay, config.code, connections, connect_options,
+    receive_files_over_relay(std::move(relay_channel), active_relay, code, connections, connect_options,
                              config.relay_pass, config.output_dir, reporter, timing, config.conflict_policy,
                              config.cancellation.get());
     if (profile_stats) save_profile_success(network_fingerprint(), "relay", *profile_stats, profile_relay_path);
@@ -561,7 +562,7 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
       self_nat,
       peer_nat,
       route_plan,
-      room_token(config.code),
+      room_token(code),
       connect_options,
       kRelayRouteConfirmTimeout,
       route_timing,
@@ -580,14 +581,14 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   }
 
   if (selected_route.direct) {
-    auto session = secure_encrypted_session(std::move(*selected_route.direct), Role::Receiver, config.code, "direct",
+    auto session = secure_encrypted_session(std::move(*selected_route.direct), Role::Receiver, code, "direct",
                                             selected_route.timing, reporter, config.cancellation.get());
     auto direct_channel = std::move(session.channel);
     auto key = std::move(session.key);
     save_profile_success(network_fingerprint(), "direct", selected_route.punch_stats, profile_relay_path);
     if (connections > 1) {
       auto mux = negotiate_direct_mux_channels(std::move(direct_channel), Role::Receiver, listener, peer, connections,
-                                               room_token(config.code), connect_options, kDirectMuxSetupTimeout,
+                                               room_token(code), connect_options, kDirectMuxSetupTimeout,
                                                cancel_flag(config.cancellation));
       track_sockets(config.cancellation, mux.channels);
       if (mux.mux_enabled) {
@@ -609,6 +610,7 @@ int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
 int run_send(const SendConfig& config, ProgressReporter& reporter) {
   SendConfig attempt_config = config;
   if (attempt_config.code.empty()) attempt_config.code = random_code(3);
+  else attempt_config.code = normalize_pairing_code(attempt_config.code);
   return run_with_auto_reconnect(
       total_transfer_attempts(attempt_config.auto_reconnect, attempt_config.reconnect_attempts),
       attempt_config.reconnect_delay, reporter, attempt_config.cancellation,
@@ -616,9 +618,11 @@ int run_send(const SendConfig& config, ProgressReporter& reporter) {
 }
 
 int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
-  return run_with_auto_reconnect(total_transfer_attempts(config.auto_reconnect, config.reconnect_attempts),
-                                 config.reconnect_delay, reporter, config.cancellation,
-                                 [&]() { return run_recv_once(config, reporter); });
+  RecvConfig attempt_config = config;
+  attempt_config.code = normalize_pairing_code(attempt_config.code);
+  return run_with_auto_reconnect(total_transfer_attempts(attempt_config.auto_reconnect, attempt_config.reconnect_attempts),
+                                 attempt_config.reconnect_delay, reporter, attempt_config.cancellation,
+                                 [&]() { return run_recv_once(attempt_config, reporter); });
 }
 
 }  // namespace kiko

@@ -148,10 +148,23 @@ int main() {
   {
     auto state = base_menu();
     state.mode = 1;
-    state.code = "r561";
+    state.code = " R561 \n";
     const auto prepared = prepare_tui_transfer(state);
     if (!prepared.ok || prepared.spec.code != "r561") {
-      std::cerr << "FAIL: receive should accept alphanumeric pairing code r561\n";
+      std::cerr << "FAIL: receive should normalize alphanumeric pairing code R561\n";
+      fs::remove(send_path);
+      return 1;
+    }
+  }
+
+  {
+    auto state = base_menu();
+    state.mode = 2;
+    state.note_role = 1;
+    state.code = " 4827-Stone-IRIS ";
+    const auto prepared = prepare_tui_note(state);
+    if (!prepared.ok || prepared.config.code != "4827-stone-iris") {
+      std::cerr << "FAIL: notepad join should normalize mnemonic pairing code\n";
       fs::remove(send_path);
       return 1;
     }

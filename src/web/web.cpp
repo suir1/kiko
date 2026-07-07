@@ -316,7 +316,7 @@ class WebJobStore {
       config.file = json_string(body, "path");
       if (config.file.empty()) throw KikoError("send path is required");
       config.relay = parse_endpoint(defaulted_relay(body), 9000);
-      config.code = json_string(body, "code");
+      config.code = normalize_pairing_code(json_string(body, "code"));
       config.no_direct = json_bool(body, "no_direct");
       config.udp_probe = json_bool(body, "udp_probe");
       config.avoid_vpn = json_bool(body, "avoid_vpn");
@@ -361,7 +361,7 @@ class WebJobStore {
     try {
       join_finished_worker();
       RecvConfig config;
-      config.code = json_string(body, "code");
+      config.code = normalize_pairing_code(json_string(body, "code"));
       if (config.code.empty()) throw KikoError("receive code is required");
       config.output_dir = json_string(body, "out", ".");
       config.relay = parse_endpoint(defaulted_relay(body), 9000);
@@ -457,7 +457,7 @@ class WebJobStore {
       NoteConfig config;
       const auto role = json_string(body, "role", "host");
       config.role = role == "join" ? Role::Receiver : Role::Sender;
-      config.code = json_string(body, "code");
+      config.code = normalize_pairing_code(json_string(body, "code"));
       if (config.role == Role::Receiver && config.code.empty()) throw KikoError("note code is required");
       config.relay = parse_endpoint(defaulted_relay(body), 9000);
       config.no_direct = json_bool(body, "no_direct");
