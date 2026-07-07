@@ -1,6 +1,7 @@
 #include "tui_note.hpp"
 
 #include "core/cancellation.hpp"
+#include "core/qrcode_print.hpp"
 #include "note/note_protocol.hpp"
 #include "platform/platform.hpp"
 
@@ -19,6 +20,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -28,6 +30,7 @@ namespace {
 
 constexpr auto kNoteReadPoll = std::chrono::milliseconds(100);
 constexpr auto kNoteHelloTimeout = std::chrono::seconds(20);
+constexpr std::size_t kNoteQrMaxBytes = 1200;
 
 struct TuiNoteState {
   std::mutex mutex;
@@ -154,6 +157,17 @@ void queue_runtime_frame(TuiNoteRuntime& runtime, NoteFrame frame) {
   runtime.changed.notify_one();
 }
 
+std::vector<std::string> split_lines(const std::string& text) {
+  std::vector<std::string> lines;
+  std::istringstream input(text);
+  std::string line;
+  while (std::getline(input, line)) {
+    lines.push_back(line);
+  }
+  if (lines.empty()) lines.push_back("");
+  return lines;
+}
+
 }  // namespace
 
 int run_tui_note(const NoteConfig& config) {
@@ -179,11 +193,13 @@ int run_tui_note(const NoteConfig& config) {
   NoteDocument document;
   bool local_dirty = false;
   bool applying_remote = false;
+  std::string note_qr;
   std::atomic_bool debounce_pending{false};
   std::optional<std::chrono::steady_clock::time_point> dirty_since;
 
   auto mark_local_changed = [&] {
     if (applying_remote) return;
+    note_qr.clear();
     if (editor_text.size() > kNoteMaxBytes) {
       std::lock_guard<std::mutex> lock(state.mutex);
       state.status = "note is over 1 MiB; not synced";
@@ -229,6 +245,7 @@ int run_tui_note(const NoteConfig& config) {
       if (apply_note_update(document, frame)) {
         applying_remote = true;
         editor_text = document.text;
+        note_qr.clear();
         applying_remote = false;
         local_dirty = false;
         debounce_pending.store(false);
@@ -358,6 +375,7 @@ int run_tui_note(const NoteConfig& config) {
   auto editor = Input(&editor_text, "shared note", input_options);
   auto clear_button = Button("Clear", [&] {
     editor_text.clear();
+    note_qr.clear();
     auto frame = make_note_clear(document.revision + 1);
     (void)apply_note_update(document, frame);
     const auto revision = frame.revision;
@@ -372,12 +390,42 @@ int run_tui_note(const NoteConfig& config) {
     }
     wake();
   });
+  auto qr_button = Button("QR", [&] {
+    if (!note_qr.empty()) {
+      note_qr.clear();
+      wake();
+      return;
+    }
+    if (editor_text.empty()) {
+      std::lock_guard<std::mutex> lock(state.mutex);
+      state.status = "note is empty; QR unavailable";
+      wake();
+      return;
+    }
+    if (editor_text.size() > kNoteQrMaxBytes) {
+      std::lock_guard<std::mutex> lock(state.mutex);
+      state.status = "note QR supports up to 1200 bytes";
+      wake();
+      return;
+    }
+    try {
+      std::ostringstream out;
+      print_qrcode(out, editor_text);
+      note_qr = out.str();
+      std::lock_guard<std::mutex> lock(state.mutex);
+      state.status = "QR encodes note text directly";
+    } catch (...) {
+      std::lock_guard<std::mutex> lock(state.mutex);
+      state.status = "QR unavailable for this note";
+    }
+    wake();
+  });
   auto quit_button = Button("Quit", [&] {
     cancellation->request();
     close_runtime(runtime);
     screen.Exit();
   });
-  auto controls = Container::Horizontal({clear_button, quit_button});
+  auto controls = Container::Horizontal({clear_button, qr_button, quit_button});
   auto layout = Container::Vertical({editor, controls});
 
   auto renderer = Renderer(layout, [&] {
@@ -410,13 +458,32 @@ int run_tui_note(const NoteConfig& config) {
     if (failed) header.push_back(text("error: " + error) | color(Color::Red));
     if (canceled) header.push_back(text("canceled") | color(Color::Yellow));
 
+    Element editor_panel = editor->Render() | vscroll_indicator | frame | flex;
+    if (!note_qr.empty()) {
+      Elements qr_rows;
+      for (const auto& line : split_lines(note_qr)) {
+        qr_rows.push_back(text(line));
+      }
+      editor_panel = hbox({
+                         editor_panel,
+                         separator(),
+                         vbox({
+                             text("Note QR") | bold,
+                             text("direct text") | dim,
+                             separator(),
+                             vbox(std::move(qr_rows)),
+                         }) | border,
+                     }) |
+                     flex;
+    }
+
     return vbox({
                vbox(std::move(header)),
                separator(),
-               editor->Render() | vscroll_indicator | frame | flex,
+               editor_panel,
                separator(),
-               hbox({clear_button->Render(), text(" "), quit_button->Render(), filler(),
-                     text("Esc to cancel") | dim}),
+               hbox({clear_button->Render(), text(" "), qr_button->Render(), text(" "),
+                     quit_button->Render(), filler(), text("Esc to cancel") | dim}),
            }) |
            border;
   });
