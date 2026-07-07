@@ -159,11 +159,13 @@ std::uint64_t elapsed_ms(const WebJobSnapshot& snapshot) {
 
 json job_to_json(const WebJobSnapshot& snapshot) {
   json out;
+  const auto elapsed = elapsed_ms(snapshot);
   out["kind"] = snapshot.kind;
   out["running"] = snapshot.running;
   out["finished"] = snapshot.finished;
   out["failed"] = snapshot.failed;
   out["canceled"] = snapshot.canceled;
+  out["terminal"] = !snapshot.running && (snapshot.finished || snapshot.failed || snapshot.canceled);
   out["error"] = snapshot.error;
   out["activity"] = snapshot.activity;
   out["code"] = snapshot.code;
@@ -186,10 +188,10 @@ json job_to_json(const WebJobSnapshot& snapshot) {
   out["note_connected"] = snapshot.note_connected;
   out["note_synced"] =
       snapshot.note_local_revision > 0 && snapshot.note_acked_revision >= snapshot.note_local_revision;
-  out["elapsed_ms"] = elapsed_ms(snapshot);
+  out["elapsed_ms"] = elapsed;
   out["logs"] = snapshot.logs;
-  if (snapshot.overall_done > 0 && elapsed_ms(snapshot) > 0) {
-    out["average_bytes_per_sec"] = snapshot.overall_done * 1000 / elapsed_ms(snapshot);
+  if (snapshot.overall_done > 0 && elapsed > 0) {
+    out["average_bytes_per_sec"] = snapshot.overall_done * 1000 / elapsed;
   } else {
     out["average_bytes_per_sec"] = 0;
   }
@@ -686,12 +688,17 @@ class WebJobStore {
   void cancel() {
     std::shared_ptr<TransferCancellation> cancellation;
     std::shared_ptr<WebNoteRuntime> note_runtime;
+    bool should_log = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       cancellation = cancellation_;
       note_runtime = note_runtime_;
-      if (state_.running) state_.activity = "cancel requested";
+      if (state_.running) {
+        should_log = state_.activity != "cancel requested";
+        state_.activity = "cancel requested";
+      }
     }
+    if (should_log) append_log("cancel requested");
     if (cancellation) cancellation->request();
     if (note_runtime) close_web_note_runtime(*note_runtime);
   }
@@ -748,8 +755,10 @@ class WebJobStore {
   void finish_success(const std::string& activity) {
     update([&](WebJobSnapshot& state) {
       state.running = false;
-      if (!state.failed && !state.canceled) state.finished = true;
-      if (state.activity.empty() || state.activity == "starting") state.activity = activity;
+      if (!state.failed && !state.canceled) {
+        state.finished = true;
+        state.activity = activity;
+      }
       state.ended = std::chrono::steady_clock::now();
     });
   }

@@ -54,6 +54,10 @@ int main() {
   assert(html.find("/api/note/update") != std::string::npos);
   assert(html.find("noteEditGeneration") != std::string::npos);
   assert(html.find("generation === noteEditGeneration") != std::string::npos);
+  assert(html.find("kiko.web.path.") != std::string::npos);
+  assert(html.find("kiko.web.browser.") != std::string::npos);
+  assert(html.find("terminalActivity") != std::string::npos);
+  assert(html.find("Canceling...") != std::string::npos);
 
   const auto root = make_temp_root();
   std::error_code ec;

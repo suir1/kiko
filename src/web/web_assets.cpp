@@ -217,10 +217,31 @@ std::string_view web_index_html() {
       const m = Math.floor(s / 60), r = s % 60;
       return m + 'm ' + String(r).padStart(2, '0') + 's';
     }
+    function storageGet(key) {
+      try { return localStorage.getItem(key) || ''; } catch (_) { return ''; }
+    }
+    function storageSet(key, value) {
+      try {
+        if (value) localStorage.setItem(key, value);
+      } catch (_) {}
+    }
+    function storedPath(target) { return storageGet('kiko.web.path.' + target); }
+    function storedBrowserPath(target) { return storageGet('kiko.web.browser.' + target); }
+    function rememberPath(target, path) {
+      if (!path) return;
+      storageSet('kiko.web.path.' + target, path);
+      if (qs(target)) qs(target).value = path;
+    }
+    function rememberBrowserPath(target, path) {
+      if (!target || !path) return;
+      storageSet('kiko.web.browser.' + target, path);
+    }
     function friendlyError(message) {
       const m = String(message || '').toLowerCase();
       if (!m) return '';
       if (m.includes('already running')) return 'A transfer is already running. Cancel it or wait for it to finish before starting another task.';
+      if (m.includes('invalid character') || m.includes('pairing code')) return 'Check the pairing code. Use the exact code shown on the other device; ambiguous characters may be rejected.';
+      if (m.includes('expired') || m.includes('pair timeout') || m.includes('room') || m.includes('peer')) return 'The pairing window may have expired. Start the sender again, then enter the fresh code promptly.';
       if (m.includes('relay') || m.includes('connection refused') || m.includes('timed out')) return 'Check the relay address, network reachability, VPN/proxy settings, and whether the peer is still waiting with the same code.';
       if (m.includes('permission') || m.includes('denied')) return 'Check file or output directory permissions. Try a folder under your home or Downloads directory.';
       if (m.includes('not a directory')) return 'Pick an existing output directory.';
@@ -260,8 +281,8 @@ std::string_view web_index_html() {
         qs('recv-relay').value = c.relay || '';
         qs('note-relay').value = c.relay || '';
         qs('doctor-relay').value = c.relay || '';
-        qs('send-path').value = c.last_send_path || '';
-        qs('recv-out').value = c.last_recv_out_dir || '.';
+        qs('send-path').value = storedPath('send-path') || c.last_send_path || '';
+        qs('recv-out').value = storedPath('recv-out') || c.last_recv_out_dir || '.';
         qs('note-lan').checked = c.network ? !!c.network.lan_discover : true;
         qs('note-no-direct').checked = c.network ? !!c.network.no_direct : false;
         qs('note-udp-probe').checked = c.network ? !!c.network.udp_probe : false;
@@ -275,6 +296,7 @@ std::string_view web_index_html() {
         showHint('Choose a file or folder before starting send.');
         return;
       }
+      rememberPath('send-path', qs('send-path').value.trim());
       const body = {
         path: qs('send-path').value, code: qs('send-code').value, relay: qs('send-relay').value,
         no_direct: qs('send-no-direct').checked, udp_probe: qs('send-udp-probe').checked,
@@ -292,6 +314,7 @@ std::string_view web_index_html() {
         showHint('Choose an output directory.');
         return;
       }
+      rememberPath('recv-out', qs('recv-out').value.trim());
       const body = {
         code: qs('recv-code').value, out: qs('recv-out').value, relay: qs('recv-relay').value,
         on_conflict: qs('recv-conflict').value, no_direct: qs('recv-no-direct').checked,
@@ -352,11 +375,20 @@ std::string_view web_index_html() {
       noteApplying = false;
       api('/api/note/clear', {method:'POST', body:'{}'}).then(loadJob).catch(showError);
     }
-    function cancelJob() { api('/api/job/cancel', {method:'POST', body:'{}'}).then(loadJob).catch(showError); }
+    function cancelJob() {
+      qs('cancel').disabled = true;
+      qs('cancel').textContent = 'Canceling...';
+      qs('m-activity').textContent = 'cancel requested';
+      qs('result-text').textContent = 'Cancel requested...';
+      api('/api/job/cancel', {method:'POST', body:'{}'})
+        .then(() => { startPolling(); loadJob(); })
+        .catch(showError);
+    }
     function loadJob() {
       api('/api/job').then(j => {
+        const terminal = !!j.terminal || (!j.running && (j.finished || j.failed || j.canceled));
         qs('m-kind').textContent = j.kind || 'idle';
-        qs('m-activity').textContent = j.activity || (j.running ? 'running' : 'idle');
+        qs('m-activity').textContent = terminal ? terminalActivity(j) : (j.activity || (j.running ? 'running' : 'idle'));
         qs('m-code').textContent = j.code || '-';
         qs('m-route').textContent = j.route_summary || j.route_phase || '-';
         qs('current-file').textContent = j.current_file || '-';
@@ -366,17 +398,26 @@ std::string_view web_index_html() {
         const total = Number(j.overall_total || 0), done = Number(j.overall_done || 0);
         qs('overall').value = total > 0 ? Math.min(100, done * 100 / total) : (j.finished ? 100 : 0);
         const speed = Number(j.average_bytes_per_sec || 0);
-        qs('progress-text').textContent = bytes(done) + ' / ' + bytes(total) + (speed ? ' · ' + bytes(speed) + '/s' : '');
-        const terminal = !j.running && (j.finished || j.failed || j.canceled);
+        const speedLabel = speed ? (terminal ? ' · avg ' : ' · ') + bytes(speed) + '/s' : '';
+        qs('progress-text').textContent = bytes(done) + ' / ' + bytes(total) + speedLabel;
         qs('result-text').textContent = terminal ? resultText(j) : '';
         const hint = j.error ? friendlyError(j.error) : '';
         qs('error-hint').textContent = hint;
         qs('error-hint').classList.toggle('hidden', !hint);
         qs('cancel').disabled = !j.running;
+        qs('cancel').textContent = j.running && j.activity === 'cancel requested' ? 'Canceling...' : 'Cancel';
+        if (j.activity === 'cancel requested') qs('cancel').disabled = true;
         setRunningButtons(j.running);
         updateNotePanel(j);
         if (terminal && poll) { clearInterval(poll); poll = null; }
       }).catch(e => { if (poll) { clearInterval(poll); poll = null; } showError(e); });
+    }
+    function terminalActivity(j) {
+      if (j.canceled) return 'canceled';
+      if (j.failed) return 'failed';
+      if (j.kind === 'doctor') return 'doctor complete';
+      if (j.kind === 'note') return j.activity || 'notepad closed';
+      return j.activity || 'complete';
     }
     function updateNotePanel(j) {
       const isNote = j.kind === 'note' && (j.running || j.finished || j.note_revision || j.note_text);
@@ -411,7 +452,7 @@ std::string_view web_index_html() {
     function browse(target, mode) {
       browseTarget = target;
       browseMode = mode;
-      browsePath = qs(target).value || '.';
+      browsePath = storedBrowserPath(target) || qs(target).value || storedPath(target) || '.';
       qs('browser').classList.remove('hidden');
       renderShortcuts();
       loadBrowser();
@@ -432,7 +473,11 @@ std::string_view web_index_html() {
         btn.className = 'secondary inline';
         btn.type = 'button';
         btn.textContent = s.label;
-        btn.onclick = () => { browsePath = s.path; loadBrowser(); };
+        btn.onclick = () => {
+          browsePath = s.path;
+          rememberBrowserPath(browseTarget, browsePath);
+          loadBrowser();
+        };
         root.appendChild(btn);
       }
     }
@@ -441,6 +486,7 @@ std::string_view web_index_html() {
       const q = new URLSearchParams({ path: browsePath, mode: browseMode, sort: qs('browser-sort').value, filter: qs('browser-filter').value });
       api('/api/fs?' + q.toString()).then(b => {
         browsePath = b.path;
+        rememberBrowserPath(browseTarget, browsePath);
         qs('browser-path').textContent = b.path;
         const root = qs('browser-entries');
         root.innerHTML = '';
@@ -451,9 +497,23 @@ std::string_view web_index_html() {
           div.children[0].textContent = e.label;
           div.children[1].textContent = e.is_dir ? 'dir' : 'file';
           div.onclick = () => {
-            if (e.parent || (e.is_dir && !e.select_here)) { browsePath = e.path; loadBrowser(); return; }
-            if (e.selectable) { qs(browseTarget).value = e.path; qs('browser').classList.add('hidden'); return; }
-            if (e.is_dir) { browsePath = e.path; loadBrowser(); }
+            if (e.parent || (e.is_dir && !e.select_here)) {
+              browsePath = e.path;
+              rememberBrowserPath(browseTarget, browsePath);
+              loadBrowser();
+              return;
+            }
+            if (e.selectable) {
+              rememberPath(browseTarget, e.path);
+              rememberBrowserPath(browseTarget, e.is_dir ? e.path : browsePath);
+              qs('browser').classList.add('hidden');
+              return;
+            }
+            if (e.is_dir) {
+              browsePath = e.path;
+              rememberBrowserPath(browseTarget, browsePath);
+              loadBrowser();
+            }
           };
           root.appendChild(div);
         }
