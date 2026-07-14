@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/common.hpp"
+#include "core/network_interfaces.hpp"
 #include "relay/relay_race.hpp"
 
 #include <atomic>
@@ -25,6 +26,9 @@ class LanAnnounceCleanup {
 void push_unique_endpoint(std::vector<Endpoint>& out, const Endpoint& ep);
 
 [[nodiscard]] Endpoint relay_with_manual_ip(const Endpoint& relay, const std::optional<std::string>& manual_ip);
+
+[[nodiscard]] std::vector<std::string> local_candidates_for_listener(
+    const Endpoint& local_listen, const NetworkInterfaceInventory& interfaces);
 
 void apply_manual_ip(std::vector<std::string>& local_addrs, Endpoint& listen,
                      const std::optional<std::string>& manual_ip);

@@ -1,7 +1,9 @@
 #include "connect/peer_session.hpp"
 
+#include "connect/rendezvous_session.hpp"
 #include "core/cancellation.hpp"
 #include "core/crypto.hpp"
+#include "core/network_interfaces.hpp"
 #include "core/protocol.hpp"
 #include "relay/relay_server.hpp"
 
@@ -41,6 +43,19 @@ struct CodeReporter : ProgressReporter {
 
 int main() {
   using namespace kiko;
+
+  {
+    NetworkInterfaceInventory interfaces{
+        {{"Ethernet", "10.0.0.5", false, false},
+         {"Loopback", "127.0.0.1", false, true},
+         {"Virtual", "172.16.0.2", false, false}}};
+    assert((local_candidates_for_listener(Endpoint{"::", 5000}, interfaces) ==
+            std::vector<std::string>{"10.0.0.5", "172.16.0.2"}));
+    assert((local_candidates_for_listener(Endpoint{"0.0.0.0", 5000}, interfaces) ==
+            std::vector<std::string>{"10.0.0.5", "172.16.0.2"}));
+    assert((local_candidates_for_listener(Endpoint{"127.0.0.1", 5000}, interfaces) ==
+            std::vector<std::string>{"127.0.0.1"}));
+  }
 
   {
     BackgroundRelay relay;

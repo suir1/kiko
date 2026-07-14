@@ -209,7 +209,7 @@ struct PeerRouteSession::Impl {
       }
     }
 
-    local_addrs = interfaces.lan_candidate_addresses();
+    local_addrs = local_candidates_for_listener(local_listen, interfaces);
     advertised_listen = local_listen;
     apply_manual_ip(local_addrs, advertised_listen, connection.manual_ip);
 

@@ -24,6 +24,15 @@ Endpoint relay_with_manual_ip(const Endpoint& relay, const std::optional<std::st
   return parse_endpoint(*manual_ip, relay.port);
 }
 
+std::vector<std::string> local_candidates_for_listener(const Endpoint& local_listen,
+                                                       const NetworkInterfaceInventory& interfaces) {
+  if (local_listen.host.empty() || local_listen.host == "0.0.0.0" || local_listen.host == "::" ||
+      local_listen.host == "[::]") {
+    return interfaces.lan_candidate_addresses();
+  }
+  return {local_listen.host};
+}
+
 void apply_manual_ip(std::vector<std::string>& local_addrs, Endpoint& listen,
                      const std::optional<std::string>& manual_ip) {
   if (!manual_ip || manual_ip->empty()) return;
