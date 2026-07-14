@@ -80,9 +80,16 @@ def main() -> None:
                 page.on("pageerror", lambda error: page_errors.append(str(error)))
                 page.goto(url, wait_until="domcontentloaded")
                 page.wait_for_selector("text=kiko web", timeout=5000)
+                page.wait_for_function(
+                    "() => document.getElementById('server').textContent !== 'local console'",
+                    timeout=5000,
+                )
 
                 assert_visible(page, "#tab-send", "send tab should be visible")
 
+                page.fill("#send-path", "")
+                if page.locator("#send-path").input_value() != "":
+                    fail("send path should be empty before validation")
                 page.click("#send-start")
                 page.wait_for_selector("text=Choose a file or folder before starting send.", timeout=3000)
 

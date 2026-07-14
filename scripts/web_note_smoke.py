@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -56,6 +57,12 @@ def terminate(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=3)
 
 
+def free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
 def communicate_or_fail(proc: subprocess.Popen[str], timeout: float) -> str:
     try:
         output, _ = proc.communicate(timeout=timeout)
@@ -75,7 +82,7 @@ def main() -> None:
 
     kiko = Path(sys.argv[1])
     relayd = Path(sys.argv[2])
-    relay_addr = "127.0.0.1:19257"
+    relay_addr = f"127.0.0.1:{free_tcp_port()}"
     procs: list[subprocess.Popen[str]] = []
 
     try:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import socket
 import subprocess
 import sys
 import time
@@ -25,13 +26,19 @@ def terminate(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=3)
 
 
+def free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         fail("usage: pair_timeout_smoke.py /path/to/kiko /path/to/kiko-relayd")
 
     kiko = Path(sys.argv[1])
     relayd = Path(sys.argv[2])
-    relay_addr = "127.0.0.1:19457"
+    relay_addr = f"127.0.0.1:{free_tcp_port()}"
     relay = subprocess.Popen(
         [str(relayd), "--listen", relay_addr],
         stdout=subprocess.PIPE,

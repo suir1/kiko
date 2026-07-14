@@ -223,7 +223,10 @@ def append_connectivity_flags(command: list[str], options: SmokeOptions) -> None
 def run_pair(options: SmokeOptions, work: Path, relay: str) -> None:
     source_dir = work / "source"
     recv_dir = work / "received"
-    source_dir.mkdir()
+    nested_dir = source_dir / "nested"
+    empty_dir = source_dir / "empty"
+    nested_dir.mkdir(parents=True)
+    empty_dir.mkdir()
     recv_dir.mkdir()
 
     source_file = source_dir / "payload.txt"
@@ -233,6 +236,8 @@ def run_pair(options: SmokeOptions, work: Path, relay: str) -> None:
         + "\n",
         encoding="utf-8",
     )
+    nested_file = nested_dir / "child.txt"
+    nested_file.write_text("nested relay transfer smoke\n", encoding="utf-8")
 
     code = f"smoke{os.getpid()}{int(time.time())}"
     env = os.environ.copy()
@@ -251,7 +256,7 @@ def run_pair(options: SmokeOptions, work: Path, relay: str) -> None:
     send_cmd = [
         str(options.kiko),
         "send",
-        str(source_file),
+        str(source_dir),
         "--relay",
         relay,
         "--code",
@@ -307,7 +312,8 @@ def run_pair(options: SmokeOptions, work: Path, relay: str) -> None:
             ("receiver stderr", recv_stderr),
         )
 
-    received_file = recv_dir / source_file.name
+    received_root = recv_dir / source_dir.name
+    received_file = received_root / source_file.name
     if not received_file.is_file():
         fail(
             "received file missing",
@@ -316,6 +322,16 @@ def run_pair(options: SmokeOptions, work: Path, relay: str) -> None:
         )
     if sha256(source_file) != sha256(received_file):
         fail("received file hash mismatch")
+    received_nested_file = received_root / nested_file.relative_to(source_dir)
+    if not received_nested_file.is_file():
+        fail("received nested file missing")
+    if sha256(nested_file) != sha256(received_nested_file):
+        fail("received nested file hash mismatch")
+    received_empty_dir = received_root / empty_dir.relative_to(source_dir)
+    if not received_empty_dir.is_dir():
+        fail("received empty directory missing")
+    if any(received_empty_dir.iterdir()):
+        fail("received empty directory was not empty")
 
     combined = "\n".join([send_result.stdout, send_result.stderr, recv_stdout, recv_stderr])
     if "pake handshake ok" not in combined:
