@@ -98,8 +98,7 @@ SessionKey perform_handshake(TcpSocket& channel, Role role, const std::string& c
   const Point& peer_mask = role == Role::Sender ? point_n : point_m;
 
   Scalar x{};
-  randombytes_buf(x.data(), x.size());
-  crypto_core_ristretto255_scalar_reduce(x.data(), x.data());
+  crypto_core_ristretto255_scalar_random(x.data());
   if (sodium_is_zero(x.data(), x.size()) == 1) x[0] = 1;
 
   auto self_point = point_add(scalar_base(x), scalar_mul(w, self_mask));

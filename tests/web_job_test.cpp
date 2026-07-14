@@ -27,7 +27,7 @@ int main() {
 
   snapshot = store.snapshot();
   assert(snapshot.code == "test-code");
-  assert(snapshot.route_phase == "direct connect (relay ready)");
+  assert(snapshot.route_phase == "direct TCP selected");
   assert(snapshot.route_summary.find("data=direct") != std::string::npos);
   assert(snapshot.route_timing == "rendezvous=12ms direct_probe=34ms securing=5ms");
   assert(snapshot.files_total == 2);

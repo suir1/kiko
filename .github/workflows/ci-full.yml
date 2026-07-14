@@ -73,6 +73,40 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
         if: runner.os == 'Windows'
 
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool pkg-config
+
+      - name: Install vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git .vcpkg
+          ./.vcpkg/bootstrap-vcpkg.sh
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .vcpkg/downloads
+            .vcpkg/installed
+            build-sanitize/vcpkg_installed
+          key: sanitizer-${{ runner.os }}-${{ runner.arch }}-vcpkg-${{ hashFiles('vcpkg.json', 'CMakePresets.json') }}
+          restore-keys: |
+            sanitizer-${{ runner.os }}-${{ runner.arch }}-vcpkg-
+
+      - name: Configure sanitizer build
+        run: cmake --preset sanitize
+
+      - name: Build sanitizer targets
+        run: cmake --build --preset sanitize
+
+      - name: Test with ASan and UBSan
+        run: ctest --preset sanitize
+
   relay-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20

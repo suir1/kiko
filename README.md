@@ -273,6 +273,14 @@ Flags: `--relay-pass`, `--pair-timeout`, `--remember`, `--auto-connections`, `--
 ctest --preset local-vcpkg --output-on-failure
 ```
 
+Memory-safety checks:
+
+```sh
+cmake --preset sanitize
+cmake --build --preset sanitize
+ctest --preset sanitize
+```
+
 Route smoke checks:
 
 ```sh

@@ -32,6 +32,17 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "sanitize",
+      "displayName": "Debug with AddressSanitizer and UBSan",
+      "inherits": "local-vcpkg",
+      "binaryDir": "${sourceDir}/build-sanitize",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
     }
   ],
   "buildPresets": [
@@ -46,6 +57,10 @@
     {
       "name": "system-deps",
       "configurePreset": "system-deps"
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize"
     }
   ],
   "testPresets": [
@@ -63,6 +78,15 @@
       "name": "system-deps",
       "configurePreset": "system-deps",
       "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize",
+      "output": { "outputOnFailure": true },
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=0:detect_container_overflow=0:halt_on_error=1:abort_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+      }
     }
   ]
 }

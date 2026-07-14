@@ -104,7 +104,9 @@ int main() {
     assert(selection.direct);
     assert(saw_status(reporter, "route result: path=direct reason=confirmed direct_attempted=true lan_upgrade=false"));
     assert(saw_status(reporter, "direct probe summary: result=direct candidate_kinds=lan=1"));
-    assert(saw_status(reporter, "route detail: direct_success kind=lan priority=90 elapsed_ms=7"));
+    assert(saw_status(
+        reporter,
+        "route detail: direct_success kind=lan priority=90 endpoint=127.0.0.1:1234 family=ipv4 scope=loopback elapsed_ms=7"));
   }
 
   {

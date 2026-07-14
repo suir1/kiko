@@ -63,17 +63,24 @@ def spawn(argv: list[str]) -> tuple[subprocess.Popen[bytes], int]:
 
 
 def stop(proc: subprocess.Popen[bytes], master: int) -> None:
-    os.write(master, b"q")
-    time.sleep(0.3)
-    os.write(master, b"\x1b")
-    time.sleep(0.3)
-    if proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=2)
+    try:
+        if proc.poll() is None:
+            try:
+                os.write(master, b"q")
+                time.sleep(0.3)
+                os.write(master, b"\x1b")
+                time.sleep(0.3)
+            except OSError:
+                pass
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=2)
+    finally:
+        os.close(master)
 
 
 def fail(msg: str, blob: bytes = b"") -> None:
