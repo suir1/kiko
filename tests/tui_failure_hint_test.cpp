@@ -9,7 +9,7 @@ int main() {
 
   {
     TuiState state;
-    state.error_message = "direct failed after punch attempts";
+    state.error = "direct failed after punch attempts";
     state.doctor_summary = "symmetric NAT detected";
     const auto blocked = suggest_failure_recovery(state, menu);
     if (blocked.preset != 2) {
@@ -20,7 +20,7 @@ int main() {
 
   {
     TuiState state;
-    state.error_message = "relay route goes through VPN/TUN interface utun4";
+    state.error = "relay route goes through VPN/TUN interface utun4";
     const auto vpn = suggest_failure_recovery(state, menu);
     if (vpn.preset != 2 || !vpn.avoid_vpn) {
       std::cerr << "FAIL: expected relay-only avoid-vpn hint for VPN route\n";
@@ -36,7 +36,7 @@ int main() {
 
   {
     TuiState state;
-    state.error_message = "relay connection refused";
+    state.error = "relay connection refused";
     state.doctor_summary = "cannot reach relay";
     const auto relay = suggest_failure_recovery(state, menu);
     if (relay.preset != 3) {

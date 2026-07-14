@@ -32,6 +32,21 @@ int main() {
     return 1;
   }
 
+  RecvConfig recv;
+  options.no_direct = true;
+  options.lan_discover = false;
+  options.only_local = true;
+  options.avoid_vpn = true;
+  options.manual_ip = "192.0.2.10";
+  options.bind_interface = "en0";
+  apply_network_options_to_peer(recv, options);
+  if (!recv.no_direct || recv.lan_discover || !recv.only_local || !recv.avoid_vpn ||
+      recv.manual_ip != std::optional<std::string>("192.0.2.10") || recv.bind_interface != "en0") {
+    std::cerr << "FAIL: shared peer connection config mapping\n";
+    return 1;
+  }
+
+  apply_network_preset(0, options);
   if (validate_network_options(options, 0)) {
     std::cerr << "FAIL: default options should validate: " << *validate_network_options(options, 0) << "\n";
     return 1;

@@ -70,15 +70,6 @@ RelayRouteDecision wait_route_decision(TcpSocket& first, TcpSocket& second) {
   return relay_route_decision_for(first_choice, second_choice, /*deadline_expired=*/true);
 }
 
-std::uint16_t checked_control_port(const Message& message, const std::string& field, std::uint16_t fallback,
-                                   bool allow_zero) {
-  const auto value = message.get(field);
-  if (value.empty()) return fallback;
-  const auto port = message.get_u64(field, fallback);
-  if (port > 65535 || (!allow_zero && port == 0)) throw KikoError("invalid port field: " + field);
-  return static_cast<std::uint16_t>(port);
-}
-
 class RelayStateImpl {
  public:
   explicit RelayStateImpl(RelayServerConfig config) : config_(std::move(config)), rooms_(config_) { start_cleanup(); }
@@ -313,8 +304,8 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
     try {
       role = parse_role(hello.get("role"));
       conn_index = hello.get_u64("conn_index", 0);
-      listen_port = checked_control_port(hello, "listen_port", 0, true);
-      punch_port = checked_control_port(hello, "punch_public_port", 0, true);
+      listen_port = message_port_or(hello, "listen_port", 0, true);
+      punch_port = message_port_or(hello, "punch_public_port", 0, true);
       file_count = hello.get_u64("file_count", 0);
       total_size = hello.get_u64("total_size", 0);
       conn_count = hello.get_u64("conn_count", 1);
@@ -462,8 +453,5 @@ bool relay_password_ok(const RelayServerConfig& config, const Message& hello) {
   if (config.password.empty()) return true;
   return hello.get("relay_pass") == config.password;
 }
-
-void ensure_io_thread() {}
-void release_io_thread() {}
 
 }  // namespace kiko

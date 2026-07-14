@@ -26,6 +26,7 @@ set(KIKO_CORE_LAYER_SOURCES
   src/core/io.cpp
   src/core/pake.cpp
   src/core/progress.cpp
+  src/core/progress_state.cpp
   src/core/protocol.cpp
   src/core/proxy.cpp
   src/core/qrcode_print.cpp
@@ -33,6 +34,7 @@ set(KIKO_CORE_LAYER_SOURCES
 )
 
 set(KIKO_PLATFORM_LAYER_SOURCES
+  src/platform/path_browser.cpp
   src/platform/user_config.cpp
 )
 
@@ -79,6 +81,8 @@ set(KIKO_TRANSFER_LAYER_SOURCES
 
 set(KIKO_NOTE_LAYER_SOURCES
   src/note/note_protocol.cpp
+  src/note/note_session.cpp
+  src/note/note_workspace.cpp
   src/note/notepad.cpp
 )
 
@@ -209,6 +213,7 @@ set(KIKO_APP_SOURCES
   src/tui/tui_note.cpp
   src/web/web.cpp
   src/web/web_assets.cpp
+  src/web/web_job.cpp
 )
 
 add_executable(kiko ${KIKO_APP_SOURCES})
@@ -253,8 +258,10 @@ kiko_add_core_test(doctor tests/doctor_test.cpp)
 kiko_add_core_test(handshake tests/handshake_test.cpp)
 kiko_add_core_test(transfer tests/transfer_test.cpp)
 kiko_add_core_test(progress tests/progress_test.cpp)
+kiko_add_core_test(progress_state tests/progress_state_test.cpp)
 kiko_add_core_test(profile tests/profile_test.cpp)
 kiko_add_core_test(user_config tests/user_config_test.cpp)
+kiko_add_core_test(path_browser tests/path_browser_test.cpp)
 kiko_add_core_test(cancellation tests/cancellation_test.cpp)
 kiko_add_core_test(tui_advanced tests/tui_advanced_test.cpp)
 add_executable(kiko_tui_menu_state_test tests/tui_menu_state_test.cpp src/tui/tui_menu_state.cpp src/tui/tui_transfer_view.cpp)
@@ -278,10 +285,14 @@ add_executable(kiko_tui_browser_test tests/tui_browser_test.cpp src/tui/tui_brow
 target_link_libraries(kiko_tui_browser_test PRIVATE kiko_core ftxui::component)
 add_test(NAME tui_browser COMMAND kiko_tui_browser_test)
 
-add_executable(kiko_web_test tests/web_test.cpp src/web/web.cpp src/web/web_assets.cpp)
+add_executable(kiko_web_test tests/web_test.cpp src/web/web.cpp src/web/web_assets.cpp src/web/web_job.cpp)
 target_link_libraries(kiko_web_test PRIVATE kiko_core)
 add_test(NAME web COMMAND kiko_web_test)
+add_executable(kiko_web_job_test tests/web_job_test.cpp src/web/web_job.cpp)
+target_link_libraries(kiko_web_job_test PRIVATE kiko_core)
+add_test(NAME web_job COMMAND kiko_web_job_test)
 kiko_add_core_test(note_protocol tests/note_protocol_test.cpp)
+kiko_add_core_test(note_workspace tests/note_workspace_test.cpp)
 kiko_add_core_test(mux tests/mux_test.cpp)
 kiko_add_core_test(adaptive tests/adaptive_test.cpp)
 kiko_add_core_test(connectivity tests/connectivity_test.cpp)

@@ -1,26 +1,21 @@
 #include "web.hpp"
 
-#include "core/cancellation.hpp"
 #include "core/qrcode_print.hpp"
 #include "diagnostics/doctor.hpp"
-#include "note/note_protocol.hpp"
 #include "note/notepad.hpp"
+#include "platform/path_browser.hpp"
 #include "transfer/transfer.hpp"
 #include "web_assets.hpp"
+#include "web_job.hpp"
 
 #include <asio.hpp>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <atomic>
 #include <cctype>
 #include <chrono>
-#include <condition_variable>
 #include <cstdlib>
-#include <deque>
 #include <filesystem>
-#include <functional>
-#include <iomanip>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -34,11 +29,8 @@ namespace {
 using json = nlohmann::json;
 
 constexpr std::size_t kMaxBodyBytes = 1024 * 1024;
-constexpr std::size_t kMaxLogLines = 120;
 constexpr std::size_t kMaxQrTextBytes = 1200;
 constexpr int kDefaultPairTimeoutSec = static_cast<int>(kDefaultPairTimeout.count());
-constexpr auto kNoteReadPoll = std::chrono::milliseconds(100);
-constexpr auto kNoteHelloTimeout = std::chrono::seconds(20);
 
 std::string lower(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(),
@@ -110,46 +102,78 @@ int json_int(const json& body, const char* key, int fallback) {
   return it->get<int>();
 }
 
-std::string route_phase_name(RoutePhase phase, const RoutePhaseDetail& detail) {
-  switch (phase) {
-    case RoutePhase::Rendezvous:
-      return "rendezvous";
-    case RoutePhase::RelayStandby:
-      return "relay fallback ready";
-    case RoutePhase::DirectProbing:
-      return detail.relay_fallback_ready ? "direct probing (relay ready)" : "direct probing";
-    case RoutePhase::RelayCommitted:
-      return "relay selected";
-    case RoutePhase::Securing:
-      return "securing";
-  }
-  return "unknown";
+std::string defaulted_relay(const json& body, const WebOptions& options) {
+  const auto relay = json_string(body, "relay");
+  return relay.empty() ? options.relay.to_string() : relay;
 }
 
-void append_timing(std::string& out, const std::string& label, int value) {
-  if (value < 0) return;
-  if (!out.empty()) out += " ";
-  out += label + "=" + std::to_string(value) + "ms";
+void apply_relay_pass(const json& body, const WebOptions& options, std::optional<std::string>& out) {
+  const auto relay_pass = json_string(body, "relay_pass");
+  out = relay_pass.empty() ? options.relay_pass : std::optional<std::string>(relay_pass);
 }
 
-std::string route_timing_text(const RouteTiming& timing) {
-  std::string out;
-  append_timing(out, "rendezvous", timing.rendezvous_ms);
-  append_timing(out, "direct_probe", timing.direct_probe_ms);
-  append_timing(out, "relay_commit", timing.relay_commit_ms);
-  append_timing(out, "securing", timing.securing_ms);
-  return out;
+void apply_peer_connection_json(PeerConnectionOptions& config, const json& body, const WebOptions& options) {
+  config.relay = parse_endpoint(defaulted_relay(body, options), 9000);
+  config.no_direct = json_bool(body, "no_direct");
+  config.lan_discover = !json_bool(body, "no_lan");
+  config.disable_local = json_bool(body, "no_local");
+  config.only_local = json_bool(body, "local");
+  config.udp_probe = json_bool(body, "udp_probe");
+  config.avoid_vpn = json_bool(body, "avoid_vpn");
+  config.pair_timeout =
+      std::chrono::seconds(std::max(1, json_int(body, "pair_timeout", kDefaultPairTimeoutSec)));
+  if (const auto proxy = json_string(body, "proxy"); !proxy.empty()) config.proxy = parse_proxy_url(proxy);
+  config.bind_interface = json_string(body, "bind_interface");
+  if (const auto manual_ip = json_string(body, "ip"); !manual_ip.empty()) config.manual_ip = manual_ip;
+  apply_relay_pass(body, options, config.relay_pass);
 }
 
-std::string route_outcome_text(const RouteOutcome& outcome) {
-  std::string out = "control=" + outcome.control_path + " data=" + outcome.data_path;
-  if (!outcome.reason.empty()) out += " (" + outcome.reason + ")";
-  if (!outcome.direct_candidate_kind.empty()) out += " via " + outcome.direct_candidate_kind;
-  if (!outcome.direct_candidate_endpoint.empty()) out += " " + outcome.direct_candidate_endpoint;
-  if (outcome.data_path == "relay" && !outcome.direct_failure_summary.empty()) {
-    out += " direct=" + outcome.direct_failure_summary;
-  }
-  return out;
+SendConfig parse_send_config(const json& body, const WebOptions& options) {
+  SendConfig config;
+  apply_peer_connection_json(config, body, options);
+  config.file = json_string(body, "path");
+  config.code = normalize_pairing_code(json_string(body, "code"));
+  config.auto_connections = json_bool(body, "auto_connections");
+  config.use_gitignore = !json_bool(body, "no_gitignore");
+  config.connections = std::max(1, json_int(body, "connections", 4));
+  config.auto_reconnect = !json_bool(body, "no_reconnect");
+  config.reconnect_attempts = std::max(1, json_int(body, "reconnect_attempts", 3));
+  return config;
+}
+
+RecvConfig parse_recv_config(const json& body, const WebOptions& options) {
+  RecvConfig config;
+  apply_peer_connection_json(config, body, options);
+  config.code = normalize_pairing_code(json_string(body, "code"));
+  config.output_dir = json_string(body, "out", ".");
+  config.auto_reconnect = !json_bool(body, "no_reconnect");
+  config.reconnect_attempts = std::max(1, json_int(body, "reconnect_attempts", 3));
+  const auto conflict = json_string(body, "on_conflict", "overwrite");
+  if (conflict == "skip") config.conflict_policy = ConflictPolicy::Skip;
+  else if (conflict == "rename") config.conflict_policy = ConflictPolicy::Rename;
+  else config.conflict_policy = ConflictPolicy::Overwrite;
+  return config;
+}
+
+DoctorOptions parse_doctor_options(const json& body, const WebOptions& options) {
+  DoctorOptions doctor;
+  doctor.relay = parse_endpoint(defaulted_relay(body, options), 9000);
+  doctor.udp_probe = json_bool(body, "udp_probe");
+  doctor.avoid_vpn = json_bool(body, "avoid_vpn");
+  doctor.bind_interface = json_string(body, "bind_interface");
+  if (const auto proxy = json_string(body, "proxy"); !proxy.empty()) doctor.proxy = parse_proxy_url(proxy);
+  apply_relay_pass(body, options, doctor.relay_pass);
+  return doctor;
+}
+
+NoteConfig parse_note_config(const json& body, const WebOptions& options) {
+  NoteConfig config;
+  apply_peer_connection_json(config, body, options);
+  config.role = json_string(body, "role", "host") == "join" ? Role::Receiver : Role::Sender;
+  config.code = normalize_pairing_code(json_string(body, "code"));
+  config.show_qrcode = false;
+  config.app = "note";
+  return config;
 }
 
 std::uint64_t elapsed_ms(const WebJobSnapshot& snapshot) {
@@ -193,8 +217,7 @@ json job_to_json(const WebJobSnapshot& snapshot) {
   out["note_local_revision"] = snapshot.note_local_revision;
   out["note_acked_revision"] = snapshot.note_acked_revision;
   out["note_connected"] = snapshot.note_connected;
-  out["note_synced"] =
-      snapshot.note_local_revision > 0 && snapshot.note_acked_revision >= snapshot.note_local_revision;
+  out["note_synced"] = snapshot.note_synced;
   out["elapsed_ms"] = elapsed;
   out["logs"] = snapshot.logs;
   if (snapshot.overall_done > 0 && elapsed > 0) {
@@ -205,13 +228,13 @@ json job_to_json(const WebJobSnapshot& snapshot) {
   return out;
 }
 
-std::string modified_ms_string(const WebDirectoryEntry& entry) {
+std::string modified_ms_string(const PathBrowserEntry& entry) {
   if (!entry.has_modified) return {};
   const auto since_epoch = entry.modified.time_since_epoch();
   return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(since_epoch).count());
 }
 
-json directory_to_json(const std::filesystem::path& path, const std::vector<WebDirectoryEntry>& entries) {
+json directory_to_json(const std::filesystem::path& path, const std::vector<PathBrowserEntry>& entries) {
   json out;
   out["path"] = path.string();
   out["entries"] = json::array();
@@ -263,683 +286,6 @@ json browser_shortcuts(const UserConfig& config) {
 }
 
 }  // namespace
-
-struct WebNoteRuntime {
-  std::mutex mutex;
-  std::condition_variable changed;
-  std::unique_ptr<TcpSocket> channel;
-  std::unique_ptr<StreamCipher> cipher;
-  std::deque<NoteFrame> outgoing;
-  std::map<std::string, NoteDocument> documents;
-  std::string active_pad = "main";
-  int next_pad_number = 2;
-  std::string error;
-  std::atomic_bool done{false};
-};
-
-void close_web_note_runtime(WebNoteRuntime& runtime) {
-  std::lock_guard<std::mutex> lock(runtime.mutex);
-  runtime.done.store(true);
-  if (runtime.channel) runtime.channel->close();
-  runtime.changed.notify_all();
-}
-
-std::optional<NoteFrame> recv_web_note_interruptible(TcpSocket& channel, StreamCipher& cipher,
-                                                     const WebNoteRuntime& runtime,
-                                                     const TransferCancellation& cancellation) {
-  while (!runtime.done.load() && !cancellation.requested()) {
-    auto frame = recv_note_frame_timeout(channel, cipher, kNoteReadPoll, cancellation.flag());
-    if (frame) return frame;
-    if (!channel.valid()) return std::nullopt;
-  }
-  return std::nullopt;
-}
-
-NoteDocument& ensure_web_note_pad_locked(WebNoteRuntime& runtime, const std::string& pad_id,
-                                         const std::string& title = {}) {
-  const auto id = pad_id.empty() ? std::string("main") : pad_id;
-  auto [it, inserted] = runtime.documents.try_emplace(id);
-  if (inserted) {
-    it->second.pad_id = id;
-    it->second.title = title.empty() ? (id == "main" ? "Note 1" : id) : title;
-  } else if (!title.empty()) {
-    it->second.title = title;
-  }
-  return it->second;
-}
-
-std::vector<WebNotePadSnapshot> web_note_pads_snapshot_locked(WebNoteRuntime& runtime) {
-  std::vector<WebNotePadSnapshot> pads;
-  pads.reserve(runtime.documents.size());
-  for (auto& [id, document] : runtime.documents) {
-    pads.push_back(WebNotePadSnapshot{id, document.title.empty() ? id : document.title, document.revision});
-  }
-  std::sort(pads.begin(), pads.end(), [](const WebNotePadSnapshot& a, const WebNotePadSnapshot& b) {
-    if (a.id == "main") return true;
-    if (b.id == "main") return false;
-    return a.id < b.id;
-  });
-  return pads;
-}
-
-class WebJobStore {
- public:
-  explicit WebJobStore(WebOptions options) : options_(std::move(options)) {}
-
-  [[nodiscard]] WebJobSnapshot snapshot() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return state_;
-  }
-
-  void append_log(const std::string& line) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (line.empty()) return;
-    logs_.push_back(line);
-    while (logs_.size() > kMaxLogLines) logs_.pop_front();
-    state_.logs.assign(logs_.begin(), logs_.end());
-  }
-
-  void update(const std::function<void(WebJobSnapshot&)>& fn) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    fn(state_);
-    state_.logs.assign(logs_.begin(), logs_.end());
-  }
-
-  [[nodiscard]] bool start_send(const json& body, std::string& error) {
-    try {
-      join_finished_worker();
-      SendConfig config;
-      config.file = json_string(body, "path");
-      if (config.file.empty()) throw KikoError("send path is required");
-      config.relay = parse_endpoint(defaulted_relay(body), 9000);
-      config.code = normalize_pairing_code(json_string(body, "code"));
-      config.no_direct = json_bool(body, "no_direct");
-      config.udp_probe = json_bool(body, "udp_probe");
-      config.avoid_vpn = json_bool(body, "avoid_vpn");
-      config.auto_connections = json_bool(body, "auto_connections");
-      config.use_gitignore = !json_bool(body, "no_gitignore");
-      config.connections = std::max(1, json_int(body, "connections", 4));
-      config.auto_reconnect = !json_bool(body, "no_reconnect");
-      config.reconnect_attempts = std::max(1, json_int(body, "reconnect_attempts", 3));
-      config.pair_timeout = std::chrono::seconds(std::max(1, json_int(body, "pair_timeout", kDefaultPairTimeoutSec)));
-      if (const auto proxy = json_string(body, "proxy"); !proxy.empty()) config.proxy = parse_proxy_url(proxy);
-      config.bind_interface = json_string(body, "bind_interface");
-      if (const auto manual_ip = json_string(body, "ip"); !manual_ip.empty()) config.manual_ip = manual_ip;
-      apply_relay_pass(body, config.relay_pass);
-
-      auto cancellation = std::make_shared<TransferCancellation>();
-      config.cancellation = cancellation;
-      if (!begin_task("send", cancellation, error)) return false;
-
-      worker_ = std::thread([this, config = std::move(config), cancellation = std::move(cancellation)]() mutable {
-        WebReporter reporter(*this);
-        try {
-          const int rc = run_send(config, reporter);
-          if (rc == 0) {
-            finish_success("send complete");
-          } else if (cancellation->requested()) {
-            finish_canceled();
-          } else {
-            finish_failed("send exited with code " + std::to_string(rc));
-          }
-        } catch (const std::exception& e) {
-          cancellation->requested() ? finish_canceled() : finish_failed(e.what());
-        }
-      });
-      return true;
-    } catch (const std::exception& e) {
-      error = e.what();
-      return false;
-    }
-  }
-
-  [[nodiscard]] bool start_recv(const json& body, std::string& error) {
-    try {
-      join_finished_worker();
-      RecvConfig config;
-      config.code = normalize_pairing_code(json_string(body, "code"));
-      if (config.code.empty()) throw KikoError("receive code is required");
-      config.output_dir = json_string(body, "out", ".");
-      config.relay = parse_endpoint(defaulted_relay(body), 9000);
-      config.no_direct = json_bool(body, "no_direct");
-      config.lan_discover = !json_bool(body, "no_lan");
-      config.disable_local = json_bool(body, "no_local");
-      config.only_local = json_bool(body, "local");
-      config.udp_probe = json_bool(body, "udp_probe");
-      config.avoid_vpn = json_bool(body, "avoid_vpn");
-      config.auto_reconnect = !json_bool(body, "no_reconnect");
-      config.reconnect_attempts = std::max(1, json_int(body, "reconnect_attempts", 3));
-      config.pair_timeout = std::chrono::seconds(std::max(1, json_int(body, "pair_timeout", kDefaultPairTimeoutSec)));
-      const auto conflict = json_string(body, "on_conflict", "overwrite");
-      if (conflict == "skip") config.conflict_policy = ConflictPolicy::Skip;
-      else if (conflict == "rename") config.conflict_policy = ConflictPolicy::Rename;
-      else config.conflict_policy = ConflictPolicy::Overwrite;
-      if (const auto proxy = json_string(body, "proxy"); !proxy.empty()) config.proxy = parse_proxy_url(proxy);
-      config.bind_interface = json_string(body, "bind_interface");
-      if (const auto manual_ip = json_string(body, "ip"); !manual_ip.empty()) config.manual_ip = manual_ip;
-      apply_relay_pass(body, config.relay_pass);
-
-      auto cancellation = std::make_shared<TransferCancellation>();
-      config.cancellation = cancellation;
-      if (!begin_task("recv", cancellation, error)) return false;
-
-      worker_ = std::thread([this, config = std::move(config), cancellation = std::move(cancellation)]() mutable {
-        WebReporter reporter(*this);
-        try {
-          const int rc = run_recv(config, reporter);
-          if (rc == 0) {
-            finish_success("receive complete");
-          } else if (cancellation->requested()) {
-            finish_canceled();
-          } else {
-            finish_failed("receive exited with code " + std::to_string(rc));
-          }
-        } catch (const std::exception& e) {
-          cancellation->requested() ? finish_canceled() : finish_failed(e.what());
-        }
-      });
-      return true;
-    } catch (const std::exception& e) {
-      error = e.what();
-      return false;
-    }
-  }
-
-  [[nodiscard]] bool start_doctor(const json& body, std::string& error) {
-    try {
-      join_finished_worker();
-      DoctorOptions opts;
-      opts.relay = parse_endpoint(defaulted_relay(body), 9000);
-      opts.udp_probe = json_bool(body, "udp_probe");
-      opts.avoid_vpn = json_bool(body, "avoid_vpn");
-      opts.bind_interface = json_string(body, "bind_interface");
-      if (const auto proxy = json_string(body, "proxy"); !proxy.empty()) opts.proxy = parse_proxy_url(proxy);
-      apply_relay_pass(body, opts.relay_pass);
-
-      auto cancellation = std::make_shared<TransferCancellation>();
-      if (!begin_task("doctor", cancellation, error)) return false;
-
-      worker_ = std::thread([this, opts = std::move(opts), cancellation = std::move(cancellation)]() mutable {
-        try {
-          append_log("doctor started");
-          const auto report = run_doctor(opts);
-          if (cancellation->requested()) {
-            finish_canceled();
-            return;
-          }
-          const auto report_json = doctor_report_to_json(report);
-          update([&](WebJobSnapshot& state) {
-            state.doctor_json = report_json;
-            state.doctor_summary = report.diagnosis;
-            state.activity = "doctor complete";
-            state.finished = true;
-          });
-          append_log(report.diagnosis);
-          finish_success("doctor complete");
-        } catch (const std::exception& e) {
-          cancellation->requested() ? finish_canceled() : finish_failed(e.what());
-        }
-      });
-      return true;
-    } catch (const std::exception& e) {
-      error = e.what();
-      return false;
-    }
-  }
-
-  [[nodiscard]] bool start_note(const json& body, std::string& error) {
-    try {
-      join_finished_worker();
-      NoteConfig config;
-      const auto role = json_string(body, "role", "host");
-      config.role = role == "join" ? Role::Receiver : Role::Sender;
-      config.code = normalize_pairing_code(json_string(body, "code"));
-      if (config.role == Role::Receiver && config.code.empty()) throw KikoError("note code is required");
-      config.relay = parse_endpoint(defaulted_relay(body), 9000);
-      config.no_direct = json_bool(body, "no_direct");
-      config.lan_discover = !json_bool(body, "no_lan");
-      config.disable_local = json_bool(body, "no_local");
-      config.only_local = json_bool(body, "local");
-      config.udp_probe = json_bool(body, "udp_probe");
-      config.avoid_vpn = json_bool(body, "avoid_vpn");
-      config.pair_timeout = std::chrono::seconds(std::max(1, json_int(body, "pair_timeout", kDefaultPairTimeoutSec)));
-      config.show_qrcode = false;
-      config.app = "note";
-      if (const auto proxy = json_string(body, "proxy"); !proxy.empty()) config.proxy = parse_proxy_url(proxy);
-      config.bind_interface = json_string(body, "bind_interface");
-      if (const auto manual_ip = json_string(body, "ip"); !manual_ip.empty()) config.manual_ip = manual_ip;
-      apply_relay_pass(body, config.relay_pass);
-
-      auto cancellation = std::make_shared<TransferCancellation>();
-      config.cancellation = cancellation;
-      auto runtime = std::make_shared<WebNoteRuntime>();
-      {
-        std::lock_guard<std::mutex> lock(runtime->mutex);
-        ensure_web_note_pad_locked(*runtime, "main", "Note 1");
-      }
-      if (!begin_task("note", cancellation, error)) return false;
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        note_runtime_ = runtime;
-        state_.activity = config.role == Role::Sender ? "hosting notepad" : "joining notepad";
-        state_.code = config.code;
-        state_.note_active_pad = "main";
-        state_.note_pads = {WebNotePadSnapshot{"main", "Note 1", 0}};
-        state_.note_text.clear();
-        state_.note_revision = 0;
-        state_.note_local_revision = 0;
-        state_.note_acked_revision = 0;
-      }
-
-      worker_ = std::thread([this, config = std::move(config), cancellation = std::move(cancellation),
-                             runtime = std::move(runtime)]() mutable {
-        WebReporter reporter(*this);
-        std::thread sender([this, runtime, cancellation] {
-          try {
-            while (true) {
-              NoteFrame frame;
-              TcpSocket* channel = nullptr;
-              StreamCipher* cipher = nullptr;
-              {
-                std::unique_lock<std::mutex> lock(runtime->mutex);
-                runtime->changed.wait(lock, [&] {
-                  return runtime->done.load() ||
-                         (runtime->channel && runtime->cipher && !runtime->outgoing.empty());
-                });
-                if (runtime->done.load() && runtime->outgoing.empty()) break;
-                if (!runtime->channel || !runtime->cipher || runtime->outgoing.empty()) continue;
-                frame = std::move(runtime->outgoing.front());
-                runtime->outgoing.pop_front();
-                channel = runtime->channel.get();
-                cipher = runtime->cipher.get();
-              }
-              send_note_frame(*channel, *cipher, frame);
-              if (frame.type == NoteFrameType::Update || frame.type == NoteFrameType::Clear) {
-                update([&](WebJobSnapshot& state) {
-                  state.note_local_revision = std::max(state.note_local_revision, frame.revision);
-                  state.activity =
-                      state.note_acked_revision >= state.note_local_revision ? "notepad synced" : "notepad sent";
-                });
-              }
-            }
-          } catch (const std::exception& e) {
-            if (!runtime->done.load() && !cancellation->requested()) {
-              {
-                std::lock_guard<std::mutex> lock(runtime->mutex);
-                runtime->error = e.what();
-              }
-              append_log(std::string("note send error: ") + e.what());
-              cancellation->request();
-            }
-            close_web_note_runtime(*runtime);
-          }
-        });
-
-        try {
-          auto session = open_peer_session(config, reporter);
-          auto channel = std::make_unique<TcpSocket>(std::move(session.encrypted.channel));
-          auto cipher = std::make_unique<StreamCipher>(session.encrypted.key, config.role == Role::Sender);
-          send_note_frame(*channel, *cipher, make_note_hello());
-          append_log("notepad hello sent");
-          auto hello = recv_note_frame_timeout(*channel, *cipher, kNoteHelloTimeout, cancellation->flag());
-          if (!hello || hello->type != NoteFrameType::Hello) throw KikoError("note peer did not send hello");
-          append_log("notepad peer hello received");
-
-          {
-            std::lock_guard<std::mutex> lock(runtime->mutex);
-            runtime->channel = std::move(channel);
-            runtime->cipher = std::move(cipher);
-          }
-          runtime->changed.notify_all();
-          update([&](WebJobSnapshot& state) {
-            state.note_connected = true;
-            state.code = session.code;
-            state.route_summary = session.outcome.data_path;
-            state.activity = "notepad connected";
-          });
-          append_log("notepad connected via " + session.outcome.data_path);
-
-          while (!runtime->done.load()) {
-            TcpSocket* active_channel = nullptr;
-            StreamCipher* active_cipher = nullptr;
-            {
-              std::lock_guard<std::mutex> lock(runtime->mutex);
-              active_channel = runtime->channel.get();
-              active_cipher = runtime->cipher.get();
-            }
-            if (!active_channel || !active_cipher) break;
-            auto incoming =
-                recv_web_note_interruptible(*active_channel, *active_cipher, *runtime, *cancellation);
-            if (!incoming) break;
-            if (incoming->type == NoteFrameType::Bye) break;
-            if (incoming->type == NoteFrameType::Ack) {
-              update([&](WebJobSnapshot& state) {
-                state.note_acked_revision = std::max(state.note_acked_revision, incoming->revision);
-                state.activity =
-                    state.note_acked_revision >= state.note_local_revision ? "notepad synced" : "notepad sent";
-              });
-              continue;
-            }
-            if (incoming->type != NoteFrameType::Update && incoming->type != NoteFrameType::Clear) continue;
-
-            bool applied = false;
-            std::string text;
-            std::uint64_t revision = 0;
-            std::string pad_id;
-            std::vector<WebNotePadSnapshot> pads;
-            bool active = false;
-            {
-              std::lock_guard<std::mutex> lock(runtime->mutex);
-              auto& document = ensure_web_note_pad_locked(*runtime, incoming->pad_id, incoming->title);
-              applied = apply_note_update(document, *incoming);
-              if (applied) {
-                text = document.text;
-                revision = document.revision;
-                pad_id = document.pad_id;
-                pads = web_note_pads_snapshot_locked(*runtime);
-                active = runtime->active_pad == pad_id;
-                runtime->outgoing.push_back(make_note_ack(pad_id, incoming->revision));
-              }
-            }
-            if (applied) {
-              runtime->changed.notify_one();
-              update([&](WebJobSnapshot& state) {
-                state.note_pads = pads;
-                if (active) {
-                  state.note_text = text;
-                  state.note_revision = revision;
-                }
-                state.activity = active ? "remote note update" : "remote note updated " + pad_id;
-              });
-            }
-          }
-
-          std::string send_error;
-          {
-            std::lock_guard<std::mutex> lock(runtime->mutex);
-            send_error = runtime->error;
-          }
-          if (!send_error.empty()) {
-            finish_failed(send_error);
-          } else if (cancellation->requested() || runtime->done.load()) {
-            finish_canceled();
-          } else {
-            finish_success("notepad closed");
-          }
-        } catch (const std::exception& e) {
-          if (cancellation->requested() || runtime->done.load()) {
-            finish_canceled();
-          } else {
-            finish_failed(e.what());
-          }
-        }
-        close_web_note_runtime(*runtime);
-        if (sender.joinable()) sender.join();
-      });
-      return true;
-    } catch (const std::exception& e) {
-      error = e.what();
-      return false;
-    }
-  }
-
-  [[nodiscard]] bool update_note(const json& body, std::string& error) {
-    const auto text = json_string(body, "text");
-    if (text.size() > kNoteMaxBytes) {
-      error = "note text exceeds 1 MiB limit";
-      return false;
-    }
-    auto runtime = current_note_runtime(error);
-    if (!runtime) return false;
-
-    NoteFrame frame;
-    std::uint64_t revision = 0;
-    std::string pad_id;
-    std::string title;
-    std::vector<WebNotePadSnapshot> pads;
-    {
-      std::lock_guard<std::mutex> lock(runtime->mutex);
-      if (runtime->done.load()) {
-        error = "notepad is closed";
-        return false;
-      }
-      auto& document = ensure_web_note_pad_locked(*runtime, runtime->active_pad);
-      pad_id = document.pad_id;
-      title = document.title;
-      frame = make_note_update(pad_id, document.revision + 1, text, title);
-      (void)apply_note_update(document, frame);
-      revision = frame.revision;
-      pads = web_note_pads_snapshot_locked(*runtime);
-      runtime->outgoing.push_back(frame);
-    }
-    runtime->changed.notify_one();
-    update([&](WebJobSnapshot& state) {
-      state.note_text = text;
-      state.note_active_pad = pad_id;
-      state.note_pads = pads;
-      state.note_revision = revision;
-      state.note_local_revision = std::max(state.note_local_revision, revision);
-      state.activity = "notepad syncing";
-    });
-    return true;
-  }
-
-  [[nodiscard]] bool clear_note(std::string& error) {
-    auto runtime = current_note_runtime(error);
-    if (!runtime) return false;
-
-    std::uint64_t revision = 0;
-    std::string pad_id;
-    std::vector<WebNotePadSnapshot> pads;
-    {
-      std::lock_guard<std::mutex> lock(runtime->mutex);
-      if (runtime->done.load()) {
-        error = "notepad is closed";
-        return false;
-      }
-      auto& document = ensure_web_note_pad_locked(*runtime, runtime->active_pad);
-      pad_id = document.pad_id;
-      auto frame = make_note_clear(pad_id, document.revision + 1, document.title);
-      (void)apply_note_update(document, frame);
-      revision = frame.revision;
-      pads = web_note_pads_snapshot_locked(*runtime);
-      runtime->outgoing.push_back(std::move(frame));
-    }
-    runtime->changed.notify_one();
-    update([&](WebJobSnapshot& state) {
-      state.note_text.clear();
-      state.note_active_pad = pad_id;
-      state.note_pads = pads;
-      state.note_revision = revision;
-      state.note_local_revision = std::max(state.note_local_revision, revision);
-      state.activity = "notepad syncing";
-    });
-    return true;
-  }
-
-  [[nodiscard]] bool create_note_pad(std::string& error) {
-    auto runtime = current_note_runtime(error);
-    if (!runtime) return false;
-
-    std::string pad_id;
-    std::string title;
-    std::vector<WebNotePadSnapshot> pads;
-    {
-      std::lock_guard<std::mutex> lock(runtime->mutex);
-      if (runtime->done.load()) {
-        error = "notepad is closed";
-        return false;
-      }
-      const int number = runtime->next_pad_number++;
-      pad_id = "pad-" + std::to_string(number);
-      title = "Note " + std::to_string(number);
-      auto& document = ensure_web_note_pad_locked(*runtime, pad_id, title);
-      document.title = title;
-      auto frame = make_note_update(pad_id, document.revision + 1, document.text, title);
-      (void)apply_note_update(document, frame);
-      runtime->active_pad = pad_id;
-      pads = web_note_pads_snapshot_locked(*runtime);
-      runtime->outgoing.push_back(std::move(frame));
-    }
-    runtime->changed.notify_one();
-    update([&](WebJobSnapshot& state) {
-      state.note_active_pad = pad_id;
-      state.note_pads = pads;
-      state.note_text.clear();
-      state.note_revision = 1;
-      state.note_local_revision = std::max<std::uint64_t>(state.note_local_revision, 1);
-      state.activity = "created " + title;
-    });
-    return true;
-  }
-
-  [[nodiscard]] bool select_note_pad(const json& body, std::string& error) {
-    auto runtime = current_note_runtime(error);
-    if (!runtime) return false;
-
-    const auto pad_id = json_string(body, "pad_id");
-    if (pad_id.empty()) {
-      error = "note pad id is required";
-      return false;
-    }
-
-    std::string text;
-    std::uint64_t revision = 0;
-    std::vector<WebNotePadSnapshot> pads;
-    {
-      std::lock_guard<std::mutex> lock(runtime->mutex);
-      const auto it = runtime->documents.find(pad_id);
-      if (it == runtime->documents.end()) {
-        error = "note pad not found";
-        return false;
-      }
-      runtime->active_pad = pad_id;
-      text = it->second.text;
-      revision = it->second.revision;
-      pads = web_note_pads_snapshot_locked(*runtime);
-    }
-    update([&](WebJobSnapshot& state) {
-      state.note_active_pad = pad_id;
-      state.note_pads = pads;
-      state.note_text = text;
-      state.note_revision = revision;
-      state.activity = "selected " + pad_id;
-    });
-    return true;
-  }
-
-  void cancel() {
-    std::shared_ptr<TransferCancellation> cancellation;
-    std::shared_ptr<WebNoteRuntime> note_runtime;
-    bool should_log = false;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      cancellation = cancellation_;
-      note_runtime = note_runtime_;
-      if (state_.running) {
-        should_log = state_.activity != "cancel requested";
-        state_.activity = "cancel requested";
-      }
-    }
-    if (should_log) append_log("cancel requested");
-    if (cancellation) cancellation->request();
-    if (note_runtime) close_web_note_runtime(*note_runtime);
-  }
-
-  void join_finished_worker() {
-    std::thread old;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (state_.running || !worker_.joinable()) return;
-      old = std::move(worker_);
-    }
-    if (old.joinable()) old.join();
-  }
-
- private:
-  std::string defaulted_relay(const json& body) const {
-    const auto relay = json_string(body, "relay");
-    return relay.empty() ? options_.relay.to_string() : relay;
-  }
-
-  void apply_relay_pass(const json& body, std::optional<std::string>& out) const {
-    const auto relay_pass = json_string(body, "relay_pass");
-    if (!relay_pass.empty()) out = relay_pass;
-    else out = options_.relay_pass;
-  }
-
-  bool begin_task(const std::string& kind, std::shared_ptr<TransferCancellation> cancellation, std::string& error) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (state_.running) {
-      error = "another kiko web task is already running";
-      return false;
-    }
-    note_runtime_.reset();
-    logs_.clear();
-    state_ = {};
-    state_.kind = kind;
-    state_.running = true;
-    state_.activity = "starting";
-    state_.started = std::chrono::steady_clock::now();
-    state_.logs = {};
-    cancellation_ = std::move(cancellation);
-    return true;
-  }
-
-  std::shared_ptr<WebNoteRuntime> current_note_runtime(std::string& error) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!state_.running || state_.kind != "note" || !note_runtime_) {
-      error = "notepad is not running";
-      return {};
-    }
-    return note_runtime_;
-  }
-
-  void finish_success(const std::string& activity) {
-    update([&](WebJobSnapshot& state) {
-      state.running = false;
-      if (!state.failed && !state.canceled) {
-        state.finished = true;
-        state.activity = activity;
-      }
-      state.ended = std::chrono::steady_clock::now();
-    });
-  }
-
-  void finish_failed(const std::string& error) {
-    append_log("error: " + error);
-    update([&](WebJobSnapshot& state) {
-      state.running = false;
-      state.finished = true;
-      state.failed = true;
-      state.canceled = false;
-      state.error = error;
-      state.activity = "failed";
-      state.ended = std::chrono::steady_clock::now();
-    });
-  }
-
-  void finish_canceled() {
-    append_log("canceled");
-    update([](WebJobSnapshot& state) {
-      state.running = false;
-      state.finished = true;
-      state.failed = false;
-      state.canceled = true;
-      state.error.clear();
-      state.activity = "canceled";
-      state.ended = std::chrono::steady_clock::now();
-    });
-  }
-
-  WebOptions options_;
-  mutable std::mutex mutex_;
-  WebJobSnapshot state_;
-  std::deque<std::string> logs_;
-  std::shared_ptr<TransferCancellation> cancellation_;
-  std::shared_ptr<WebNoteRuntime> note_runtime_;
-  std::thread worker_;
-};
 
 namespace {
 
@@ -1037,12 +383,12 @@ json parse_body_json(const HttpRequest& req) {
   }
 }
 
-WebPickMode parse_pick_mode(const std::string& value) {
-  return value == "dir" ? WebPickMode::DirectoryOnly : WebPickMode::FileOrDirectory;
+PathPickMode parse_pick_mode(const std::string& value) {
+  return value == "dir" ? PathPickMode::DirectoryOnly : PathPickMode::FileOrDirectory;
 }
 
-WebBrowserSort parse_browser_sort(const std::string& value) {
-  return value == "modified" ? WebBrowserSort::ModifiedDesc : WebBrowserSort::Name;
+PathBrowserSort parse_browser_sort(const std::string& value) {
+  return value == "modified" ? PathBrowserSort::ModifiedDesc : PathBrowserSort::Name;
 }
 
 void open_browser_best_effort(const std::string& url) {
@@ -1059,7 +405,7 @@ void open_browser_best_effort(const std::string& url) {
 class WebServer {
  public:
   WebServer(WebOptions options, std::string token)
-      : options_(std::move(options)), token_(std::move(token)), jobs_(options_) {}
+      : options_(std::move(options)), token_(std::move(token)) {}
 
   int run() {
     if (!web_listen_is_loopback(options_.listen)) {
@@ -1119,13 +465,8 @@ class WebServer {
       const auto mode = parse_pick_mode(query_value(req.query, "mode"));
       const auto sort = parse_browser_sort(query_value(req.query, "sort"));
       const auto filter = query_value(req.query, "filter");
-      std::error_code ec;
-      auto absolute = std::filesystem::absolute(std::filesystem::path(path), ec);
-      if (ec) throw KikoError("invalid path: " + path);
-      if (!std::filesystem::is_directory(absolute, ec) || ec) {
-        absolute = absolute.parent_path();
-      }
-      auto entries = list_web_directory(absolute, mode, sort, filter);
+      const auto absolute = normalize_browser_directory(std::filesystem::path(path));
+      auto entries = browse_directory(absolute, mode, sort, filter);
       send_json(socket, 200, "OK", directory_to_json(absolute, entries));
       return;
     }
@@ -1157,9 +498,13 @@ class WebServer {
       const auto body = parse_body_json(req);
       std::string error;
       bool ok = false;
-      if (req.path == "/api/send") ok = jobs_.start_send(body, error);
-      if (req.path == "/api/recv") ok = jobs_.start_recv(body, error);
-      if (req.path == "/api/doctor") ok = jobs_.start_doctor(body, error);
+      try {
+        if (req.path == "/api/send") ok = jobs_.start_send(parse_send_config(body, options_), error);
+        if (req.path == "/api/recv") ok = jobs_.start_recv(parse_recv_config(body, options_), error);
+        if (req.path == "/api/doctor") ok = jobs_.start_doctor(parse_doctor_options(body, options_), error);
+      } catch (const std::exception& e) {
+        error = e.what();
+      }
       if (!ok) {
         const int status = error.find("already running") != std::string::npos ? 409 : 400;
         send_json(socket, status, status == 409 ? "Conflict" : "Bad Request", error_json(error));
@@ -1174,11 +519,17 @@ class WebServer {
       const auto body = parse_body_json(req);
       std::string error;
       bool ok = false;
-      if (req.path == "/api/note/start") ok = jobs_.start_note(body, error);
-      if (req.path == "/api/note/update") ok = jobs_.update_note(body, error);
+      try {
+        if (req.path == "/api/note/start") ok = jobs_.start_note(parse_note_config(body, options_), error);
+        if (req.path == "/api/note/update") ok = jobs_.update_note(json_string(body, "text"), error);
+        if (req.path == "/api/note/pad/select") {
+          ok = jobs_.select_note_pad(json_string(body, "pad_id"), error);
+        }
+      } catch (const std::exception& e) {
+        error = e.what();
+      }
       if (req.path == "/api/note/clear") ok = jobs_.clear_note(error);
       if (req.path == "/api/note/pad/create") ok = jobs_.create_note_pad(error);
-      if (req.path == "/api/note/pad/select") ok = jobs_.select_note_pad(body, error);
       if (!ok) {
         const int status = error.find("already running") != std::string::npos ? 409 : 400;
         send_json(socket, status, status == 409 ? "Conflict" : "Bad Request", error_json(error));
@@ -1228,195 +579,6 @@ std::string generate_web_token() {
   Bytes bytes(24);
   for (auto& b : bytes) b = static_cast<std::uint8_t>(dist(rd));
   return hex_encode(bytes);
-}
-
-std::vector<WebDirectoryEntry> list_web_directory(const std::filesystem::path& dir, WebPickMode mode,
-                                                  WebBrowserSort sort, const std::string& filter) {
-  std::vector<WebDirectoryEntry> out;
-  std::error_code ec;
-  if (!std::filesystem::is_directory(dir, ec) || ec) throw KikoError("not a directory: " + dir.string());
-
-  auto add_modified = [](WebDirectoryEntry& entry) {
-    std::error_code time_ec;
-    entry.modified = std::filesystem::last_write_time(entry.path, time_ec);
-    entry.has_modified = !time_ec;
-  };
-
-  if (dir.has_parent_path()) {
-    WebDirectoryEntry parent;
-    parent.label = "../";
-    parent.path = dir.parent_path();
-    parent.is_dir = true;
-    parent.parent = true;
-    out.push_back(std::move(parent));
-  }
-
-  std::vector<WebDirectoryEntry> dirs;
-  std::vector<WebDirectoryEntry> files;
-  const auto lowered_filter = lower(filter);
-  for (const auto& item : std::filesystem::directory_iterator(dir, ec)) {
-    if (ec) break;
-    WebDirectoryEntry entry;
-    entry.path = item.path();
-    std::error_code type_ec;
-    entry.is_dir = item.is_directory(type_ec);
-    if (type_ec) continue;
-    const auto name = item.path().filename().string();
-    if (name.empty() || name == ".") continue;
-    const bool matches = lowered_filter.empty() || lower(name).find(lowered_filter) != std::string::npos;
-    if (!matches) continue;
-    entry.label = entry.is_dir ? name + "/" : name;
-    entry.selectable = entry.is_dir || mode == WebPickMode::FileOrDirectory;
-    add_modified(entry);
-    if (entry.is_dir) {
-      dirs.push_back(std::move(entry));
-    } else if (mode == WebPickMode::FileOrDirectory) {
-      files.push_back(std::move(entry));
-    }
-  }
-
-  auto by_name = [](const WebDirectoryEntry& a, const WebDirectoryEntry& b) { return a.label < b.label; };
-  auto by_modified = [&](const WebDirectoryEntry& a, const WebDirectoryEntry& b) {
-    if (a.has_modified != b.has_modified) return a.has_modified;
-    if (a.has_modified && b.has_modified && a.modified != b.modified) return a.modified > b.modified;
-    return by_name(a, b);
-  };
-  if (sort == WebBrowserSort::ModifiedDesc) {
-    std::sort(dirs.begin(), dirs.end(), by_modified);
-    std::sort(files.begin(), files.end(), by_modified);
-  } else {
-    std::sort(dirs.begin(), dirs.end(), by_name);
-    std::sort(files.begin(), files.end(), by_name);
-  }
-  if (mode == WebPickMode::FileOrDirectory) {
-    out.insert(out.end(), files.begin(), files.end());
-    out.insert(out.end(), dirs.begin(), dirs.end());
-  } else {
-    out.insert(out.end(), dirs.begin(), dirs.end());
-  }
-
-  WebDirectoryEntry here;
-  here.label = "[Select this folder]";
-  here.path = dir;
-  here.is_dir = true;
-  here.selectable = true;
-  here.select_here = true;
-  out.push_back(std::move(here));
-  return out;
-}
-
-WebReporter::WebReporter(WebJobStore& store) : store_(store) {}
-
-void WebReporter::status(const std::string& message) {
-  store_.append_log(message);
-  store_.update([&](WebJobSnapshot& state) { state.activity = message; });
-}
-
-void WebReporter::connectivity_report(const std::string& report) {
-  store_.append_log(report);
-  store_.update([](WebJobSnapshot& state) { state.activity = "connectivity report"; });
-}
-
-void WebReporter::route_phase(RoutePhase phase, const RoutePhaseDetail& detail) {
-  const auto label = route_phase_name(phase, detail);
-  store_.append_log("route phase: " + label + (detail.reason.empty() ? std::string{} : " (" + detail.reason + ")"));
-  store_.update([&](WebJobSnapshot& state) {
-    state.route_phase = label;
-    state.activity = detail.message.empty() ? label : detail.message;
-  });
-}
-
-void WebReporter::route_outcome(const RouteOutcome& outcome) {
-  const auto summary = route_outcome_text(outcome);
-  store_.append_log("route outcome: " + summary);
-  store_.update([&](WebJobSnapshot& state) {
-    state.route_summary = summary;
-    state.activity = outcome.data_path == "direct" ? "direct TCP selected" : "relay TCP selected";
-  });
-}
-
-void WebReporter::route_timing(const RouteTiming& timing) {
-  const auto text = route_timing_text(timing);
-  if (text.empty()) return;
-  store_.append_log("route timing: " + text);
-  store_.update([&](WebJobSnapshot& state) { state.route_timing = text; });
-}
-
-void WebReporter::handshake_ok() {
-  store_.append_log("handshake ok");
-  store_.update([](WebJobSnapshot& state) { state.activity = "encrypted channel ready"; });
-}
-
-void WebReporter::code_ready(const std::string& code, bool show_qrcode) {
-  (void)show_qrcode;
-  store_.update([&](WebJobSnapshot& state) { state.code = code; });
-}
-
-void WebReporter::transfer_overview(std::size_t file_count, std::uint64_t total_bytes) {
-  store_.update([&](WebJobSnapshot& state) {
-    state.files_total = file_count;
-    state.overall_total = total_bytes;
-    state.activity = "transferring";
-  });
-}
-
-void WebReporter::receive_plan(const ReceivePlanSummary& summary) {
-  store_.append_log(format_receive_plan_summary(summary));
-  store_.update([&](WebJobSnapshot& state) {
-    state.overall_total = summary.total_bytes;
-    state.activity = "receive plan ready";
-  });
-}
-
-void WebReporter::file_start(const std::string& path, std::uint64_t size) {
-  store_.update([&](WebJobSnapshot& state) {
-    state.current_file = path;
-    state.current_done = 0;
-    state.current_size = size;
-  });
-}
-
-void WebReporter::file_advance(std::uint64_t bytes_delta) {
-  store_.update([&](WebJobSnapshot& state) {
-    if (state.finished || state.failed || state.canceled) return;
-    state.current_done += bytes_delta;
-    state.overall_done += bytes_delta;
-  });
-}
-
-void WebReporter::file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) {
-  store_.append_log("resume: " + path + " from " + std::to_string(offset) + "/" + std::to_string(size));
-}
-
-void WebReporter::file_complete(const std::string& path, std::uint64_t size, bool verified) {
-  (void)path;
-  (void)size;
-  (void)verified;
-  store_.update([](WebJobSnapshot& state) { ++state.files_done; });
-}
-
-void WebReporter::transfer_complete(std::size_t file_count, std::uint64_t total_bytes) {
-  store_.update([&](WebJobSnapshot& state) {
-    state.files_total = file_count;
-    state.files_done = file_count;
-    state.overall_done = total_bytes;
-    if (state.overall_total == 0) state.overall_total = total_bytes;
-    state.finished = true;
-    state.activity = "transfer complete";
-    state.ended = std::chrono::steady_clock::now();
-  });
-}
-
-void WebReporter::transfer_retry(int next_attempt, int max_attempts, const std::string& reason) {
-  store_.append_log("retry " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts) + ": " + reason);
-  store_.update([&](WebJobSnapshot& state) {
-    state.activity = "reconnecting " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts);
-  });
-}
-
-void WebReporter::transfer_retry_delay(int next_attempt, int max_attempts, std::chrono::milliseconds delay) {
-  store_.append_log("reconnect in " + std::to_string(delay.count()) + "ms before attempt " +
-                    std::to_string(next_attempt) + "/" + std::to_string(max_attempts));
 }
 
 int run_web_console(const WebOptions& options) {

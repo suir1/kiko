@@ -31,7 +31,7 @@ int main() {
   const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
 
   std::lock_guard<std::mutex> lock(state.mutex);
-  if (!state.failed || !state.finished || state.error_message.find("not a file or directory") == std::string::npos) {
+  if (!state.failed || !state.finished || state.error.find("not a file or directory") == std::string::npos) {
     std::cerr << "FAIL: missing send path should fail the TUI transfer worker\n";
     return 1;
   }

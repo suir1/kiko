@@ -117,20 +117,9 @@ TuiPreparedNote prepare_tui_note(TuiMenuState& state) {
   prepared.config.code = code;
   prepared.config.relay = relay_ep;
   prepared.config.relay_pass = resolve_relay_pass(state.relay_pass);
-  prepared.config.no_direct = state.network.no_direct;
-  prepared.config.lan_discover = state.network.lan_discover;
-  prepared.config.disable_local = state.network.disable_local;
-  prepared.config.only_local = state.network.only_local;
-  prepared.config.udp_probe = state.network.udp_probe;
+  apply_network_options_to_peer(prepared.config, state.network);
   prepared.config.show_qrcode = false;
-  prepared.config.manual_ip =
-      state.network.manual_ip.empty() ? std::nullopt : std::optional<std::string>(state.network.manual_ip);
-  prepared.config.bind_interface = state.network.bind_interface;
-  prepared.config.avoid_vpn = state.network.avoid_vpn;
   prepared.config.app = "note";
-  if (!state.network.proxy_url.empty()) {
-    prepared.config.proxy = parse_proxy_url(state.network.proxy_url);
-  }
   return prepared;
 }
 

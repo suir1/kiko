@@ -1,21 +1,16 @@
 #pragma once
 
-#include "core/common.hpp"
+#include "connect/peer_options.hpp"
 #include "core/crypto.hpp"
 #include "core/progress.hpp"
-#include "core/proxy.hpp"
 #include "core/socket.hpp"
 
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
-#include <memory>
-#include <optional>
 #include <vector>
 
 namespace kiko {
-
-class TransferCancellation;
 
 enum class SymlinkMode {
   Follow,
@@ -28,34 +23,20 @@ enum class ConflictPolicy {
   Rename,
 };
 
-struct SendConfig {
+struct SendConfig : PeerConnectionOptions {
   std::filesystem::path file;
-  Endpoint relay;
   std::string code;
-  Endpoint listen{"::", 0};
-  bool no_direct = false;
   bool use_gitignore = true;
-  bool lan_discover = true;
   bool show_qrcode = true;
-  bool disable_local = false;
-  bool only_local = false;
-  bool udp_probe = false;
   bool ai_route = false;
   bool ai_route_plan_only = false;
   bool ai_route_connectivity_only = false;
-  std::optional<std::string> manual_ip;
-  std::optional<ProxyConfig> proxy;
-  std::optional<std::string> relay_pass;
-  std::string bind_interface;
-  bool avoid_vpn = false;
   bool auto_connections = false;
   bool auto_reconnect = true;
   int reconnect_attempts = 3;
   std::chrono::milliseconds reconnect_delay{1000};
-  std::chrono::milliseconds pair_timeout{kDefaultPairTimeout};
   SymlinkMode symlink_mode = SymlinkMode::Follow;
   bool debug_route = false;
-  std::shared_ptr<TransferCancellation> cancellation;
   // Number of parallel TCP connections to use on the relay path (1 = single
   // stream). The sender controls this; the receiver mirrors it.
   int connections = 4;
@@ -98,30 +79,16 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
 void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, const std::filesystem::path& output_dir,
                        ProgressReporter& reporter, ConflictPolicy conflict_policy = ConflictPolicy::Overwrite);
 
-struct RecvConfig {
+struct RecvConfig : PeerConnectionOptions {
   std::string code;
-  Endpoint relay;
   std::filesystem::path output_dir{"."};
-  Endpoint listen{"::", 0};
-  bool no_direct = false;
-  bool lan_discover = true;
-  bool disable_local = false;
-  bool only_local = false;
-  bool udp_probe = false;
   bool ai_route = false;
   bool ai_route_plan_only = false;
-  std::optional<std::string> manual_ip;
-  std::optional<ProxyConfig> proxy;
-  std::optional<std::string> relay_pass;
-  std::string bind_interface;
-  bool avoid_vpn = false;
   bool auto_reconnect = true;
   int reconnect_attempts = 3;
   std::chrono::milliseconds reconnect_delay{1000};
-  std::chrono::milliseconds pair_timeout{kDefaultPairTimeout};
   ConflictPolicy conflict_policy = ConflictPolicy::Overwrite;
   bool debug_route = false;
-  std::shared_ptr<TransferCancellation> cancellation;
 };
 
 int run_send(const SendConfig& config, ProgressReporter& reporter);

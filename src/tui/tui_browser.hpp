@@ -1,5 +1,7 @@
 #pragma once
 
+#include "platform/path_browser.hpp"
+
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -7,8 +9,8 @@
 
 namespace kiko {
 
-enum class TuiPickMode { FileOrDirectory, DirectoryOnly };
-enum class TuiBrowserSort { Name, ModifiedDesc };
+using TuiPickMode = PathPickMode;
+using TuiBrowserSort = PathBrowserSort;
 
 namespace detail {
 

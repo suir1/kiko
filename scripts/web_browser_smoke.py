@@ -91,9 +91,11 @@ def main() -> None:
                 page.wait_for_selector("text=Enter the pairing code shown on the other device.", timeout=3000)
 
                 page.click("#tab-note")
-                page.select_option("#note-role", "join")
-                page.click("#note-start")
-                page.wait_for_selector("text=Choose Join only after entering the host notepad code.", timeout=3000)
+                assert_visible(page, "#note-start", "notepad start button should be visible")
+                assert_visible(page, "#note-custom-host", "custom-code host option should be visible")
+                page.fill("#note-code", "sample-code")
+                if page.locator("#note-custom-host").is_checked():
+                    fail("custom-code host should be disabled by default")
 
                 page.click("#tab-send")
                 page.click("#panel-send button:has-text('Browse')")

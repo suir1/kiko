@@ -25,29 +25,20 @@ RecvConfig make_recv_config(const TuiTransferSpec& spec, std::shared_ptr<Transfe
   config.output_dir = spec.output_dir;
   config.relay_pass = spec.relay_pass;
   config.cancellation = std::move(cancellation);
-  apply_network_options_to_recv(config, spec.network);
+  apply_network_options_to_peer(config, spec.network);
   return config;
 }
 
 void mark_transfer_failed(TuiState& state, const std::exception& error) {
   std::lock_guard<std::mutex> lock(state.mutex);
-  state.failed = true;
-  state.finished = true;
-  state.error_message = error.what();
-  state.activity = "error";
+  state.finish_failed(error.what());
   state.doctor_running = false;
-  state.end = std::chrono::steady_clock::now();
 }
 
 void mark_transfer_canceled(TuiState& state) {
   std::lock_guard<std::mutex> lock(state.mutex);
-  state.canceled = true;
-  state.finished = true;
-  state.failed = false;
-  state.error_message.clear();
-  state.activity = "canceled";
+  state.finish_canceled();
   state.doctor_running = false;
-  state.end = std::chrono::steady_clock::now();
 }
 
 }  // namespace

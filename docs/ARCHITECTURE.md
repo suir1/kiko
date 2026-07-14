@@ -8,19 +8,18 @@ boundaries instead of reintroducing cross-layer feature files.
 ## Current modules
 
 - `app`: CLI entry points for `kiko` and `kiko-relayd`.
-- `core`: protocol framing, sockets, crypto, compression, PAKE, QR output, progress reporting.
-- `connect`: peer/session setup, relay/direct route selection, LAN discovery, LAN upgrade, UDP punch,
-  profile memory, STUN/NAT route planning, and encrypted session helpers.
+- `core`: protocol framing, sockets, crypto, compression, PAKE, QR output, progress events, and shared progress state.
+- `connect`: shared peer connection options, peer/session setup, relay/direct route selection, LAN discovery,
+  LAN upgrade, UDP punch, profile memory, STUN/NAT route planning, and encrypted session helpers.
 - `relay`: rendezvous relay server, relay control path, relay room state, and relay route state.
 - `transfer`: send/recv orchestration, transfer streams, mux transfer, resume, receive planning,
   metadata, symlink handling, and transfer heuristics.
-- `note`: temporary shared plaintext notepad protocol and CLI fallback loop.
-- `tui`: FTXUI menu/progress screens, path browser, transfer actions, doctor modal, and notepad UI.
+- `note`: shared notepad protocol, encrypted peer session, thread-safe workspace state, and CLI adapter.
+- `tui`: FTXUI menu/progress screens, path browser UI, transfer actions, doctor modal, and notepad UI.
 - `web`: loopback-only Web console, embedded assets, local filesystem browser API, Web reporter,
-  and Web notepad endpoints.
-- `platform`: runtime user config and platform shims.
+  HTTP adapters, and single-task job orchestration for transfer, doctor, and notepad.
+- `platform`: runtime user config, shared filesystem browser model, and platform shims.
 - `diagnostics`: doctor, network probes, outbound relay path probing, and BYOK AI route advice.
-- `ai`: BYOK route advice and doctor explanations.
 - `release`: GitHub Actions release packaging and installer smoke tests.
 
 Tests still live in a mostly flat `tests/` directory, with script-based smoke tests under `scripts/`.
@@ -28,21 +27,24 @@ That is acceptable for now; production code should remain in the layer directory
 
 ## Friction points
 
-### Transfer file size
+### Web modules
 
-`src/transfer/transfer_stream.cpp` remains the largest transfer file. It now delegates receive-plan
-preflight to `src/transfer/receive_plan.*`, manifest JSON encode/decode to
-`src/transfer/transfer_manifest.*`, resume negotiation / `.kikopart` helpers to
-`src/transfer/transfer_resume.*`, and receive path/finalize helpers to
-`src/transfer/transfer_receive_paths.*`,
-but still carries several responsibilities:
+Web responsibilities now have three modules:
 
-- tagged transfer frame helpers
-- single-stream send/receive loops
+- `src/web/web.cpp`: loopback HTTP parsing, token checks, JSON/config mapping, and API responses.
+- `src/web/web_job.*`: task admission, cancellation, snapshots, reporter events, and worker ownership.
+- `src/web/web_assets.*`: embedded HTML/CSS/JavaScript.
 
-This is now the most important architecture cleanup target. New transfer behavior should avoid adding
-more logic directly to `src/transfer/transfer_stream.cpp`; keep new receive-side filesystem behavior in
-`src/transfer/transfer_receive_paths.*` or `src/transfer/receive_plan.*` instead.
+Notepad transport/workspace state lives in `src/note/*`, and filesystem listing/filtering/sorting lives
+in `src/platform/path_browser.*`. This split is deep enough for the current local console. Avoid
+splitting HTTP helpers into pass-through modules unless another HTTP server surface needs them.
+
+### Transfer coordinator size
+
+`src/transfer/transfer_stream.cpp` delegates receive-plan preflight to `src/transfer/receive_plan.*`,
+manifest JSON encode/decode to `src/transfer/transfer_manifest.*`, resume negotiation / `.kikopart`
+helpers to `src/transfer/transfer_resume.*`, and receive path/finalize helpers to
+`src/transfer/transfer_receive_paths.*`. It should remain the single-stream send/receive coordinator.
 
 ### Flat source tree
 
@@ -52,13 +54,13 @@ The current source directories are the intended layering target:
 src/
   app/          main.cpp, relayd_main.cpp
   core/         common, io, socket, crypto, pake, protocol, cancellation
-  connect/      connectivity, route_session, route_planner, direct_session, udp_punch, peer_session
+  connect/      peer_options, connectivity, route_session, route_planner, direct_session, udp_punch, peer_session
   relay/        relay_server, relay_session, relay_room_state, relay_route_state
   transfer/     transfer, transfer_stream, mux, receive_plan, manifest, resume
-  note/         notepad protocol and CLI loop
+  note/         notepad protocol, session, workspace, and CLI adapter
   tui/          TUI menu, transfer, browser, doctor, notepad
-  web/          loopback HTTP server and embedded browser UI
-  platform/     user_config and platform shims
+  web/          loopback HTTP adapter, job orchestration, and embedded browser UI
+  platform/     path_browser, user_config, and platform shims
   diagnostics/  doctor, AI advisor, network_probe, outbound_policy
 ```
 
@@ -108,13 +110,37 @@ The target size for `src/tui/tui.cpp` after this split is roughly 150-250 lines.
 Notepad intentionally avoids system clipboard integration. Keep clipboard backends out of the tree
 unless that feature is deliberately restarted with a separate design.
 
-- `src/note/*` owns the encrypted note data protocol and non-TTY CLI fallback.
+- `src/note/note_protocol.*` owns encrypted frame encoding, validation, and last-write-wins document updates.
+- `src/note/note_session.*` owns peer setup, hello exchange, send queue, receive loop, ACKs, and cancellation.
+- `src/note/note_workspace.*` owns pads, active selection, revisions, and per-pad sync state.
+- `src/note/notepad.*` owns the non-TTY CLI interaction only.
 - `src/tui/tui_note.*` owns terminal editing behavior, debounce, cancel, and TUI status.
-- `src/web/*` owns browser controls, token-gated local APIs, Web notepad state, and path browsing.
+- `src/web/*` owns browser controls, token-gated local APIs, and mapping workspace snapshots to JSON.
+- `src/web/web_job.*` owns Web task lifecycle and maps shared Notepad state into job snapshots.
 - `src/connect/peer_session.*` is the reusable encrypted peer-session helper for non-file features.
 
 Do not add note-specific route selection or relay logic to `src/note/*`; route setup belongs in
-`src/connect/*`, and note should only consume an encrypted `PeerSession`.
+`src/connect/*`. `NoteSession` configures and consumes `PeerSession` without reimplementing route
+selection.
+
+`src/connect/peer_options.hpp` owns connection fields shared by Send, Recv, and Notepad. CLI, TUI,
+and Web adapters should map their raw inputs into `PeerConnectionOptions` once, then apply only
+feature-specific fields. Keep Doctor independent because its probe-only options do not have peer
+listener, LAN discovery, pairing timeout, or session cancellation semantics.
+
+`src/core/progress_state.*` owns the transfer progress snapshot, bounded event log, terminal and
+retry transitions, and human-readable route phase/outcome/timing text shared by TUI and Web.
+Frontends retain only their synchronization, rendering, QR, JSON, Doctor, and Notepad state.
+
+## Shared path browser boundaries
+
+- `src/platform/path_browser.*` owns directory normalization, listing, file/directory selection modes,
+  case-insensitive filtering, name/modified-time sorting, and special parent/select-folder entries.
+- `src/tui/tui_browser.*` owns FTXUI navigation, cached filtering, selection, and cancel behavior.
+- `src/web/*` owns query parsing and JSON serialization for `/api/fs`.
+
+Keep filesystem ordering and filtering changes in `path_browser.*` so Send and Recv behave the same in
+TUI and Web.
 
 ## Testing expectations
 

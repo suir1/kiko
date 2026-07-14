@@ -163,48 +163,6 @@ std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, c
   return socket;
 }
 
-std::optional<RelayPeerResult> wait_for_peer_messages(std::vector<TcpSocket>& relays,
-                                                      const std::vector<Endpoint>& relay_endpoints,
-                                                      std::chrono::milliseconds timeout,
-                                                      const std::atomic_bool* cancel) {
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while ((!cancel || !cancel->load()) && std::chrono::steady_clock::now() < deadline) {
-    const auto now = std::chrono::steady_clock::now();
-    for (std::size_t i = 0; i < relays.size(); ++i) {
-      if (!relays[i].valid()) continue;
-      const int fd = relays[i].fd();
-      if (fd < 0) continue;
-      auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-      if (remaining.count() <= 0) break;
-      const int poll_ms = static_cast<int>(std::min<std::int64_t>(remaining.count(), 50));
-      if (net_poll(fd, /*want_read=*/true, /*want_write=*/false, poll_ms) <= 0) continue;
-      const auto read_timeout = std::min<std::chrono::milliseconds>(remaining, kControlFrameReadTimeout);
-      std::optional<Message> msg;
-      try {
-        msg = recv_message_timeout(relays[i], read_timeout, cancel);
-      } catch (const KikoError&) {
-        relays[i].close();
-        continue;
-      }
-      if (msg) {
-        if (msg->type == "error") {
-          relays[i].close();
-          continue;
-        }
-        if (msg->type != "peer") continue;
-        RelayPeerResult result{std::move(relays[i]), std::move(*msg), relay_endpoints[i]};
-        for (std::size_t j = 0; j < relays.size(); ++j) {
-          if (j != i) relays[j].close();
-        }
-        relays.clear();
-        return result;
-      }
-      relays[i].close();
-    }
-  }
-  return std::nullopt;
-}
-
 std::optional<RelayPeerResult> wait_for_peer_candidates(std::vector<ActiveRelayCandidate>& relays,
                                                         std::chrono::milliseconds timeout,
                                                         const std::atomic_bool* cancel) {

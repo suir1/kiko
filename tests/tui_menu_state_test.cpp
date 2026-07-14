@@ -199,8 +199,8 @@ int main() {
     bool woke = false;
     TuiReporter reporter(transfer_state, [&] { woke = true; });
     reporter.route_phase(RoutePhase::DirectProbing, RoutePhaseDetail{"trying direct", "default", true});
-    if (!woke || transfer_state.route_phase_label != "direct connect (relay ready)" ||
-        transfer_state.activity != "trying direct" || !contains(transfer_state.connectivity_log, "relay-ready")) {
+    if (!woke || transfer_state.route_phase != "direct connect (relay ready)" ||
+        transfer_state.activity != "trying direct" || !contains(transfer_state.joined_logs(), "relay-ready")) {
       std::cerr << "FAIL: TUI reporter did not expose structured route phase\n";
       fs::remove(send_path);
       return 1;
@@ -217,8 +217,8 @@ int main() {
     timing.relay_commit_ms = 56;
     reporter.route_timing(timing);
     if (!woke ||
-        transfer_state.route_timing_summary != "rendezvous=12ms direct_probe=34ms relay_commit=56ms" ||
-        !contains(transfer_state.connectivity_log, "route timing: rendezvous=12ms direct_probe=34ms")) {
+        transfer_state.route_timing != "rendezvous=12ms direct_probe=34ms relay_commit=56ms" ||
+        !contains(transfer_state.joined_logs(), "route timing: rendezvous=12ms direct_probe=34ms")) {
       std::cerr << "FAIL: TUI reporter did not expose route timing\n";
       fs::remove(send_path);
       return 1;
@@ -239,10 +239,10 @@ int main() {
     reporter.transfer_retry_delay(2, 3, std::chrono::milliseconds(250));
     if (!woke || transfer_state.current_done != 0 || transfer_state.overall_done != 0 ||
         transfer_state.files_done != 0 || transfer_state.handshake ||
-        transfer_state.route_phase_label != "reconnecting" ||
+        transfer_state.route_phase != "reconnecting" ||
         transfer_state.activity != "waiting to reconnect 2/3" ||
-        !contains(transfer_state.connectivity_log, "connection lost, retrying 2/3") ||
-        !contains(transfer_state.connectivity_log, "reconnect in 250ms before attempt 2/3")) {
+        !contains(transfer_state.joined_logs(), "connection lost, retrying 2/3") ||
+        !contains(transfer_state.joined_logs(), "reconnect in 250ms before attempt 2/3")) {
       std::cerr << "FAIL: TUI reporter did not reset progress for auto reconnect\n";
       fs::remove(send_path);
       return 1;
@@ -256,7 +256,7 @@ int main() {
     reporter.file_start("partial.bin", 200);
     reporter.file_resume("partial.bin", 100, 200);
     if (!woke || transfer_state.activity != "resuming partial.bin" ||
-        !contains(transfer_state.connectivity_log, "resume: partial.bin from 100/200 bytes")) {
+        !contains(transfer_state.joined_logs(), "resume: partial.bin from 100/200 bytes")) {
       std::cerr << "FAIL: TUI reporter did not expose resume progress\n";
       fs::remove(send_path);
       return 1;
@@ -279,7 +279,7 @@ int main() {
     reporter.receive_plan(summary);
     const auto rendered = render_transfer_text(transfer_state);
     if (!woke || !transfer_state.has_receive_plan ||
-        !contains(transfer_state.connectivity_log, "receive plan: 4 item(s), 4096 bytes") ||
+        !contains(transfer_state.joined_logs(), "receive plan: 4 item(s), 4096 bytes") ||
         !contains(rendered, "receive plan") || !contains(rendered, "resume:") ||
         !contains(rendered, "skip:") || !contains(rendered, "rename:") ||
         !contains(rendered, "overwrite:")) {
@@ -311,7 +311,7 @@ int main() {
   {
     TuiState transfer_state;
     transfer_state.title = "kiko receive";
-    transfer_state.start = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+    transfer_state.started = std::chrono::steady_clock::now() - std::chrono::seconds(1);
     TuiReporter reporter(transfer_state, [] {});
     constexpr std::uint64_t total = 1024 * 1024;
     reporter.transfer_overview(1, total);

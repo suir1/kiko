@@ -47,18 +47,11 @@ int run_transfer_screen(
       run(reporter, cancellation);
     } catch (const std::exception& e) {
       std::lock_guard<std::mutex> lock(state.mutex);
-      state.finished = true;
       if (cancellation->requested()) {
-        state.canceled = true;
-        state.failed = false;
-        state.error_message.clear();
-        state.activity = "canceled";
+        state.finish_canceled();
       } else {
-        state.failed = true;
-        state.error_message = e.what();
-        state.activity = "error";
+        state.finish_failed(e.what());
       }
-      state.end = std::chrono::steady_clock::now();
     }
     screen.PostEvent(Event::Custom);
   });
@@ -92,7 +85,7 @@ int run_transfer_screen(
 
   std::lock_guard<std::mutex> lock(state.mutex);
   if (state.failed) {
-    std::cerr << "error: " << state.error_message << "\n";
+    std::cerr << "error: " << state.error << "\n";
     return 1;
   }
   if (state.canceled) return 130;
@@ -345,7 +338,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<NoteConfig>
 
   std::lock_guard<std::mutex> lock(transfer_state.mutex);
   if (transfer_state.failed) {
-    std::cerr << "error: " << transfer_state.error_message << "\n";
+    std::cerr << "error: " << transfer_state.error << "\n";
     return 1;
   }
   return 0;

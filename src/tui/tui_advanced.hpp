@@ -32,8 +32,8 @@ void apply_network_preset(int preset, TuiNetworkOptions& options);
 void load_network_options(const UserConfig& config, TuiNetworkOptions& options);
 void save_network_options(UserConfig& config, const TuiNetworkOptions& options);
 
+void apply_network_options_to_peer(PeerConnectionOptions& config, const TuiNetworkOptions& options);
 void apply_network_options_to_send(SendConfig& config, const TuiNetworkOptions& options);
-void apply_network_options_to_recv(RecvConfig& config, const TuiNetworkOptions& options);
 
 [[nodiscard]] std::optional<std::string> validate_network_options(const TuiNetworkOptions& options, int mode);
 

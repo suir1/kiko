@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/progress.hpp"
+#include "core/progress_state.hpp"
 
 #include <ftxui/dom/elements.hpp>
 
@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -16,37 +15,17 @@ namespace kiko {
 
 struct FailureRecoveryHint;
 
-struct TuiState {
+struct TuiState : TransferProgressState {
+  TuiState() : TransferProgressState(8) {}
+
   std::mutex mutex;
   std::string title;
-  std::string code;
   std::string qrcode;
-  std::string connectivity_log;
   std::string outbound_summary;
   std::string outbound_probe_summary;
   std::string route_plan_summary;
-  std::string transfer_path_summary;
-  std::string route_timing_summary;
-  std::string route_phase_label;
-  std::string activity = "starting...";
-  std::string current_file;
-  std::uint64_t current_done = 0;
-  std::uint64_t current_size = 0;
-  std::uint64_t overall_done = 0;
-  std::uint64_t overall_total = 0;
-  std::size_t files_total = 0;
-  std::size_t files_done = 0;
-  ReceivePlanSummary receive_plan;
-  bool has_receive_plan = false;
-  bool handshake = false;
-  bool finished = false;
-  bool failed = false;
-  bool canceled = false;
-  std::string error_message;
   std::string doctor_summary;
   bool doctor_running = false;
-  std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-  std::optional<std::chrono::steady_clock::time_point> end;
 };
 
 class TuiReporter : public ProgressReporter {

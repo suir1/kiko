@@ -73,6 +73,10 @@ struct ReceivePlanSummary {
 };
 
 [[nodiscard]] std::string format_receive_plan_summary(const ReceivePlanSummary& summary);
+[[nodiscard]] std::string format_transfer_retry_summary(int next_attempt, int max_attempts,
+                                                        const std::string& reason);
+[[nodiscard]] std::string format_transfer_retry_delay_summary(int next_attempt, int max_attempts,
+                                                              std::chrono::milliseconds delay);
 
 // Decouples the transfer core from any particular front-end. The CLI prints
 // lines; the TUI updates widgets. The transfer logic only emits these events.
@@ -157,16 +161,14 @@ class ProgressReporter {
   // The current connection failed but the transfer will reconnect and rely on
   // the normal resume protocol to continue any partial files.
   virtual void transfer_retry(int next_attempt, int max_attempts, const std::string& reason) {
-    status("connection lost, retrying " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts) +
-           "; resume will continue verified partial files; reason: " + reason);
+    status(format_transfer_retry_summary(next_attempt, max_attempts, reason));
   }
 
   // The retry loop is waiting before it starts the next connection attempt.
   // This keeps front-ends from looking stuck during the backoff window.
   virtual void transfer_retry_delay(int next_attempt, int max_attempts, std::chrono::milliseconds delay) {
     if (delay.count() <= 0) return;
-    status("reconnect in " + std::to_string(delay.count()) + "ms before attempt " +
-           std::to_string(next_attempt) + "/" + std::to_string(max_attempts));
+    status(format_transfer_retry_delay_summary(next_attempt, max_attempts, delay));
   }
 };
 

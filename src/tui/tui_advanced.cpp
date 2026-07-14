@@ -79,15 +79,12 @@ void save_network_options(UserConfig& config, const TuiNetworkOptions& options) 
   config.proxy_url = options.proxy_url;
 }
 
-void apply_network_options_to_send(SendConfig& config, const TuiNetworkOptions& options) {
+void apply_network_options_to_peer(PeerConnectionOptions& config, const TuiNetworkOptions& options) {
   config.lan_discover = options.lan_discover;
   config.only_local = options.only_local;
   config.disable_local = options.disable_local;
   config.no_direct = options.no_direct;
   config.udp_probe = options.udp_probe;
-  config.auto_connections = options.auto_connections;
-  config.connections = options.connections;
-  config.use_gitignore = options.use_gitignore;
   config.avoid_vpn = options.avoid_vpn;
   config.bind_interface = options.bind_interface;
   config.manual_ip = options.manual_ip.empty() ? std::nullopt : std::optional<std::string>(options.manual_ip);
@@ -95,17 +92,11 @@ void apply_network_options_to_send(SendConfig& config, const TuiNetworkOptions& 
   if (!options.proxy_url.empty()) config.proxy = parse_proxy_url(options.proxy_url);
 }
 
-void apply_network_options_to_recv(RecvConfig& config, const TuiNetworkOptions& options) {
-  config.lan_discover = options.lan_discover;
-  config.only_local = options.only_local;
-  config.disable_local = options.disable_local;
-  config.no_direct = options.no_direct;
-  config.udp_probe = options.udp_probe;
-  config.avoid_vpn = options.avoid_vpn;
-  config.bind_interface = options.bind_interface;
-  config.manual_ip = options.manual_ip.empty() ? std::nullopt : std::optional<std::string>(options.manual_ip);
-  config.proxy = std::nullopt;
-  if (!options.proxy_url.empty()) config.proxy = parse_proxy_url(options.proxy_url);
+void apply_network_options_to_send(SendConfig& config, const TuiNetworkOptions& options) {
+  apply_network_options_to_peer(config, options);
+  config.auto_connections = options.auto_connections;
+  config.connections = options.connections;
+  config.use_gitignore = options.use_gitignore;
 }
 
 std::optional<std::string> validate_network_options(const TuiNetworkOptions& options, int mode) {

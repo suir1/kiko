@@ -114,6 +114,17 @@ std::string format_receive_plan_summary(const ReceivePlanSummary& summary) {
   return line;
 }
 
+std::string format_transfer_retry_summary(int next_attempt, int max_attempts, const std::string& reason) {
+  return "connection lost, retrying " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts) +
+         "; resume will continue verified partial files; reason: " + reason;
+}
+
+std::string format_transfer_retry_delay_summary(int next_attempt, int max_attempts,
+                                                std::chrono::milliseconds delay) {
+  return "reconnect in " + std::to_string(delay.count()) + "ms before attempt " +
+         std::to_string(next_attempt) + "/" + std::to_string(max_attempts);
+}
+
 void CliReporter::status(const std::string& message) { std::cout << message << "\n"; }
 
 void CliReporter::connectivity_report(const std::string& report) {

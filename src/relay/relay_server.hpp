@@ -39,9 +39,6 @@ class BackgroundRelay {
   Endpoint bound_;
 };
 
-void ensure_io_thread();
-void release_io_thread();
-
 [[nodiscard]] bool relay_password_ok(const RelayServerConfig& config, const Message& hello);
 
 }  // namespace kiko

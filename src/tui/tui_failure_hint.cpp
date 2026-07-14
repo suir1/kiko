@@ -38,13 +38,13 @@ void append_flag(std::ostringstream& oss, const char* flag, bool enabled) {
 }  // namespace
 
 FailureRecoveryHint suggest_failure_recovery(const TuiState& state, const TuiMenuState& menu) {
-  std::string context = state.error_message;
+  std::string context = state.error;
   context.push_back('\n');
   context += state.doctor_summary;
   context.push_back('\n');
-  context += state.transfer_path_summary;
+  context += state.route_summary;
   context.push_back('\n');
-  context += state.connectivity_log;
+  context += state.joined_logs();
   context.push_back('\n');
   context += state.route_plan_summary;
 

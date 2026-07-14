@@ -1,11 +1,12 @@
 #include "tui_browser.hpp"
 
+#include "core/common.hpp"
+
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 
 #include <algorithm>
-#include <cctype>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -13,126 +14,13 @@
 namespace kiko {
 namespace {
 
-struct BrowserEntry {
-  std::filesystem::path path;
-  bool is_dir = false;
-  std::string label;
-  std::filesystem::file_time_type modified;
-  bool has_modified = false;
-};
-
-constexpr const char* kParentLabel = "../";
-constexpr const char* kSelectHereLabel = "[Select this folder]";
-
-std::filesystem::path normalize_dir(const std::filesystem::path& path) {
-  std::error_code ec;
-  auto abs = std::filesystem::absolute(path, ec);
-  if (ec) return path;
-  if (std::filesystem::is_directory(abs, ec) && !ec) return abs;
-  return abs.parent_path();
-}
-
-std::string to_lower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  return value;
-}
-
-bool is_special_entry(const std::string& label) { return label == kParentLabel || label == kSelectHereLabel; }
-
-std::string entry_match_name(const std::string& label) {
-  if (label.size() > 1 && label.back() == '/') return label.substr(0, label.size() - 1);
-  return label;
-}
-
-bool matches_filter_ci(const std::string& label, const std::string& filter) {
-  if (filter.empty()) return true;
-  return to_lower(entry_match_name(label)).find(to_lower(filter)) != std::string::npos;
-}
-
-void load_modified_time(BrowserEntry& entry) {
-  std::error_code ec;
-  entry.modified = std::filesystem::last_write_time(entry.path, ec);
-  entry.has_modified = !ec;
-}
-
-void sort_entries(std::vector<BrowserEntry>& entries, TuiBrowserSort sort) {
-  auto by_name = [](const BrowserEntry& a, const BrowserEntry& b) { return a.label < b.label; };
-  if (sort == TuiBrowserSort::Name) {
-    std::sort(entries.begin(), entries.end(), by_name);
-    return;
+std::vector<PathBrowserEntry> list_entries(const std::filesystem::path& dir, TuiPickMode mode,
+                                           TuiBrowserSort sort) {
+  try {
+    return list_browser_directory(dir, mode, sort);
+  } catch (const KikoError&) {
+    return {};
   }
-
-  std::sort(entries.begin(), entries.end(), [&](const BrowserEntry& a, const BrowserEntry& b) {
-    if (a.has_modified != b.has_modified) return a.has_modified;
-    if (a.has_modified && b.has_modified && a.modified != b.modified) return a.modified > b.modified;
-    return by_name(a, b);
-  });
-}
-
-std::vector<BrowserEntry> list_entries(const std::filesystem::path& dir, TuiPickMode mode, TuiBrowserSort sort) {
-  std::vector<BrowserEntry> out;
-  std::error_code ec;
-  if (!std::filesystem::is_directory(dir, ec) || ec) return out;
-
-  if (dir.has_parent_path()) {
-    BrowserEntry parent;
-    parent.path = dir.parent_path();
-    parent.is_dir = true;
-    parent.label = kParentLabel;
-    out.push_back(std::move(parent));
-  }
-
-  std::vector<BrowserEntry> dirs;
-  std::vector<BrowserEntry> files;
-  for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-    if (ec) break;
-    BrowserEntry item;
-    item.path = entry.path();
-    std::error_code type_ec;
-    item.is_dir = entry.is_directory(type_ec);
-    if (type_ec) continue;
-    load_modified_time(item);
-    const auto name = entry.path().filename().string();
-    if (name.empty() || name == ".") continue;
-    if (item.is_dir) {
-      item.label = name + "/";
-      dirs.push_back(std::move(item));
-    } else if (mode == TuiPickMode::FileOrDirectory) {
-      item.label = name;
-      files.push_back(std::move(item));
-    }
-  }
-
-  sort_entries(dirs, sort);
-  sort_entries(files, sort);
-  if (mode == TuiPickMode::FileOrDirectory) {
-    out.insert(out.end(), files.begin(), files.end());
-    out.insert(out.end(), dirs.begin(), dirs.end());
-  } else {
-    out.insert(out.end(), dirs.begin(), dirs.end());
-  }
-
-  BrowserEntry pick_here;
-  pick_here.path = dir;
-  pick_here.is_dir = true;
-  pick_here.label = kSelectHereLabel;
-  out.push_back(std::move(pick_here));
-
-  return out;
-}
-
-std::vector<BrowserEntry> apply_filter(const std::vector<BrowserEntry>& all, const std::string& filter) {
-  if (filter.empty()) return all;
-
-  std::vector<BrowserEntry> out;
-  out.reserve(all.size());
-  for (const auto& entry : all) {
-    if (is_special_entry(entry.label) || matches_filter_ci(entry.label, filter)) {
-      out.push_back(entry);
-    }
-  }
-  return out;
 }
 
 }  // namespace
@@ -157,10 +45,10 @@ std::vector<std::string> list_tui_path_picker_labels(const std::filesystem::path
 std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::path& start, TuiPickMode mode) {
   using namespace ftxui;
 
-  std::filesystem::path current = normalize_dir(start);
+  std::filesystem::path current = normalize_browser_directory(start);
   TuiBrowserSort sort_mode = TuiBrowserSort::Name;
-  std::vector<BrowserEntry> all_entries = list_entries(current, mode, sort_mode);
-  std::vector<BrowserEntry> entries;
+  std::vector<PathBrowserEntry> all_entries = list_entries(current, mode, sort_mode);
+  std::vector<PathBrowserEntry> entries;
   std::vector<std::string> labels;
   std::string filter;
   std::string synced_filter;
@@ -175,7 +63,7 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
 
     synced_filter = filter;
     synced_dir = current;
-    entries = apply_filter(all_entries, filter);
+    entries = filter_browser_entries(all_entries, filter);
     labels.clear();
     labels.reserve(entries.size());
     for (const auto& entry : entries) labels.push_back(entry.label);
@@ -236,7 +124,7 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
 
     std::size_t match_count = 0;
     for (const auto& entry : entries) {
-      if (!is_special_entry(entry.label)) ++match_count;
+      if (!entry.parent && !entry.select_here) ++match_count;
     }
 
     if (!filter.empty() && match_count == 0) {
@@ -260,12 +148,12 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
     sync_visible();
     if (entries.empty()) return;
     const auto& entry = entries[static_cast<std::size_t>(selected)];
-    if (entry.label == kParentLabel) {
+    if (entry.parent) {
       current = entry.path;
       reload_directory();
       return;
     }
-    if (entry.label == kSelectHereLabel) {
+    if (entry.select_here) {
       result = current;
       screen.Exit();
       return;

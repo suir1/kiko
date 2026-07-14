@@ -14,25 +14,6 @@ namespace {
 
 constexpr auto kProgressWakeInterval = std::chrono::milliseconds(50);
 
-void trim_log(std::string& log, std::size_t max_lines) {
-  std::size_t lines = log.empty() ? 0 : 1;
-  for (char c : log) {
-    if (c == '\n') ++lines;
-  }
-  while (lines > max_lines) {
-    const auto pos = log.find('\n');
-    if (pos == std::string::npos) break;
-    log.erase(0, pos + 1);
-    --lines;
-  }
-}
-
-void log_append(std::string& log, const std::string& line) {
-  if (!log.empty()) log.push_back('\n');
-  log += line;
-  trim_log(log, 8);
-}
-
 bool starts_with(const std::string& value, const std::string& prefix) {
   return value.rfind(prefix, 0) == 0;
 }
@@ -58,7 +39,7 @@ std::string connectivity_stage(const TuiState& state) {
   if (state.finished) return "complete";
   if (state.handshake && state.files_total > 0 && state.files_done < state.files_total) return "transferring";
   if (state.handshake) return "secure channel ready";
-  if (!state.route_phase_label.empty()) return state.route_phase_label;
+  if (!state.route_phase.empty()) return state.route_phase;
 
   const auto& activity = state.activity;
   const auto has = [&](const char* needle) { return activity.find(needle) != std::string::npos; };
@@ -72,56 +53,6 @@ std::string connectivity_stage(const TuiState& state) {
   }
   if (has("starting") || has("probe")) return "starting";
   return activity.empty() ? "starting" : activity;
-}
-
-std::string route_outcome_label(const RouteOutcome& outcome) {
-  std::string label = "control=" + outcome.control_path + " data=" + outcome.data_path;
-  if (!outcome.reason.empty()) label += " (" + outcome.reason + ")";
-  if (outcome.data_path == "direct" && !outcome.direct_candidate_kind.empty()) {
-    label += " via " + outcome.direct_candidate_kind;
-    if (!outcome.direct_candidate_endpoint.empty()) label += " " + outcome.direct_candidate_endpoint;
-    if (!outcome.direct_candidate_family.empty() && !outcome.direct_candidate_scope.empty()) {
-      label += " " + outcome.direct_candidate_family + "/" + outcome.direct_candidate_scope;
-    }
-    if (outcome.direct_elapsed_ms >= 0) label += " " + std::to_string(outcome.direct_elapsed_ms) + "ms";
-  } else if (outcome.data_path == "relay" && !outcome.direct_attempted) {
-    label += " direct=not_attempted";
-  } else if (outcome.data_path == "relay" && !outcome.direct_failure_summary.empty()) {
-    label += " direct=" + outcome.direct_failure_summary;
-  }
-  return label;
-}
-
-std::string route_phase_label(RoutePhase phase, const RoutePhaseDetail& detail) {
-  switch (phase) {
-    case RoutePhase::Rendezvous:
-      return "rendezvous";
-    case RoutePhase::RelayStandby:
-      return "relay fallback ready";
-    case RoutePhase::DirectProbing:
-      return detail.relay_fallback_ready ? "direct connect (relay ready)" : "direct connect";
-    case RoutePhase::RelayCommitted:
-      return "relay selected";
-    case RoutePhase::Securing:
-      return "securing";
-  }
-  return detail.message.empty() ? "starting" : detail.message;
-}
-
-void append_timing_field(std::string& line, const std::string& name, int value_ms) {
-  if (value_ms >= 0) {
-    if (!line.empty()) line += " ";
-    line += name + "=" + std::to_string(value_ms) + "ms";
-  }
-}
-
-std::string route_timing_label(const RouteTiming& timing) {
-  std::string line;
-  append_timing_field(line, "rendezvous", timing.rendezvous_ms);
-  append_timing_field(line, "direct_probe", timing.direct_probe_ms);
-  append_timing_field(line, "relay_commit", timing.relay_commit_ms);
-  append_timing_field(line, "securing", timing.securing_ms);
-  return line;
 }
 
 }  // namespace
@@ -150,34 +81,13 @@ std::vector<std::string> split_lines(const std::string& text) {
 }
 
 void reset_transfer_state(TuiState& state) {
-  state.code.clear();
+  state.reset();
   state.qrcode.clear();
-  state.connectivity_log.clear();
   state.outbound_summary.clear();
   state.outbound_probe_summary.clear();
   state.route_plan_summary.clear();
-  state.transfer_path_summary.clear();
-  state.route_timing_summary.clear();
-  state.route_phase_label.clear();
-  state.activity = "starting...";
-  state.current_file.clear();
-  state.current_done = 0;
-  state.current_size = 0;
-  state.overall_done = 0;
-  state.overall_total = 0;
-  state.files_total = 0;
-  state.files_done = 0;
-  state.receive_plan = {};
-  state.has_receive_plan = false;
-  state.handshake = false;
-  state.finished = false;
-  state.failed = false;
-  state.canceled = false;
-  state.error_message.clear();
   state.doctor_summary.clear();
   state.doctor_running = false;
-  state.start = std::chrono::steady_clock::now();
-  state.end.reset();
 }
 
 TuiReporter::TuiReporter(TuiState& state, std::function<void()> wake)
@@ -186,9 +96,8 @@ TuiReporter::TuiReporter(TuiState& state, std::function<void()> wake)
 void TuiReporter::status(const std::string& message) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    log_append(state_.connectivity_log, message);
+    state_.status(message);
     update_network_summary(message);
-    state_.activity = message;
   }
   wake_();
 }
@@ -196,8 +105,7 @@ void TuiReporter::status(const std::string& message) {
 void TuiReporter::connectivity_report(const std::string& report) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    log_append(state_.connectivity_log, report);
-    state_.activity = "connectivity probe finished";
+    state_.connectivity_report(report);
   }
   wake_();
 }
@@ -205,12 +113,7 @@ void TuiReporter::connectivity_report(const std::string& report) {
 void TuiReporter::route_phase(RoutePhase phase, const RoutePhaseDetail& detail) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.route_phase_label = route_phase_label(phase, detail);
-    state_.activity = detail.message.empty() ? state_.route_phase_label : detail.message;
-    std::string line = "route phase: " + state_.route_phase_label;
-    if (!detail.reason.empty()) line += " (" + detail.reason + ")";
-    if (detail.relay_fallback_ready) line += " relay-ready";
-    log_append(state_.connectivity_log, line);
+    state_.route_phase_changed(phase, detail);
   }
   wake_();
 }
@@ -218,10 +121,7 @@ void TuiReporter::route_phase(RoutePhase phase, const RoutePhaseDetail& detail) 
 void TuiReporter::route_outcome(const RouteOutcome& outcome) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.transfer_path_summary = route_outcome_label(outcome);
-    state_.activity = outcome.data_path == "direct" ? "direct TCP selected" : "relay TCP selected";
-    state_.route_phase_label = outcome.data_path == "direct" ? "direct TCP selected" : "relay TCP selected";
-    log_append(state_.connectivity_log, "route outcome: " + state_.transfer_path_summary);
+    state_.route_selected(outcome);
   }
   wake_();
 }
@@ -229,11 +129,7 @@ void TuiReporter::route_outcome(const RouteOutcome& outcome) {
 void TuiReporter::route_timing(const RouteTiming& timing) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    const auto summary = route_timing_label(timing);
-    if (!summary.empty()) {
-      state_.route_timing_summary = summary;
-      log_append(state_.connectivity_log, "route timing: " + summary);
-    }
+    state_.route_timing_recorded(timing);
   }
   wake_();
 }
@@ -241,9 +137,7 @@ void TuiReporter::route_timing(const RouteTiming& timing) {
 void TuiReporter::handshake_ok() {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.handshake = true;
-    state_.activity = "encrypted channel ready";
-    log_append(state_.connectivity_log, "handshake ok (PAKE + XChaCha20-Poly1305)");
+    state_.handshake_completed();
   }
   wake_();
 }
@@ -251,7 +145,7 @@ void TuiReporter::handshake_ok() {
 void TuiReporter::code_ready(const std::string& code, bool show_qrcode) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.code = code;
+    state_.pairing_code_ready(code);
     state_.qrcode.clear();
     if (show_qrcode) {
       std::ostringstream oss;
@@ -265,9 +159,7 @@ void TuiReporter::code_ready(const std::string& code, bool show_qrcode) {
 void TuiReporter::transfer_overview(std::size_t file_count, std::uint64_t total_bytes) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.files_total = file_count;
-    state_.overall_total = total_bytes;
-    state_.activity = "transferring " + std::to_string(file_count) + " file(s)";
+    state_.transfer_overview_received(file_count, total_bytes);
   }
   wake_();
 }
@@ -275,10 +167,7 @@ void TuiReporter::transfer_overview(std::size_t file_count, std::uint64_t total_
 void TuiReporter::receive_plan(const ReceivePlanSummary& summary) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.receive_plan = summary;
-    state_.has_receive_plan = true;
-    state_.activity = format_receive_plan_summary(summary);
-    log_append(state_.connectivity_log, state_.activity);
+    state_.receive_plan_ready(summary);
   }
   wake_();
 }
@@ -286,9 +175,7 @@ void TuiReporter::receive_plan(const ReceivePlanSummary& summary) {
 void TuiReporter::file_start(const std::string& path, std::uint64_t size) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.current_file = path;
-    state_.current_size = size;
-    state_.current_done = 0;
+    state_.file_started(path, size);
   }
   wake_();
 }
@@ -297,9 +184,7 @@ void TuiReporter::file_advance(std::uint64_t bytes_delta) {
   bool should_wake = false;
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    if (state_.finished || state_.failed || state_.canceled) return;
-    state_.current_done += bytes_delta;
-    state_.overall_done += bytes_delta;
+    if (!state_.file_advanced(bytes_delta)) return;
     should_wake = should_wake_progress(std::chrono::steady_clock::now());
   }
   if (should_wake) {
@@ -310,20 +195,18 @@ void TuiReporter::file_advance(std::uint64_t bytes_delta) {
 void TuiReporter::file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.activity = "resuming " + path;
-    log_append(state_.connectivity_log, "resume: " + path + " from " + std::to_string(offset) + "/" +
-                                            std::to_string(size) + " bytes");
+    state_.file_resumed(path, offset, size);
   }
   wake_();
 }
 
 void TuiReporter::file_complete(const std::string& path, std::uint64_t size, bool verified) {
+  (void)path;
+  (void)size;
+  (void)verified;
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    (void)path;
-    (void)size;
-    (void)verified;
-    ++state_.files_done;
+    state_.file_completed();
   }
   wake_();
 }
@@ -331,13 +214,7 @@ void TuiReporter::file_complete(const std::string& path, std::uint64_t size, boo
 void TuiReporter::transfer_complete(std::size_t file_count, std::uint64_t total_bytes) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.files_total = file_count;
-    state_.files_done = file_count;
-    state_.finished = true;
-    state_.activity = "transfer complete";
-    if (state_.overall_total == 0) state_.overall_total = total_bytes;
-    state_.overall_done = total_bytes;
-    state_.end = std::chrono::steady_clock::now();
+    state_.transfer_completed(file_count, total_bytes);
   }
   wake_();
 }
@@ -345,21 +222,7 @@ void TuiReporter::transfer_complete(std::size_t file_count, std::uint64_t total_
 void TuiReporter::transfer_retry(int next_attempt, int max_attempts, const std::string& reason) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.current_file.clear();
-    state_.current_done = 0;
-    state_.current_size = 0;
-    state_.overall_done = 0;
-    state_.files_done = 0;
-    state_.handshake = false;
-    state_.finished = false;
-    state_.failed = false;
-    state_.canceled = false;
-    state_.end.reset();
-    state_.route_phase_label = "reconnecting";
-    state_.activity = "reconnecting " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts);
-    log_append(state_.connectivity_log, "connection lost, retrying " + std::to_string(next_attempt) + "/" +
-                                            std::to_string(max_attempts) +
-                                            "; resume will continue verified partial files; reason: " + reason);
+    state_.transfer_retrying(next_attempt, max_attempts, reason);
   }
   wake_();
 }
@@ -368,10 +231,7 @@ void TuiReporter::transfer_retry_delay(int next_attempt, int max_attempts, std::
   if (delay.count() <= 0) return;
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.activity = "waiting to reconnect " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts);
-    log_append(state_.connectivity_log, "reconnect in " + std::to_string(delay.count()) +
-                                            "ms before attempt " + std::to_string(next_attempt) + "/" +
-                                            std::to_string(max_attempts));
+    state_.transfer_retry_waiting(next_attempt, max_attempts, delay);
   }
   wake_();
 }
@@ -395,14 +255,14 @@ void TuiReporter::update_network_summary(const std::string& message) {
   } else if (starts_with(message, "route plan:")) {
     state_.route_plan_summary = text_after_prefix(message, "route plan:");
   } else if (starts_with(message, "route result:")) {
-    state_.transfer_path_summary = text_after_prefix(message, "route result:");
+    state_.route_summary = text_after_prefix(message, "route result:");
   } else if (message == "direct skipped, using relay" || message == "direct failed, using relay" ||
              message == "peer selected relay; using relay path") {
-    state_.transfer_path_summary = "relay (" + message + ")";
+    state_.route_summary = "relay (" + message + ")";
   } else if (starts_with(message, "opening ") && message.find(" parallel direct connections") != std::string::npos) {
-    state_.transfer_path_summary = "direct (" + message + ")";
+    state_.route_summary = "direct (" + message + ")";
   } else if (starts_with(message, "parallel direct unavailable")) {
-    state_.transfer_path_summary = "direct single-channel fallback";
+    state_.route_summary = "direct single-channel fallback";
   }
 }
 
@@ -417,8 +277,8 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& ac
                                 ? static_cast<double>(state.current_done) / static_cast<double>(state.current_size)
                                 : 0.0;
 
-  const auto display_now = state.end.value_or(std::chrono::steady_clock::now());
-  const auto elapsed = std::chrono::duration<double>(display_now - state.start).count();
+  const auto display_now = state.ended.value_or(std::chrono::steady_clock::now());
+  const auto elapsed = std::chrono::duration<double>(display_now - state.started).count();
   const std::uint64_t rate = elapsed > 0.01 ? static_cast<std::uint64_t>(state.overall_done / elapsed) : 0;
 
   Elements left;
@@ -431,8 +291,8 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& ac
   }
 
   if (!state.outbound_summary.empty() || !state.outbound_probe_summary.empty() ||
-      !state.route_plan_summary.empty() || !state.transfer_path_summary.empty() ||
-      !state.route_timing_summary.empty()) {
+      !state.route_plan_summary.empty() || !state.route_summary.empty() ||
+      !state.route_timing.empty()) {
     left.push_back(text("network") | underlined);
     if (!state.outbound_summary.empty()) {
       left.push_back(hbox({text("  outbound: "), text(state.outbound_summary) | color(Color::Cyan)}));
@@ -443,11 +303,11 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& ac
     if (!state.route_plan_summary.empty()) {
       left.push_back(hbox({text("  plan:     "), text(state.route_plan_summary)}));
     }
-    if (!state.transfer_path_summary.empty()) {
-      left.push_back(hbox({text("  path:     "), text(state.transfer_path_summary) | color(Color::GreenLight)}));
+    if (!state.route_summary.empty()) {
+      left.push_back(hbox({text("  path:     "), text(state.route_summary) | color(Color::GreenLight)}));
     }
-    if (!state.route_timing_summary.empty()) {
-      left.push_back(hbox({text("  timing:   "), text(state.route_timing_summary) | dim}));
+    if (!state.route_timing.empty()) {
+      left.push_back(hbox({text("  timing:   "), text(state.route_timing) | dim}));
     }
   }
 
@@ -481,9 +341,9 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& ac
     }
   }
 
-  if (!state.connectivity_log.empty()) {
+  if (!state.logs.empty()) {
     left.push_back(text("events") | underlined);
-    for (const auto& line : split_lines(state.connectivity_log)) {
+    for (const auto& line : state.logs) {
       left.push_back(text("  " + line) | dim);
     }
   }
@@ -521,7 +381,7 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& ac
   }
   if (state.failed) {
     left.push_back(separator());
-    left.push_back(text("error: " + state.error_message) | color(Color::Red));
+    left.push_back(text("error: " + state.error) | color(Color::Red));
     if (state.doctor_running) {
       left.push_back(text("diagnosis: running network check...") | dim);
     } else if (!state.doctor_summary.empty()) {

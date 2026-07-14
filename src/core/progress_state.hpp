@@ -1,0 +1,74 @@
+#pragma once
+
+#include "core/progress.hpp"
+
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace kiko {
+
+[[nodiscard]] std::string format_route_phase_label(RoutePhase phase, const RoutePhaseDetail& detail);
+[[nodiscard]] std::string format_route_outcome_label(const RouteOutcome& outcome);
+[[nodiscard]] std::string format_route_timing_label(const RouteTiming& timing);
+
+class TransferProgressState {
+ public:
+  explicit TransferProgressState(std::size_t max_log_lines);
+
+  void reset();
+  void append_log(const std::string& text);
+  [[nodiscard]] std::string joined_logs() const;
+
+  void status(const std::string& message);
+  void connectivity_report(const std::string& report);
+  void route_phase_changed(RoutePhase phase, const RoutePhaseDetail& detail);
+  void route_selected(const RouteOutcome& outcome);
+  void route_timing_recorded(const RouteTiming& timing);
+  void handshake_completed();
+  void pairing_code_ready(const std::string& pairing_code);
+  void transfer_overview_received(std::size_t file_count, std::uint64_t total_bytes);
+  void receive_plan_ready(const ReceivePlanSummary& summary);
+  void file_started(const std::string& path, std::uint64_t size);
+  [[nodiscard]] bool file_advanced(std::uint64_t bytes_delta);
+  void file_resumed(const std::string& path, std::uint64_t offset, std::uint64_t size);
+  void file_completed();
+  void transfer_completed(std::size_t file_count, std::uint64_t total_bytes);
+  void transfer_retrying(int next_attempt, int max_attempts, const std::string& reason);
+  void transfer_retry_waiting(int next_attempt, int max_attempts, std::chrono::milliseconds delay);
+
+  void finish_success(const std::string& final_activity);
+  void finish_failed(const std::string& message);
+  void finish_canceled();
+
+  std::string activity;
+  std::string code;
+  std::string current_file;
+  std::uint64_t current_done = 0;
+  std::uint64_t current_size = 0;
+  std::uint64_t overall_done = 0;
+  std::uint64_t overall_total = 0;
+  std::size_t files_done = 0;
+  std::size_t files_total = 0;
+  std::string route_phase;
+  std::string route_summary;
+  std::string route_timing;
+  ReceivePlanSummary receive_plan;
+  bool has_receive_plan = false;
+  bool handshake = false;
+  bool finished = false;
+  bool failed = false;
+  bool canceled = false;
+  std::string error;
+  std::vector<std::string> logs;
+  std::chrono::steady_clock::time_point started{};
+  std::optional<std::chrono::steady_clock::time_point> ended;
+
+ private:
+  std::size_t max_log_lines_;
+};
+
+}  // namespace kiko

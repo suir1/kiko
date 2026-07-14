@@ -1,5 +1,6 @@
 #include "web/web.hpp"
 #include "web/web_assets.hpp"
+#include "platform/path_browser.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -16,7 +17,7 @@ fs::path make_temp_root() {
   return fs::temp_directory_path() / ("kiko_web_test_" + std::to_string(stamp));
 }
 
-std::size_t find_label(const std::vector<kiko::WebDirectoryEntry>& entries, const std::string& label) {
+std::size_t find_label(const std::vector<kiko::PathBrowserEntry>& entries, const std::string& label) {
   for (std::size_t i = 0; i < entries.size(); ++i) {
     if (entries[i].label == label) return i;
   }
@@ -88,7 +89,8 @@ int main() {
   set_modified_time(root / "a.txt", now - std::chrono::hours(2));
   set_modified_time(root / "z.txt", now - std::chrono::minutes(5));
 
-  const auto send_entries = list_web_directory(root, WebPickMode::FileOrDirectory, WebBrowserSort::Name);
+  const auto send_entries =
+      browse_directory(root, PathPickMode::FileOrDirectory, PathBrowserSort::Name);
   const auto a_pos = find_label(send_entries, "a.txt");
   const auto z_pos = find_label(send_entries, "z.txt");
   const auto dir_pos = find_label(send_entries, "newer_dir/");
@@ -99,14 +101,16 @@ int main() {
   assert(z_pos < dir_pos);
   assert(find_label(send_entries, "[Select this folder]") != send_entries.size());
 
-  const auto recent_entries = list_web_directory(root, WebPickMode::FileOrDirectory, WebBrowserSort::ModifiedDesc);
+  const auto recent_entries =
+      browse_directory(root, PathPickMode::FileOrDirectory, PathBrowserSort::ModifiedDesc);
   assert(find_label(recent_entries, "z.txt") < find_label(recent_entries, "a.txt"));
 
-  const auto dir_entries = list_web_directory(root, WebPickMode::DirectoryOnly, WebBrowserSort::Name);
+  const auto dir_entries = browse_directory(root, PathPickMode::DirectoryOnly, PathBrowserSort::Name);
   assert(find_label(dir_entries, "a.txt") == dir_entries.size());
   assert(find_label(dir_entries, "newer_dir/") != dir_entries.size());
 
-  const auto filtered = list_web_directory(root, WebPickMode::FileOrDirectory, WebBrowserSort::Name, "z.");
+  const auto filtered =
+      browse_directory(root, PathPickMode::FileOrDirectory, PathBrowserSort::Name, "z.");
   assert(find_label(filtered, "z.txt") != filtered.size());
   assert(find_label(filtered, "a.txt") == filtered.size());
 
