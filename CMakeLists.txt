@@ -24,6 +24,7 @@ set(KIKO_CORE_LAYER_SOURCES
   src/core/crypto.cpp
   src/core/imohash.cpp
   src/core/io.cpp
+  src/core/network_interfaces.cpp
   src/core/pake.cpp
   src/core/progress.cpp
   src/core/progress_state.cpp
@@ -45,6 +46,7 @@ set(KIKO_CONNECT_LAYER_SOURCES
   src/connect/discovery.cpp
   src/connect/encrypted_session.cpp
   src/connect/lan_upgrade.cpp
+  src/connect/peer_route_session.cpp
   src/connect/peer_session.cpp
   src/connect/profile.cpp
   src/connect/rendezvous_session.cpp
@@ -55,10 +57,10 @@ set(KIKO_CONNECT_LAYER_SOURCES
 
 set(KIKO_RELAY_LAYER_SOURCES
   src/relay/relay.cpp
+  src/relay/relay_protocol.cpp
   src/relay/relay_race.cpp
   src/relay/relay_room_state.cpp
   src/relay/relay_route_state.cpp
-  src/relay/relay_session.cpp
   src/relay/relay_server.cpp
 )
 
@@ -71,6 +73,7 @@ set(KIKO_TRANSFER_LAYER_SOURCES
   src/transfer/mux_transfer.cpp
   src/transfer/receive_plan.cpp
   src/transfer/transfer.cpp
+  src/transfer/transfer_file_session.cpp
   src/transfer/transfer_heuristics.cpp
   src/transfer/transfer_manifest.cpp
   src/transfer/transfer_receive_paths.cpp
@@ -227,6 +230,7 @@ set(KIKO_RELAYD_SOURCES
   src/core/io.cpp
   src/core/protocol.cpp
   src/core/proxy.cpp
+  src/relay/relay_protocol.cpp
   src/relay/relay_room_state.cpp
   src/relay/relay_route_state.cpp
   src/relay/relay_server.cpp
@@ -295,12 +299,15 @@ kiko_add_core_test(note_protocol tests/note_protocol_test.cpp)
 kiko_add_core_test(note_workspace tests/note_workspace_test.cpp)
 kiko_add_core_test(mux tests/mux_test.cpp)
 kiko_add_core_test(adaptive tests/adaptive_test.cpp)
+kiko_add_core_test(network_interfaces tests/network_interfaces_test.cpp)
 kiko_add_core_test(connectivity tests/connectivity_test.cpp)
+kiko_add_core_test(peer_session tests/peer_session_test.cpp)
 kiko_add_core_test(route_session tests/route_session_test.cpp)
 kiko_add_core_test(route_scenarios tests/route_scenarios_test.cpp)
 kiko_add_core_test(outbound_policy tests/outbound_policy_test.cpp)
 kiko_add_core_test(relay_room_state tests/relay_room_state_test.cpp)
 kiko_add_core_test(relay_route_state tests/relay_route_state_test.cpp)
+kiko_add_core_test(relay_protocol tests/relay_protocol_test.cpp)
 kiko_add_core_test(relay tests/relay_test.cpp)
 kiko_add_core_test(transfer_retry tests/transfer_retry_test.cpp)
 kiko_add_core_test(transfer_heuristics tests/transfer_heuristics_test.cpp)

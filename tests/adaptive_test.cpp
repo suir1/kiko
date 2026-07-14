@@ -1,6 +1,5 @@
 #include "core/adaptive.hpp"
 #include "connect/connectivity.hpp"
-#include "core/socket.hpp"
 
 #include <iostream>
 #include <string>
@@ -72,11 +71,6 @@ int main() {
   check(same_port_stats.same_port_successes == 1, "same-port successes are counted");
   check(same_port_stats.same_port_failures == 1, "same-port failures are counted");
   check(same_port_stats.same_port_last_elapsed_ms == 42, "same-port last elapsed is recorded");
-
-  // local_interface_addresses must not crash and must return well-formed entries.
-  auto addrs = local_interface_addresses();
-  for (const auto& a : addrs) check(!a.empty(), "interface address non-empty");
-  std::cout << "discovered " << addrs.size() << " local interface address(es)\n";
 
   if (failures != 0) {
     std::cerr << failures << " check(s) failed\n";

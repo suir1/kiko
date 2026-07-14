@@ -1,8 +1,8 @@
 #include "core/socket.hpp"
 
 #include "core/io.hpp"
-#include "platform/platform.hpp"
 #include "core/proxy.hpp"
+#include "platform/platform.hpp"
 
 #include <asio/connect.hpp>
 #include <asio/ip/v6_only.hpp>
@@ -147,11 +147,6 @@ bool bind_socket_to_local_endpoint(asio::ip::tcp::socket& socket, const asio::ip
     return false;
   }
   return true;
-}
-
-void add_unique(std::vector<std::string>& out, const std::string& text) {
-  if (text.empty()) return;
-  if (std::find(out.begin(), out.end(), text) == out.end()) out.push_back(text);
 }
 
 }  // namespace
@@ -461,116 +456,5 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
   }
   return TcpSocket();
 }
-
-#ifdef _WIN32
-
-std::vector<std::string> local_interface_addresses() {
-  net_startup();
-  std::vector<std::string> out;
-  ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
-  ULONG size = 15 * 1024;
-  std::vector<unsigned char> buffer(size);
-  auto* adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
-  if (GetAdaptersAddresses(AF_UNSPEC, flags, nullptr, adapters, &size) == ERROR_BUFFER_OVERFLOW) {
-    buffer.resize(size);
-    adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
-  }
-  if (GetAdaptersAddresses(AF_UNSPEC, flags, nullptr, adapters, &size) != NO_ERROR) return out;
-
-  for (auto* adapter = adapters; adapter != nullptr; adapter = adapter->Next) {
-    if (adapter->OperStatus != IfOperStatusUp) continue;
-    if (adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
-    for (auto* ua = adapter->FirstUnicastAddress; ua != nullptr; ua = ua->Next) {
-      char host[INET6_ADDRSTRLEN] = {};
-      auto* sa = ua->Address.lpSockaddr;
-      if (sa->sa_family == AF_INET) {
-        auto* a = reinterpret_cast<sockaddr_in*>(sa);
-        inet_ntop(AF_INET, &a->sin_addr, host, sizeof(host));
-      } else if (sa->sa_family == AF_INET6) {
-        auto* a = reinterpret_cast<sockaddr_in6*>(sa);
-        if (IN6_IS_ADDR_LINKLOCAL(&a->sin6_addr)) continue;
-        inet_ntop(AF_INET6, &a->sin6_addr, host, sizeof(host));
-      } else {
-        continue;
-      }
-      add_unique(out, host);
-    }
-  }
-  return out;
-}
-
-std::vector<std::string> local_lan_candidate_addresses() {
-  return local_interface_addresses();
-}
-
-#else
-
-namespace {
-bool is_vpn_interface_name(const char* name) {
-  if (!name) return false;
-  const std::string n(name);
-  return n.rfind("tun", 0) == 0 || n.rfind("wg", 0) == 0 || n.rfind("utun", 0) == 0 || n.rfind("ppp", 0) == 0 ||
-         n.rfind("ipsec", 0) == 0;
-}
-}  // namespace
-
-std::vector<std::string> local_interface_addresses() {
-  std::vector<std::string> out;
-  ifaddrs* ifaddr = nullptr;
-  if (getifaddrs(&ifaddr) != 0) return out;
-
-  for (ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
-    if (ifa->ifa_addr == nullptr) continue;
-    if ((ifa->ifa_flags & IFF_UP) == 0) continue;
-    if (ifa->ifa_flags & IFF_LOOPBACK) continue;
-
-    char host[INET6_ADDRSTRLEN] = {};
-    int family = ifa->ifa_addr->sa_family;
-    if (family == AF_INET) {
-      auto* a = reinterpret_cast<sockaddr_in*>(ifa->ifa_addr);
-      inet_ntop(AF_INET, &a->sin_addr, host, sizeof(host));
-    } else if (family == AF_INET6) {
-      auto* a = reinterpret_cast<sockaddr_in6*>(ifa->ifa_addr);
-      if (IN6_IS_ADDR_LINKLOCAL(&a->sin6_addr)) continue;
-      inet_ntop(AF_INET6, &a->sin6_addr, host, sizeof(host));
-    } else {
-      continue;
-    }
-    add_unique(out, host);
-  }
-  freeifaddrs(ifaddr);
-  return out;
-}
-
-std::vector<std::string> local_lan_candidate_addresses() {
-  std::vector<std::string> out;
-  ifaddrs* ifaddr = nullptr;
-  if (getifaddrs(&ifaddr) != 0) return out;
-
-  for (ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
-    if (ifa->ifa_addr == nullptr) continue;
-    if ((ifa->ifa_flags & IFF_UP) == 0) continue;
-    if (ifa->ifa_flags & IFF_LOOPBACK) continue;
-    if (is_vpn_interface_name(ifa->ifa_name)) continue;
-
-    char host[INET6_ADDRSTRLEN] = {};
-    int family = ifa->ifa_addr->sa_family;
-    if (family == AF_INET) {
-      auto* a = reinterpret_cast<sockaddr_in*>(ifa->ifa_addr);
-      inet_ntop(AF_INET, &a->sin_addr, host, sizeof(host));
-    } else if (family == AF_INET6) {
-      auto* a = reinterpret_cast<sockaddr_in6*>(ifa->ifa_addr);
-      if (IN6_IS_ADDR_LINKLOCAL(&a->sin6_addr)) continue;
-      inet_ntop(AF_INET6, &a->sin6_addr, host, sizeof(host));
-    } else {
-      continue;
-    }
-    add_unique(out, host);
-  }
-  freeifaddrs(ifaddr);
-  return out;
-}
-
-#endif
 
 }  // namespace kiko

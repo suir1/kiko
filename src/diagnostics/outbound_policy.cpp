@@ -45,6 +45,14 @@ bool relay_target_is_local(const Endpoint& relay) {
 OutboundSelection select_outbound_for_relay(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,
                                             const std::string& bind_interface, bool avoid_vpn,
                                             const std::optional<OutboundHistory>& history) {
+  return select_outbound_for_relay(relay, proxy, bind_interface, avoid_vpn, history,
+                                   collect_network_interface_inventory());
+}
+
+OutboundSelection select_outbound_for_relay(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,
+                                            const std::string& bind_interface, bool avoid_vpn,
+                                            const std::optional<OutboundHistory>& history,
+                                            const NetworkInterfaceInventory& interfaces) {
   OutboundSelection selection;
   selection.connect_options.proxy = proxy;
 
@@ -65,7 +73,7 @@ OutboundSelection select_outbound_for_relay(const Endpoint& relay, const std::op
     return selection;
   }
 
-  const auto physical = choose_physical_interface_name();
+  const auto physical = interfaces.preferred_physical_interface();
 
   if (avoid_vpn) {
     if (physical) {
@@ -85,7 +93,7 @@ OutboundSelection select_outbound_for_relay(const Endpoint& relay, const std::op
     return selection;
   }
 
-  if (!detect_vpn_interfaces() || !physical) {
+  if (!interfaces.vpn_detected() || !physical) {
     selection.reason = "default";
     return selection;
   }

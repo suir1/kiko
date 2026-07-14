@@ -46,5 +46,6 @@ void save_profile_success(const std::string& fingerprint, const std::string& pat
 void apply_profile_to_snapshot(const NetworkProfileEntry& profile, ConnectivitySnapshot& snapshot);
 void apply_profile_candidate_bias(const NetworkProfileEntry& profile, std::vector<DirectCandidate>& candidates);
 [[nodiscard]] std::string network_fingerprint();
+[[nodiscard]] std::string network_fingerprint(const NetworkInterfaceInventory& interfaces);
 
 }  // namespace kiko

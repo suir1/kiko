@@ -1,3 +1,4 @@
+#include "note/note_session.hpp"
 #include "note/note_workspace.hpp"
 
 #include <cassert>
@@ -46,6 +47,19 @@ int main() {
   const auto final = workspace.snapshot();
   assert(final.documents.size() == 3);
   assert(final.documents[0].pad_id == "main");
+
+  ProgressReporter reporter;
+  NoteSession session(PeerSessionConfig{}, reporter);
+  assert(session.update_active("session-owned"));
+  assert(session.active_document().text == "session-owned");
+  assert(session.create_pad());
+  assert(session.active_document().pad_id == "pad-2");
+  assert(session.active_document().title == "Note 2");
+  assert(session.select_pad("main"));
+  assert(session.clear_active());
+  assert(session.active_document().text.empty());
+  assert(session.snapshot().documents.size() == 2);
+  session.request_stop();
 
   std::cout << "note workspace ok\n";
   return 0;

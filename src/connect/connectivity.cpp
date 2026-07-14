@@ -47,13 +47,20 @@ void fill_candidate_score_hints(RoutePlan& plan, const ConnectivitySnapshot& sna
 
 ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local, std::size_t lan_discovered_count,
                                                    std::uint64_t total_bytes) {
+  return build_pre_rendezvous_snapshot(no_direct, only_local, lan_discovered_count, total_bytes,
+                                       collect_network_interface_inventory());
+}
+
+ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local, std::size_t lan_discovered_count,
+                                                   std::uint64_t total_bytes,
+                                                   const NetworkInterfaceInventory& interfaces) {
   ConnectivitySnapshot s;
   s.no_direct_config = no_direct;
   s.only_local = only_local;
   s.lan_discovered_count = lan_discovered_count;
   s.total_bytes = total_bytes;
-  s.vpn_detected = detect_vpn_interfaces();
-  s.lan_candidates = local_lan_candidate_addresses();
+  s.vpn_detected = interfaces.vpn_detected();
+  s.lan_candidates = interfaces.lan_candidate_addresses();
   s.self_global_ipv6_count = count_global_ipv6_addresses(s.lan_candidates);
   return s;
 }

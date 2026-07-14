@@ -2,7 +2,7 @@
 
 #include "connect/peer_session.hpp"
 #include "core/cancellation.hpp"
-#include "note/note_protocol.hpp"
+#include "note/note_workspace.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -11,19 +11,28 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
+#include <utility>
 
 namespace kiko {
+
+class NoteSession;
 
 struct NoteSessionInfo {
   std::string code;
   RouteOutcome outcome;
 };
 
+enum class NoteSessionEvent {
+  Acknowledged,
+  RemoteApplied,
+  LocalSent,
+};
+
 struct NoteSessionCallbacks {
   std::function<void(const NoteSessionInfo&)> connected;
-  std::function<void(const NoteFrame&)> frame_received;
-  std::function<void(const NoteFrame&)> frame_sent;
+  std::function<void(const NoteSession&, NoteSessionEvent, const NoteFrame&)> workspace_changed;
 };
 
 enum class NoteSessionEnd {
@@ -39,13 +48,26 @@ class NoteSession {
   ~NoteSession();
 
   [[nodiscard]] NoteSessionEnd run();
-  [[nodiscard]] bool send(NoteFrame frame);
+  [[nodiscard]] bool update_active(std::string text) {
+    return queue_frame(workspace_.update_active(std::move(text)));
+  }
+  [[nodiscard]] bool clear_active() { return queue_frame(workspace_.clear_active()); }
+  [[nodiscard]] bool create_pad() { return queue_frame(workspace_.create_pad()); }
+  [[nodiscard]] bool select_pad(const std::string& pad_id) { return workspace_.select_pad(pad_id); }
+  [[nodiscard]] NoteDocument active_document() const { return workspace_.active_document(); }
+  [[nodiscard]] std::optional<NoteDocument> document(const std::string& pad_id) const {
+    return workspace_.document(pad_id);
+  }
+  [[nodiscard]] NoteWorkspaceSnapshot snapshot() const { return workspace_.snapshot(); }
+
   void request_stop();
 
   [[nodiscard]] bool connected() const;
   [[nodiscard]] std::shared_ptr<TransferCancellation> cancellation() const;
 
  private:
+  [[nodiscard]] bool queue_frame(NoteFrame frame);
+  void notify_workspace_changed(NoteSessionEvent event, const NoteFrame& frame) const;
   void sender_loop();
   void close_channel();
   void stop_sender();
@@ -54,6 +76,7 @@ class NoteSession {
   ProgressReporter& reporter_;
   NoteSessionCallbacks callbacks_;
   std::shared_ptr<TransferCancellation> cancellation_;
+  NoteWorkspace workspace_;
 
   mutable std::mutex mutex_;
   std::condition_variable changed_;

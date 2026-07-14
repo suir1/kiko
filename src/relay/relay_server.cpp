@@ -4,6 +4,7 @@
 #include "core/common.hpp"
 #include "platform/platform.hpp"
 #include "core/protocol.hpp"
+#include "relay_protocol.hpp"
 #include "relay_room_state.hpp"
 #include "relay_route_state.hpp"
 #include "core/socket.hpp"
@@ -24,7 +25,6 @@ constexpr auto kControlReadTimeout = std::chrono::seconds(5);
 constexpr auto kRouteChoiceTimeout = std::chrono::seconds(15);
 constexpr auto kRoutePollSlice = std::chrono::milliseconds(25);
 constexpr auto kRouteFrameReadTimeout = std::chrono::milliseconds(250);
-constexpr std::uint64_t kMaxRelayConnections = 32;
 
 struct RouteChoiceRead {
   enum class Kind { None, Message, Closed };
@@ -118,38 +118,26 @@ class RelayStateImpl {
 
 };
 
+Message peer_message_for(const RelayWaitingPeer& self, const RelayWaitingPeer& peer,
+                         const std::string& punch_token) {
+  RelayPeerInfo info;
+  info.peer_public = peer.public_endpoint;
+  info.peer_listen = peer.listen_endpoint;
+  info.peer_local_candidates = peer.local_candidates;
+  info.peer_no_direct = peer.no_direct;
+  info.self_public = self.public_endpoint;
+  info.punch_token = punch_token;
+  info.route_commit_v2 = true;
+  info.file_count = peer.file_count;
+  info.total_size = peer.total_size;
+  info.conn_count = peer.conn_count;
+  return encode_relay_peer_info(info);
+}
+
 void send_peer_messages(RelayWaitingPeer& a, RelayWaitingPeer& b) {
   const auto punch_token = std::to_string(now_ms() + 250);
-  send_message(a.socket,
-               Message{"peer",
-                       {{"peer_public_host", b.public_endpoint.host},
-                        {"peer_public_port", std::to_string(b.public_endpoint.port)},
-                        {"peer_listen_host", b.listen_endpoint.host},
-                        {"peer_listen_port", std::to_string(b.listen_endpoint.port)},
-                        {"peer_local_candidates", b.local_candidates},
-                        {"peer_no_direct", b.no_direct ? "1" : "0"},
-                        {"your_public_host", a.public_endpoint.host},
-                        {"your_public_port", std::to_string(a.public_endpoint.port)},
-                        {"punch_token", punch_token},
-                        {"route_commit", "v2"},
-                        {"file_count", std::to_string(b.file_count)},
-                        {"total_size", std::to_string(b.total_size)},
-                        {"conn_count", std::to_string(b.conn_count)}}});
-  send_message(b.socket,
-               Message{"peer",
-                       {{"peer_public_host", a.public_endpoint.host},
-                        {"peer_public_port", std::to_string(a.public_endpoint.port)},
-                        {"peer_listen_host", a.listen_endpoint.host},
-                        {"peer_listen_port", std::to_string(a.listen_endpoint.port)},
-                        {"peer_local_candidates", a.local_candidates},
-                        {"peer_no_direct", a.no_direct ? "1" : "0"},
-                        {"your_public_host", b.public_endpoint.host},
-                        {"your_public_port", std::to_string(b.public_endpoint.port)},
-                        {"punch_token", punch_token},
-                        {"route_commit", "v2"},
-                        {"file_count", std::to_string(a.file_count)},
-                        {"total_size", std::to_string(a.total_size)},
-                        {"conn_count", std::to_string(a.conn_count)}}});
+  send_message(a.socket, peer_message_for(a, b, punch_token));
+  send_message(b.socket, peer_message_for(b, a, punch_token));
 }
 
 void handle_punch_probe(TcpSocket& socket, const Message& probe, const std::shared_ptr<RelayStateImpl>& state) {
@@ -288,58 +276,39 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
       return;
     }
 
-    auto room = hello.get("room");
-    if (room.empty()) {
-      reject_client(socket, "invalid_hello");
-      return;
-    }
-
-    Role role = Role::Sender;
-    std::uint64_t conn_index = 0;
-    std::uint16_t listen_port = 0;
-    std::uint64_t file_count = 0;
-    std::uint64_t total_size = 0;
-    std::uint64_t conn_count = 1;
-    std::uint16_t punch_port = 0;
+    RelayHello registration;
     try {
-      role = parse_role(hello.get("role"));
-      conn_index = hello.get_u64("conn_index", 0);
-      listen_port = message_port_or(hello, "listen_port", 0, true);
-      punch_port = message_port_or(hello, "punch_public_port", 0, true);
-      file_count = hello.get_u64("file_count", 0);
-      total_size = hello.get_u64("total_size", 0);
-      conn_count = hello.get_u64("conn_count", 1);
-      if (conn_count == 0 || conn_count > kMaxRelayConnections) throw KikoError("invalid conn_count");
+      registration = decode_relay_hello(hello);
     } catch (const KikoError&) {
       reject_client(socket, "invalid_hello");
       return;
     }
 
-    bool aux = hello.get("aux") == "1" || conn_index > 0;
     auto peer_addr = socket.peer_endpoint();
     RelayWaitingPeer self;
-    self.role = role;
+    self.role = registration.role;
     self.socket = std::move(socket);
-    const auto punch_host = hello.get("punch_public_host");
-    if (!punch_host.empty() && punch_port > 0) {
-      self.public_endpoint = Endpoint{punch_host, punch_port};
+    if (!registration.punch_public.host.empty() && registration.punch_public.port > 0) {
+      self.public_endpoint = registration.punch_public;
     } else {
-      self.public_endpoint = Endpoint{peer_addr.host, listen_port == 0 ? peer_addr.port : listen_port};
+      self.public_endpoint =
+          Endpoint{peer_addr.host, registration.listen.port == 0 ? peer_addr.port : registration.listen.port};
     }
-    self.listen_endpoint = Endpoint{hello.get("listen_host", peer_addr.host), listen_port};
-    self.file_count = file_count;
-    self.total_size = total_size;
-    self.conn_count = conn_count;
-    self.no_direct = hello.get("no_direct") == "1";
-    self.local_candidates = hello.get("local_candidates");
+    self.listen_endpoint = registration.listen;
+    if (self.listen_endpoint.host.empty()) self.listen_endpoint.host = peer_addr.host;
+    self.file_count = registration.file_count;
+    self.total_size = registration.total_size;
+    self.conn_count = registration.conn_count;
+    self.no_direct = registration.no_direct;
+    self.local_candidates = std::move(registration.local_candidates);
     self.registered_at = std::chrono::steady_clock::now();
 
-    auto match_key = room + "#" + std::to_string(conn_index);
+    auto match_key = registration.room + "#" + std::to_string(registration.conn_index);
     active_room = relay_room_base(match_key);
 
     state->purge_stale_waiting();
 
-    auto pairing = state->pair_or_wait(match_key, active_room, std::move(self), aux);
+    auto pairing = state->pair_or_wait(match_key, active_room, std::move(self), registration.auxiliary);
     if (pairing.kind == RelayRoomPairing::Kind::Waiting) return;
     if (pairing.kind == RelayRoomPairing::Kind::RoomFull) {
       reject_client(pairing.self->socket, "room_full");
@@ -349,7 +318,7 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
     auto other = std::move(pairing.peer);
     self = std::move(*pairing.self);
 
-    if (aux) {
+    if (registration.auxiliary) {
       relay_stream_sync(std::move(other->socket), std::move(self.socket));
       return;
     }

@@ -1,6 +1,7 @@
 #include "relay_race.hpp"
 
 #include "platform/platform.hpp"
+#include "relay/relay_protocol.hpp"
 
 #include <algorithm>
 #include <future>
@@ -62,16 +63,22 @@ std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const Message
   if (connect_options.proxy || timeout.count() <= 0) return std::nullopt;
   if (cancel && cancel->load()) return std::nullopt;
 
-  const auto listen_port = hello.get_u64("listen_port", 0);
-  if (listen_port == 0 || listen_port > 65535) return std::nullopt;
+  RelayHello registration;
+  try {
+    registration = decode_relay_hello(hello);
+  } catch (const KikoError&) {
+    return std::nullopt;
+  }
+  if (registration.listen.port == 0) return std::nullopt;
 
   ConnectOptions probe_options = connect_options;
-  probe_options.local_bind = Endpoint{"", static_cast<std::uint16_t>(listen_port)};
+  probe_options.local_bind = Endpoint{"", registration.listen.port};
 
   auto socket = connect_tcp(relay, timeout, probe_options, cancel);
   if (!socket.valid()) return std::nullopt;
 
-  Message probe{"punch_probe", {{"room", hello.get("room")}, {"role", hello.get("role")}}};
+  Message probe{
+      "punch_probe", {{"room", registration.room}, {"role", role_name(registration.role)}}};
   if (relay_pass && !relay_pass->empty()) probe.fields["relay_pass"] = *relay_pass;
 
   try {

@@ -2,7 +2,6 @@
 
 #include "core/cancellation.hpp"
 #include "note/note_session.hpp"
-#include "note/note_workspace.hpp"
 
 #include <mutex>
 #include <thread>
@@ -12,7 +11,6 @@ namespace kiko {
 namespace {
 
 struct WebNoteRuntime {
-  NoteWorkspace workspace;
   std::shared_ptr<WebReporter> reporter;
   std::shared_ptr<NoteSession> session;
 };
@@ -234,7 +232,6 @@ bool WebJobStore::start_note(NoteConfig config, std::string& error) {
     config.cancellation = cancellation;
     auto runtime = std::make_shared<WebNoteRuntime>();
     runtime->reporter = std::make_shared<WebReporter>(*this);
-    std::weak_ptr<WebNoteRuntime> weak_runtime = runtime;
 
     NoteSessionCallbacks callbacks;
     callbacks.connected = [this](const NoteSessionInfo& info) {
@@ -246,34 +243,25 @@ bool WebJobStore::start_note(NoteConfig config, std::string& error) {
       });
       append_log("notepad connected via " + info.outcome.data_path);
     };
-    callbacks.frame_received = [this, weak_runtime](const NoteFrame& frame) {
-      const auto runtime = weak_runtime.lock();
-      if (!runtime) return;
-      if (frame.type == NoteFrameType::Ack) {
-        runtime->workspace.acknowledge(frame);
-        const auto snapshot = runtime->workspace.snapshot();
+    callbacks.workspace_changed = [this](const NoteSession& session, NoteSessionEvent event,
+                                         const NoteFrame& frame) {
+      const auto snapshot = session.snapshot();
+      if (event == NoteSessionEvent::Acknowledged) {
         update([&](WebJobSnapshot& state) {
           apply_note_snapshot(state, snapshot);
           state.activity = snapshot.synced ? "notepad synced" : "notepad sent";
         });
         return;
       }
-      if (!runtime->workspace.apply_remote(frame)) return;
-      const auto snapshot = runtime->workspace.snapshot();
+      const bool remote = event == NoteSessionEvent::RemoteApplied;
       update([&](WebJobSnapshot& state) {
         apply_note_snapshot(state, snapshot);
-        state.activity =
-            snapshot.active_pad == frame.pad_id ? "remote note update" : "remote note updated " + frame.pad_id;
-      });
-    };
-    callbacks.frame_sent = [this, weak_runtime](const NoteFrame& frame) {
-      if (frame.type != NoteFrameType::Update && frame.type != NoteFrameType::Clear) return;
-      const auto runtime = weak_runtime.lock();
-      if (!runtime) return;
-      const auto snapshot = runtime->workspace.snapshot();
-      update([&](WebJobSnapshot& state) {
-        apply_note_snapshot(state, snapshot);
-        state.activity = snapshot.synced ? "notepad synced" : "notepad sent";
+        if (remote) {
+          state.activity =
+              snapshot.active_pad == frame.pad_id ? "remote note update" : "remote note updated " + frame.pad_id;
+        } else {
+          state.activity = snapshot.synced ? "notepad synced" : "notepad sent";
+        }
       });
     };
     runtime->session = std::make_shared<NoteSession>(config, *runtime->reporter, std::move(callbacks));
@@ -284,7 +272,7 @@ bool WebJobStore::start_note(NoteConfig config, std::string& error) {
       impl_->note_runtime = runtime;
       impl_->state.activity = config.role == Role::Sender ? "hosting notepad" : "joining notepad";
       impl_->state.code = config.code;
-      apply_note_snapshot(impl_->state, runtime->workspace.snapshot());
+      apply_note_snapshot(impl_->state, runtime->session->snapshot());
     }
 
     Access::launch_worker(
@@ -312,51 +300,24 @@ bool WebJobStore::update_note(std::string text, std::string& error) {
     error = "note text exceeds 1 MiB limit";
     return false;
   }
-  auto runtime = Access::current_note_runtime(*impl_, error);
-  if (!runtime) return false;
-
-  if (!runtime->session->send(runtime->workspace.update_active(std::move(text)))) {
-    error = "notepad is closed";
-    return false;
-  }
-  const auto snapshot = runtime->workspace.snapshot();
-  update([&](WebJobSnapshot& state) {
-    apply_note_snapshot(state, snapshot);
-    state.activity = "notepad syncing";
-  });
-  return true;
+  return mutate_note(
+      [text = std::move(text)](NoteSession& session) mutable {
+        return session.update_active(std::move(text));
+      },
+      [](const NoteSession&) { return "notepad syncing"; }, "notepad is closed", error);
 }
 
 bool WebJobStore::clear_note(std::string& error) {
-  auto runtime = Access::current_note_runtime(*impl_, error);
-  if (!runtime) return false;
-  if (!runtime->session->send(runtime->workspace.clear_active())) {
-    error = "notepad is closed";
-    return false;
-  }
-  const auto snapshot = runtime->workspace.snapshot();
-  update([&](WebJobSnapshot& state) {
-    apply_note_snapshot(state, snapshot);
-    state.activity = "notepad syncing";
-  });
-  return true;
+  return mutate_note([](NoteSession& session) { return session.clear_active(); },
+                     [](const NoteSession&) { return "notepad syncing"; }, "notepad is closed", error);
 }
 
 bool WebJobStore::create_note_pad(std::string& error) {
-  auto runtime = Access::current_note_runtime(*impl_, error);
-  if (!runtime) return false;
-  auto frame = runtime->workspace.create_pad();
-  const auto title = frame.title;
-  if (!runtime->session->send(std::move(frame))) {
-    error = "notepad is closed";
-    return false;
-  }
-  const auto snapshot = runtime->workspace.snapshot();
-  update([&](WebJobSnapshot& state) {
-    apply_note_snapshot(state, snapshot);
-    state.activity = "created " + title;
-  });
-  return true;
+  return mutate_note([](NoteSession& session) { return session.create_pad(); },
+                     [](const NoteSession& session) {
+                       return "created " + session.active_document().title;
+                     },
+                     "notepad is closed", error);
 }
 
 bool WebJobStore::select_note_pad(const std::string& pad_id, std::string& error) {
@@ -364,16 +325,25 @@ bool WebJobStore::select_note_pad(const std::string& pad_id, std::string& error)
     error = "note pad id is required";
     return false;
   }
+  return mutate_note([&](NoteSession& session) { return session.select_pad(pad_id); },
+                     [&](const NoteSession&) { return "selected " + pad_id; },
+                     "note pad not found", error);
+}
+
+bool WebJobStore::mutate_note(const std::function<bool(NoteSession&)>& mutation,
+                              const std::function<std::string(const NoteSession&)>& activity,
+                              const std::string& failure, std::string& error) {
   auto runtime = Access::current_note_runtime(*impl_, error);
   if (!runtime) return false;
-  if (!runtime->workspace.select_pad(pad_id)) {
-    error = "note pad not found";
+  if (!mutation(*runtime->session)) {
+    error = failure;
     return false;
   }
-  const auto snapshot = runtime->workspace.snapshot();
+  const auto snapshot = runtime->session->snapshot();
+  const auto next_activity = activity(*runtime->session);
   update([&](WebJobSnapshot& state) {
     apply_note_snapshot(state, snapshot);
-    state.activity = "selected " + pad_id;
+    state.activity = next_activity;
   });
   return true;
 }
@@ -408,73 +378,9 @@ void WebJobStore::join_finished_worker() {
 
 WebReporter::WebReporter(WebJobStore& store) : store_(store) {}
 
-void WebReporter::status(const std::string& message) {
-  store_.update([&](WebJobSnapshot& state) { state.status(message); });
-}
-
-void WebReporter::connectivity_report(const std::string& report) {
-  store_.update([&](WebJobSnapshot& state) { state.connectivity_report(report); });
-}
-
-void WebReporter::route_phase(RoutePhase phase, const RoutePhaseDetail& detail) {
-  store_.update([&](WebJobSnapshot& state) { state.route_phase_changed(phase, detail); });
-}
-
-void WebReporter::route_outcome(const RouteOutcome& outcome) {
-  store_.update([&](WebJobSnapshot& state) { state.route_selected(outcome); });
-}
-
-void WebReporter::route_timing(const RouteTiming& timing) {
-  store_.update([&](WebJobSnapshot& state) { state.route_timing_recorded(timing); });
-}
-
-void WebReporter::handshake_ok() {
-  store_.update([](WebJobSnapshot& state) { state.handshake_completed(); });
-}
-
-void WebReporter::code_ready(const std::string& code, bool show_qrcode) {
-  (void)show_qrcode;
-  store_.update([&](WebJobSnapshot& state) { state.pairing_code_ready(code); });
-}
-
-void WebReporter::transfer_overview(std::size_t file_count, std::uint64_t total_bytes) {
-  store_.update([&](WebJobSnapshot& state) { state.transfer_overview_received(file_count, total_bytes); });
-}
-
-void WebReporter::receive_plan(const ReceivePlanSummary& summary) {
-  store_.update([&](WebJobSnapshot& state) { state.receive_plan_ready(summary); });
-}
-
-void WebReporter::file_start(const std::string& path, std::uint64_t size) {
-  store_.update([&](WebJobSnapshot& state) { state.file_started(path, size); });
-}
-
-void WebReporter::file_advance(std::uint64_t bytes_delta) {
-  store_.update([&](WebJobSnapshot& state) { (void)state.file_advanced(bytes_delta); });
-}
-
-void WebReporter::file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) {
-  store_.update([&](WebJobSnapshot& state) { state.file_resumed(path, offset, size); });
-}
-
-void WebReporter::file_complete(const std::string& path, std::uint64_t size, bool verified) {
-  (void)path;
-  (void)size;
-  (void)verified;
-  store_.update([](WebJobSnapshot& state) { state.file_completed(); });
-}
-
-void WebReporter::transfer_complete(std::size_t file_count, std::uint64_t total_bytes) {
-  store_.update([&](WebJobSnapshot& state) { state.transfer_completed(file_count, total_bytes); });
-}
-
-void WebReporter::transfer_retry(int next_attempt, int max_attempts, const std::string& reason) {
-  store_.update([&](WebJobSnapshot& state) { state.transfer_retrying(next_attempt, max_attempts, reason); });
-}
-
-void WebReporter::transfer_retry_delay(int next_attempt, int max_attempts, std::chrono::milliseconds delay) {
-  if (delay.count() <= 0) return;
-  store_.update([&](WebJobSnapshot& state) { state.transfer_retry_waiting(next_attempt, max_attempts, delay); });
+void WebReporter::update_progress_state(UpdateKind kind, const StateMutation& mutation) {
+  (void)kind;
+  store_.update([&](WebJobSnapshot& state) { (void)mutation(state); });
 }
 
 }  // namespace kiko

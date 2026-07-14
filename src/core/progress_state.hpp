@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -69,6 +70,40 @@ class TransferProgressState {
 
  private:
   std::size_t max_log_lines_;
+};
+
+// Projects ProgressReporter events into TransferProgressState. Front-ends only
+// provide the synchronization and publication policy for each state mutation.
+class ProgressStateReporter : public ProgressReporter {
+ public:
+  void status(const std::string& message) override;
+  void connectivity_report(const std::string& report) override;
+  void route_phase(RoutePhase phase, const RoutePhaseDetail& detail) override;
+  void route_outcome(const RouteOutcome& outcome) override;
+  void route_timing(const RouteTiming& timing) override;
+  void handshake_ok() override;
+  void code_ready(const std::string& code, bool show_qrcode = true) override;
+  void transfer_overview(std::size_t file_count, std::uint64_t total_bytes) override;
+  void receive_plan(const ReceivePlanSummary& summary) override;
+  void file_start(const std::string& path, std::uint64_t size) override;
+  void file_advance(std::uint64_t bytes_delta) override;
+  void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override;
+  void file_complete(const std::string& path, std::uint64_t size, bool verified) override;
+  void transfer_complete(std::size_t file_count, std::uint64_t total_bytes) override;
+  void transfer_retry(int next_attempt, int max_attempts, const std::string& reason) override;
+  void transfer_retry_delay(int next_attempt, int max_attempts, std::chrono::milliseconds delay) override;
+
+ protected:
+  enum class UpdateKind {
+    Immediate,
+    Progress,
+  };
+
+  using StateMutation = std::function<bool(TransferProgressState&)>;
+
+  // The mutation captures event arguments by reference and must be applied
+  // synchronously before this call returns.
+  virtual void update_progress_state(UpdateKind kind, const StateMutation& mutation) = 0;
 };
 
 }  // namespace kiko

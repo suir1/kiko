@@ -6,6 +6,31 @@
 
 using namespace kiko;
 
+namespace {
+
+class RecordingStateReporter : public ProgressStateReporter {
+ public:
+  explicit RecordingStateReporter(TransferProgressState& state) : state_(state) {}
+
+  int immediate_updates = 0;
+  int progress_updates = 0;
+
+ protected:
+  void update_progress_state(UpdateKind kind, const StateMutation& mutation) override {
+    if (!mutation(state_)) return;
+    if (kind == UpdateKind::Progress) {
+      ++progress_updates;
+    } else {
+      ++immediate_updates;
+    }
+  }
+
+ private:
+  TransferProgressState& state_;
+};
+
+}  // namespace
+
 int main() {
   TransferProgressState state(3);
 
@@ -73,6 +98,30 @@ int main() {
   assert(!state.failed);
   assert(state.canceled);
   assert(state.error.empty());
+
+  state.reset();
+  RecordingStateReporter reporter(state);
+  reporter.code_ready("abc234", false);
+  reporter.route_phase(RoutePhase::DirectProbing, RoutePhaseDetail{"probing", {}, true});
+  reporter.transfer_overview(1, 100);
+  reporter.file_start("file.bin", 100);
+  reporter.file_advance(40);
+  reporter.file_complete("file.bin", 100, true);
+  reporter.handshake_ok();
+  assert(state.code == "abc234");
+  assert(state.route_phase == "direct connect (relay ready)");
+  assert(state.current_file == "file.bin");
+  assert(state.current_done == 40);
+  assert(state.overall_done == 40);
+  assert(state.files_done == 1);
+  assert(state.handshake);
+  assert(reporter.immediate_updates == 6);
+  assert(reporter.progress_updates == 1);
+
+  state.transfer_completed(1, 100);
+  reporter.file_advance(1);
+  assert(reporter.progress_updates == 1);
+  assert(state.overall_done == 100);
 
   std::cout << "progress state ok\n";
   return 0;

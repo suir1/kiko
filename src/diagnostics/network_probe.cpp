@@ -1,10 +1,8 @@
 #include "network_probe.hpp"
 
 #include "platform/platform.hpp"
-#include "core/socket.hpp"
 
 #include <algorithm>
-#include <map>
 
 namespace kiko {
 namespace {
@@ -135,7 +133,7 @@ StunProbeResult probe_stun_nat(std::chrono::milliseconds timeout) {
   result.mapped = *a;
   result.mapped_alt = *b;
   if (a->host == b->host && a->port == b->port) {
-    const auto locals = local_lan_candidate_addresses();
+    const auto locals = collect_network_interface_inventory().lan_candidate_addresses();
     const bool mapped_is_local =
         std::find(locals.begin(), locals.end(), a->host) != locals.end() ||
         std::find(locals.begin(), locals.end(), b->host) != locals.end();
@@ -144,108 +142,6 @@ StunProbeResult probe_stun_nat(std::chrono::milliseconds timeout) {
     result.nat_class = StunNatClass::Symmetric;
   }
   return result;
-}
-
-bool detect_vpn_interfaces() {
-#ifndef _WIN32
-  ifaddrs* ifaddr = nullptr;
-  if (getifaddrs(&ifaddr) != 0) return false;
-  bool found = false;
-  for (ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
-    if ((ifa->ifa_flags & IFF_UP) == 0) continue;
-    if (is_vpn_interface_name(ifa->ifa_name ? ifa->ifa_name : "")) {
-      found = true;
-      break;
-    }
-  }
-  freeifaddrs(ifaddr);
-  return found;
-#else
-  return false;
-#endif
-}
-
-bool is_vpn_interface_name(std::string_view name) {
-  return name.rfind("tun", 0) == 0 || name.rfind("wg", 0) == 0 || name.rfind("utun", 0) == 0 ||
-         name.rfind("ppp", 0) == 0 || name.rfind("ipsec", 0) == 0;
-}
-
-bool is_likely_virtual_interface_name(std::string_view name) {
-  return name.empty() || is_vpn_interface_name(name) || name.rfind("lo", 0) == 0 || name.rfind("awdl", 0) == 0 ||
-         name.rfind("llw", 0) == 0 || name.rfind("bridge", 0) == 0 || name.rfind("vmenet", 0) == 0 ||
-         name.rfind("vmnet", 0) == 0 || name.rfind("docker", 0) == 0 || name.rfind("br-", 0) == 0 ||
-         name.rfind("gif", 0) == 0 || name.rfind("stf", 0) == 0;
-}
-
-std::optional<std::string> choose_physical_interface_name() {
-  struct Candidate {
-    std::string name;
-    int score = 0;
-  };
-
-  std::map<std::string, Candidate> candidates;
-  for (const auto& iface : collect_interface_addresses()) {
-    if (iface.loopback || iface.vpn || is_likely_virtual_interface_name(iface.name)) continue;
-    auto& candidate = candidates[iface.name];
-    candidate.name = iface.name;
-    if (iface.address.find('.') != std::string::npos) candidate.score += 20;
-    if (iface.name == "en0") candidate.score += 120;
-    else if (iface.name == "en1") candidate.score += 110;
-    else if (iface.name.rfind("en", 0) == 0) candidate.score += 90;
-    else if (iface.name.rfind("eth", 0) == 0) candidate.score += 80;
-    else if (iface.name.rfind("wl", 0) == 0) candidate.score += 80;
-    else candidate.score += 10;
-  }
-
-  std::optional<Candidate> best;
-  for (const auto& [_, candidate] : candidates) {
-    if (!best || candidate.score > best->score) best = candidate;
-  }
-  if (!best) return std::nullopt;
-  return best->name;
-}
-
-std::vector<InterfaceAddress> collect_interface_addresses() {
-  std::vector<InterfaceAddress> out;
-#ifndef _WIN32
-  ifaddrs* ifaddr = nullptr;
-  if (getifaddrs(&ifaddr) != 0) return out;
-
-  auto push_unique = [&](InterfaceAddress entry) {
-    if (entry.address.empty()) return;
-    for (const auto& existing : out) {
-      if (existing.name == entry.name && existing.address == entry.address) return;
-    }
-    out.push_back(std::move(entry));
-  };
-
-  for (ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
-    if (ifa->ifa_addr == nullptr) continue;
-    if ((ifa->ifa_flags & IFF_UP) == 0) continue;
-
-    char host[INET6_ADDRSTRLEN] = {};
-    const int family = ifa->ifa_addr->sa_family;
-    if (family == AF_INET) {
-      auto* a = reinterpret_cast<sockaddr_in*>(ifa->ifa_addr);
-      inet_ntop(AF_INET, &a->sin_addr, host, sizeof(host));
-    } else if (family == AF_INET6) {
-      auto* a = reinterpret_cast<sockaddr_in6*>(ifa->ifa_addr);
-      if (IN6_IS_ADDR_LINKLOCAL(&a->sin6_addr)) continue;
-      inet_ntop(AF_INET6, &a->sin6_addr, host, sizeof(host));
-    } else {
-      continue;
-    }
-
-    const std::string name = ifa->ifa_name ? ifa->ifa_name : "";
-    push_unique(InterfaceAddress{name, host, is_vpn_interface_name(name), (ifa->ifa_flags & IFF_LOOPBACK) != 0});
-  }
-  freeifaddrs(ifaddr);
-#else
-  for (const auto& address : local_interface_addresses()) {
-    out.push_back(InterfaceAddress{"", address, false, false});
-  }
-#endif
-  return out;
 }
 
 }  // namespace kiko

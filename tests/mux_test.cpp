@@ -139,6 +139,7 @@ int main() {
   write_file(src / "empty.bin", "");
   std::string blob = random_blob(2 * 1024 * 1024 + 1234, 99);  // spans many chunks/channels
   write_file(src / "nested" / "blob.bin", blob);
+  fs::create_directories(src / "empty-dir");
 
   auto files = collect_files(src);
 
@@ -195,6 +196,10 @@ int main() {
   }
   if (source_exec_mode != 0 && (get_mode_bits(dst / "payload/small.txt") & source_exec_mode) != source_exec_mode) {
     std::cerr << "FAIL: executable bits not preserved on mux transfer\n";
+    return 1;
+  }
+  if (!fs::is_directory(dst / "payload/empty-dir")) {
+    std::cerr << "FAIL: empty directory marker not preserved on mux transfer\n";
     return 1;
   }
 

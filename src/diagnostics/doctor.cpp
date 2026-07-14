@@ -252,13 +252,15 @@ nlohmann::json route_result_hint_json(const DoctorReport& report) {
 DoctorReport run_doctor(const DoctorOptions& options) {
   DoctorReport report;
   const auto discovered = lan_discover(std::chrono::milliseconds(300));
-  report.snapshot = build_pre_rendezvous_snapshot(options.no_direct, options.only_local, discovered.size(), 0);
-  report.interfaces = collect_interface_addresses();
+  const auto interfaces = collect_network_interface_inventory();
+  report.snapshot =
+      build_pre_rendezvous_snapshot(options.no_direct, options.only_local, discovered.size(), 0, interfaces);
+  report.interfaces = interfaces.interfaces;
   report.relay_route = route_to_host(options.relay.host);
-  const auto profile = load_profile(network_fingerprint());
+  const auto profile = load_profile(network_fingerprint(interfaces));
   const auto outbound =
       select_outbound_for_relay(options.relay, options.proxy, options.bind_interface, options.avoid_vpn,
-                                profile ? outbound_history_from_profile(*profile) : std::nullopt);
+                                profile ? outbound_history_from_profile(*profile) : std::nullopt, interfaces);
   const auto connect_options = outbound.connect_options;
   report.bound_interface = connect_options.bind_interface;
   report.outbound_path = outbound.chosen_path;

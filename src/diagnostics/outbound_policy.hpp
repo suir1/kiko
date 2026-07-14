@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/common.hpp"
+#include "core/network_interfaces.hpp"
 #include "core/proxy.hpp"
 #include "core/socket.hpp"
 
@@ -40,5 +41,11 @@ struct OutboundHistory {
                                                           const std::string& bind_interface,
                                                           bool avoid_vpn,
                                                           const std::optional<OutboundHistory>& history = std::nullopt);
+[[nodiscard]] OutboundSelection select_outbound_for_relay(const Endpoint& relay,
+                                                          const std::optional<ProxyConfig>& proxy,
+                                                          const std::string& bind_interface,
+                                                          bool avoid_vpn,
+                                                          const std::optional<OutboundHistory>& history,
+                                                          const NetworkInterfaceInventory& interfaces);
 
 }  // namespace kiko

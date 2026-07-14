@@ -14,6 +14,8 @@
 
 namespace kiko {
 
+class NoteSession;
+
 struct WebNotePadSnapshot {
   std::string id;
   std::string title;
@@ -68,32 +70,21 @@ class WebJobStore {
 
   void append_log(const std::string& line);
   void update(const std::function<void(WebJobSnapshot&)>& fn);
+  [[nodiscard]] bool mutate_note(const std::function<bool(NoteSession&)>& mutation,
+                                 const std::function<std::string(const NoteSession&)>& activity,
+                                 const std::string& failure, std::string& error);
 
   struct Impl;
   struct Access;
   std::unique_ptr<Impl> impl_;
 };
 
-class WebReporter : public ProgressReporter {
+class WebReporter : public ProgressStateReporter {
  public:
   explicit WebReporter(WebJobStore& store);
 
-  void status(const std::string& message) override;
-  void connectivity_report(const std::string& report) override;
-  void route_phase(RoutePhase phase, const RoutePhaseDetail& detail) override;
-  void route_outcome(const RouteOutcome& outcome) override;
-  void route_timing(const RouteTiming& timing) override;
-  void handshake_ok() override;
-  void code_ready(const std::string& code, bool show_qrcode = true) override;
-  void transfer_overview(std::size_t file_count, std::uint64_t total_bytes) override;
-  void receive_plan(const ReceivePlanSummary& summary) override;
-  void file_start(const std::string& path, std::uint64_t size) override;
-  void file_advance(std::uint64_t bytes_delta) override;
-  void file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) override;
-  void file_complete(const std::string& path, std::uint64_t size, bool verified) override;
-  void transfer_complete(std::size_t file_count, std::uint64_t total_bytes) override;
-  void transfer_retry(int next_attempt, int max_attempts, const std::string& reason) override;
-  void transfer_retry_delay(int next_attempt, int max_attempts, std::chrono::milliseconds delay) override;
+ protected:
+  void update_progress_state(UpdateKind kind, const StateMutation& mutation) override;
 
  private:
   WebJobStore& store_;

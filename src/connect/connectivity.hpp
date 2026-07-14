@@ -97,6 +97,10 @@ class RuleScheduler {
 [[nodiscard]] ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local,
                                                                  std::size_t lan_discovered_count,
                                                                  std::uint64_t total_bytes);
+[[nodiscard]] ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local,
+                                                                 std::size_t lan_discovered_count,
+                                                                 std::uint64_t total_bytes,
+                                                                 const NetworkInterfaceInventory& interfaces);
 
 void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePuncher& puncher,
                                   const std::vector<DirectCandidate>& candidates, const NatProfile& self,

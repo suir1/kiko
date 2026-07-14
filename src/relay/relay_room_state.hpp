@@ -26,7 +26,7 @@ struct RelayWaitingPeer {
   std::uint64_t total_size = 0;
   std::uint64_t conn_count = 1;
   bool no_direct = false;
-  std::string local_candidates;
+  std::vector<std::string> local_candidates;
   std::chrono::steady_clock::time_point registered_at = std::chrono::steady_clock::now();
 };
 

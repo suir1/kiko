@@ -104,7 +104,37 @@ std::string direct_failure_summary(const PunchStats& stats) {
 }
 
 RouteOutcome make_route_outcome(const std::string& data_path, const std::string& reason, bool direct_attempted,
-                                bool lan_upgrade, const PunchStats& stats);
+                                bool lan_upgrade, const PunchStats& stats) {
+  RouteOutcome outcome;
+  outcome.control_path = "relay";
+  outcome.data_path = data_path;
+  outcome.reason = reason;
+  outcome.direct_attempted = direct_attempted;
+  outcome.lan_upgrade = lan_upgrade;
+  if (stats.direct_ok) {
+    outcome.direct_candidate_kind = stats.successful_candidate_kind;
+    outcome.direct_candidate_endpoint = stats.successful_candidate_endpoint;
+    outcome.direct_candidate_family = stats.successful_candidate_family;
+    outcome.direct_candidate_scope = stats.successful_candidate_scope;
+    outcome.direct_candidate_priority = stats.successful_candidate_priority;
+    outcome.direct_elapsed_ms = stats.successful_elapsed_ms;
+  } else {
+    outcome.direct_failure_summary = direct_failure_summary(stats);
+  }
+  return outcome;
+}
+
+RouteSelection finalize_route_selection(RouteSelection selection, ProgressReporter& reporter,
+                                        const std::string& reason, bool direct_attempted) {
+  const std::string data_path = selection.path == RoutePath::Direct ? "direct" : "relay";
+  report_route_result(reporter, data_path, reason, direct_attempted, selection.allow_lan_upgrade);
+  report_route_detail(reporter, selection.punch_stats);
+  selection.outcome =
+      make_route_outcome(data_path, reason, direct_attempted, selection.allow_lan_upgrade, selection.punch_stats);
+  reporter.route_outcome(selection.outcome);
+  reporter.route_timing(selection.timing);
+  return selection;
+}
 
 std::optional<Message> recv_relay_control_if_ready(TcpSocket& relay, std::chrono::milliseconds poll_timeout) {
   const int fd = relay.fd();
@@ -115,9 +145,9 @@ std::optional<Message> recv_relay_control_if_ready(TcpSocket& relay, std::chrono
 }
 
 RouteSelection relay_selection_from_start(TcpSocket relay, const Message& start, const AdaptivePuncher& puncher,
-                                          const RoutePlan& route_plan, bool direct_attempted,
-                                          bool explain_direct_failure, ProgressReporter& reporter,
-                                          const std::string& result_reason, RouteTiming timing) {
+                                          bool direct_attempted, bool explain_direct_failure,
+                                          ProgressReporter& reporter, const std::string& result_reason,
+                                          RouteTiming timing) {
   RouteSelection selection;
   selection.relay = std::move(relay);
   selection.path = RoutePath::Relay;
@@ -125,14 +155,7 @@ RouteSelection relay_selection_from_start(TcpSocket relay, const Message& start,
   selection.punch_stats = punch_stats_from(puncher, false, direct_attempted);
   selection.explain_direct_failure = explain_direct_failure;
   selection.timing = timing;
-  report_route_result(reporter, "relay", result_reason, direct_attempted, selection.allow_lan_upgrade);
-  report_route_detail(reporter, selection.punch_stats);
-  selection.outcome =
-      make_route_outcome("relay", result_reason, direct_attempted, selection.allow_lan_upgrade, selection.punch_stats);
-  reporter.route_outcome(selection.outcome);
-  reporter.route_timing(selection.timing);
-  (void)route_plan;
-  return selection;
+  return finalize_route_selection(std::move(selection), reporter, result_reason, direct_attempted);
 }
 
 std::optional<TcpSocket> finish_direct_future(std::future<std::optional<TcpSocket>>& future, std::atomic_bool& cancel,
@@ -166,27 +189,6 @@ std::optional<TcpSocket> collect_direct_future(std::future<std::optional<TcpSock
   return std::nullopt;
 }
 
-RouteOutcome make_route_outcome(const std::string& data_path, const std::string& reason, bool direct_attempted,
-                                bool lan_upgrade, const PunchStats& stats) {
-  RouteOutcome outcome;
-  outcome.control_path = "relay";
-  outcome.data_path = data_path;
-  outcome.reason = reason;
-  outcome.direct_attempted = direct_attempted;
-  outcome.lan_upgrade = lan_upgrade;
-  if (stats.direct_ok) {
-    outcome.direct_candidate_kind = stats.successful_candidate_kind;
-    outcome.direct_candidate_endpoint = stats.successful_candidate_endpoint;
-    outcome.direct_candidate_family = stats.successful_candidate_family;
-    outcome.direct_candidate_scope = stats.successful_candidate_scope;
-    outcome.direct_candidate_priority = stats.successful_candidate_priority;
-    outcome.direct_elapsed_ms = stats.successful_elapsed_ms;
-  } else {
-    outcome.direct_failure_summary = direct_failure_summary(stats);
-  }
-  return outcome;
-}
-
 }  // namespace
 
 RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> direct,
@@ -216,13 +218,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
       selection.allow_lan_upgrade = false;
       selection.punch_stats = punch_stats_from(puncher, false, true);
       selection.timing.relay_commit_ms = elapsed_ms_since(confirmation_start);
-      report_route_result(reporter, "relay", "peer_selected_relay", true, selection.allow_lan_upgrade);
-      report_route_detail(reporter, selection.punch_stats);
-      selection.outcome = make_route_outcome("relay", "peer_selected_relay", true, selection.allow_lan_upgrade,
-                                             selection.punch_stats);
-      reporter.route_outcome(selection.outcome);
-      reporter.route_timing(selection.timing);
-      return selection;
+      return finalize_route_selection(std::move(selection), reporter, "peer_selected_relay", true);
     }
     if (direct_choice->type != "direct_start") {
       throw KikoError("unexpected relay route confirmation: " + direct_choice->type);
@@ -231,12 +227,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
     selection.path = RoutePath::Direct;
     selection.direct = std::move(direct);
     selection.punch_stats = punch_stats_from(puncher, true, true);
-    report_route_result(reporter, "direct", "confirmed", true, false);
-    report_route_detail(reporter, selection.punch_stats);
-    selection.outcome = make_route_outcome("direct", "confirmed", true, false, selection.punch_stats);
-    reporter.route_outcome(selection.outcome);
-    reporter.route_timing(selection.timing);
-    return selection;
+    return finalize_route_selection(std::move(selection), reporter, "confirmed", true);
   }
 
   selection.punch_stats = punch_stats_from(puncher, false, !route_plan.skip_direct);
@@ -254,14 +245,7 @@ RouteSelection select_transfer_route(TcpSocket relay, std::optional<TcpSocket> d
   selection.timing.relay_commit_ms = elapsed_ms_since(commit_start);
   selection.path = RoutePath::Relay;
   selection.allow_lan_upgrade = start->get("reason") != "mismatch";
-  report_route_result(reporter, "relay", relay_reason, !route_plan.skip_direct, selection.allow_lan_upgrade);
-  report_route_detail(reporter, selection.punch_stats);
-  selection.outcome =
-      make_route_outcome("relay", relay_reason, !route_plan.skip_direct, selection.allow_lan_upgrade,
-                         selection.punch_stats);
-  reporter.route_outcome(selection.outcome);
-  reporter.route_timing(selection.timing);
-  return selection;
+  return finalize_route_selection(std::move(selection), reporter, relay_reason, !route_plan.skip_direct);
 }
 
 RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attempt, const AdaptivePuncher& puncher,
@@ -299,9 +283,8 @@ RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attem
                            "peer_selected_relay", /*relay_fallback_ready=*/true);
         (void)finish_direct_future(direct_future, cancel, /*suppress_errors=*/true);
         timing.relay_commit_ms = elapsed_ms_since(commit_start);
-        return relay_selection_from_start(std::move(relay), *relay_msg, puncher, route_plan,
-                                          /*direct_attempted=*/true, /*explain_direct_failure=*/false, reporter,
-                                          "peer_selected_relay", timing);
+        return relay_selection_from_start(std::move(relay), *relay_msg, puncher, /*direct_attempted=*/true,
+                                          /*explain_direct_failure=*/false, reporter, "peer_selected_relay", timing);
       }
       if (relay_msg->type == "error") throw KikoError("relay route error: " + relay_msg->get("code", "unknown"));
       if (relay_msg->type == "done") throw KikoError("relay closed before route selection");
@@ -320,9 +303,8 @@ RouteSelection race_transfer_route(TcpSocket relay, DirectAttemptFn direct_attem
       reporter.status("relay committed before direct confirmation");
       report_route_phase(reporter, RoutePhase::RelayCommitted, "peer selected relay before direct confirmation",
                          "peer_selected_relay", /*relay_fallback_ready=*/true);
-      return relay_selection_from_start(std::move(relay), *relay_msg, puncher, route_plan,
-                                        /*direct_attempted=*/true, /*explain_direct_failure=*/false, reporter,
-                                        "peer_selected_relay", timing);
+      return relay_selection_from_start(std::move(relay), *relay_msg, puncher, /*direct_attempted=*/true,
+                                        /*explain_direct_failure=*/false, reporter, "peer_selected_relay", timing);
     }
     if (relay_msg->type == "error") throw KikoError("relay route error: " + relay_msg->get("code", "unknown"));
     if (relay_msg->type == "done") throw KikoError("relay closed before route selection");

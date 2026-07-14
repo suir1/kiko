@@ -2,13 +2,9 @@
 
 #include "core/common.hpp"
 #include "core/crypto.hpp"
-#include "file_metadata.hpp"
 #include "core/protocol.hpp"
-#include "receive_plan.hpp"
 #include "core/socket.hpp"
 #include "transfer.hpp"
-#include "transfer_receive_paths.hpp"
-#include "transfer_resume.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -47,12 +43,6 @@ void ensure_declared_space(std::uint64_t current_total, std::uint64_t declared_s
 [[nodiscard]] std::size_t declared_remaining_limit(std::uint64_t current_total, std::uint64_t declared_size,
                                                    const std::string& relative);
 
-[[nodiscard]] bool is_dir_entry(const FileEntry& entry);
-[[nodiscard]] bool is_symlink_entry(const FileEntry& entry);
-void append_mtime_field(Message& header, const FileEntry& entry);
-void append_mode_field(Message& header, const FileEntry& entry);
-[[nodiscard]] bool should_compress_entry(const FileEntry& entry);
-[[nodiscard]] Message make_file_header(const FileEntry& entry);
 void send_transfer_manifest(TcpSocket& socket, StreamCipher& cipher, const std::vector<FileEntry>& files);
 
 void send_tagged(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, std::span<const std::uint8_t> payload);

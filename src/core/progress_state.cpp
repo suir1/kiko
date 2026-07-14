@@ -251,4 +251,122 @@ void TransferProgressState::finish_canceled() {
   ended = std::chrono::steady_clock::now();
 }
 
+void ProgressStateReporter::status(const std::string& message) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.status(message);
+    return true;
+  });
+}
+
+void ProgressStateReporter::connectivity_report(const std::string& report) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.connectivity_report(report);
+    return true;
+  });
+}
+
+void ProgressStateReporter::route_phase(RoutePhase phase, const RoutePhaseDetail& detail) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.route_phase_changed(phase, detail);
+    return true;
+  });
+}
+
+void ProgressStateReporter::route_outcome(const RouteOutcome& outcome) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.route_selected(outcome);
+    return true;
+  });
+}
+
+void ProgressStateReporter::route_timing(const RouteTiming& timing) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.route_timing_recorded(timing);
+    return true;
+  });
+}
+
+void ProgressStateReporter::handshake_ok() {
+  update_progress_state(UpdateKind::Immediate, [](TransferProgressState& state) {
+    state.handshake_completed();
+    return true;
+  });
+}
+
+void ProgressStateReporter::code_ready(const std::string& code, bool show_qrcode) {
+  (void)show_qrcode;
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.pairing_code_ready(code);
+    return true;
+  });
+}
+
+void ProgressStateReporter::transfer_overview(std::size_t file_count, std::uint64_t total_bytes) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.transfer_overview_received(file_count, total_bytes);
+    return true;
+  });
+}
+
+void ProgressStateReporter::receive_plan(const ReceivePlanSummary& summary) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.receive_plan_ready(summary);
+    return true;
+  });
+}
+
+void ProgressStateReporter::file_start(const std::string& path, std::uint64_t size) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.file_started(path, size);
+    return true;
+  });
+}
+
+void ProgressStateReporter::file_advance(std::uint64_t bytes_delta) {
+  update_progress_state(UpdateKind::Progress,
+                        [&](TransferProgressState& state) { return state.file_advanced(bytes_delta); });
+}
+
+void ProgressStateReporter::file_resume(const std::string& path, std::uint64_t offset,
+                                        std::uint64_t size) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.file_resumed(path, offset, size);
+    return true;
+  });
+}
+
+void ProgressStateReporter::file_complete(const std::string& path, std::uint64_t size, bool verified) {
+  (void)path;
+  (void)size;
+  (void)verified;
+  update_progress_state(UpdateKind::Immediate, [](TransferProgressState& state) {
+    state.file_completed();
+    return true;
+  });
+}
+
+void ProgressStateReporter::transfer_complete(std::size_t file_count, std::uint64_t total_bytes) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.transfer_completed(file_count, total_bytes);
+    return true;
+  });
+}
+
+void ProgressStateReporter::transfer_retry(int next_attempt, int max_attempts,
+                                           const std::string& reason) {
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.transfer_retrying(next_attempt, max_attempts, reason);
+    return true;
+  });
+}
+
+void ProgressStateReporter::transfer_retry_delay(int next_attempt, int max_attempts,
+                                                 std::chrono::milliseconds delay) {
+  if (delay.count() <= 0) return;
+  update_progress_state(UpdateKind::Immediate, [&](TransferProgressState& state) {
+    state.transfer_retry_waiting(next_attempt, max_attempts, delay);
+    return true;
+  });
+}
+
 }  // namespace kiko

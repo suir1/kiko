@@ -1,7 +1,5 @@
 #include "connect/profile.hpp"
 
-#include "core/socket.hpp"
-
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -124,7 +122,11 @@ void save_profile_success_impl(const std::string& fingerprint, const std::string
 }  // namespace
 
 std::string network_fingerprint() {
-  const auto addrs = local_lan_candidate_addresses();
+  return network_fingerprint(collect_network_interface_inventory());
+}
+
+std::string network_fingerprint(const NetworkInterfaceInventory& interfaces) {
+  const auto addrs = interfaces.lan_candidate_addresses();
   if (addrs.empty()) return "unknown";
   return addrs.front();
 }

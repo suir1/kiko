@@ -102,46 +102,6 @@ void TuiReporter::status(const std::string& message) {
   wake_();
 }
 
-void TuiReporter::connectivity_report(const std::string& report) {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.connectivity_report(report);
-  }
-  wake_();
-}
-
-void TuiReporter::route_phase(RoutePhase phase, const RoutePhaseDetail& detail) {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.route_phase_changed(phase, detail);
-  }
-  wake_();
-}
-
-void TuiReporter::route_outcome(const RouteOutcome& outcome) {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.route_selected(outcome);
-  }
-  wake_();
-}
-
-void TuiReporter::route_timing(const RouteTiming& timing) {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.route_timing_recorded(timing);
-  }
-  wake_();
-}
-
-void TuiReporter::handshake_ok() {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.handshake_completed();
-  }
-  wake_();
-}
-
 void TuiReporter::code_ready(const std::string& code, bool show_qrcode) {
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
@@ -156,84 +116,17 @@ void TuiReporter::code_ready(const std::string& code, bool show_qrcode) {
   wake_();
 }
 
-void TuiReporter::transfer_overview(std::size_t file_count, std::uint64_t total_bytes) {
+void TuiReporter::update_progress_state(UpdateKind kind, const StateMutation& mutation) {
+  bool changed = false;
+  bool should_wake = true;
   {
     std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.transfer_overview_received(file_count, total_bytes);
+    changed = mutation(state_);
+    if (changed && kind == UpdateKind::Progress) {
+      should_wake = should_wake_progress(std::chrono::steady_clock::now());
+    }
   }
-  wake_();
-}
-
-void TuiReporter::receive_plan(const ReceivePlanSummary& summary) {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.receive_plan_ready(summary);
-  }
-  wake_();
-}
-
-void TuiReporter::file_start(const std::string& path, std::uint64_t size) {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.file_started(path, size);
-  }
-  wake_();
-}
-
-void TuiReporter::file_advance(std::uint64_t bytes_delta) {
-  bool should_wake = false;
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    if (!state_.file_advanced(bytes_delta)) return;
-    should_wake = should_wake_progress(std::chrono::steady_clock::now());
-  }
-  if (should_wake) {
-    wake_();
-  }
-}
-
-void TuiReporter::file_resume(const std::string& path, std::uint64_t offset, std::uint64_t size) {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.file_resumed(path, offset, size);
-  }
-  wake_();
-}
-
-void TuiReporter::file_complete(const std::string& path, std::uint64_t size, bool verified) {
-  (void)path;
-  (void)size;
-  (void)verified;
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.file_completed();
-  }
-  wake_();
-}
-
-void TuiReporter::transfer_complete(std::size_t file_count, std::uint64_t total_bytes) {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.transfer_completed(file_count, total_bytes);
-  }
-  wake_();
-}
-
-void TuiReporter::transfer_retry(int next_attempt, int max_attempts, const std::string& reason) {
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.transfer_retrying(next_attempt, max_attempts, reason);
-  }
-  wake_();
-}
-
-void TuiReporter::transfer_retry_delay(int next_attempt, int max_attempts, std::chrono::milliseconds delay) {
-  if (delay.count() <= 0) return;
-  {
-    std::lock_guard<std::mutex> lock(state_.mutex);
-    state_.transfer_retry_waiting(next_attempt, max_attempts, delay);
-  }
-  wake_();
+  if (changed && should_wake) wake_();
 }
 
 bool TuiReporter::should_wake_progress(std::chrono::steady_clock::time_point now) {

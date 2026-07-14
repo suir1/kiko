@@ -66,9 +66,14 @@ NoteSessionEnd NoteSession::run() {
       if (frame->type == NoteFrameType::Bye) {
         break;
       }
-      if (callbacks_.frame_received) callbacks_.frame_received(*frame);
+      if (frame->type == NoteFrameType::Ack) {
+        workspace_.acknowledge(*frame);
+        notify_workspace_changed(NoteSessionEvent::Acknowledged, *frame);
+      } else if (workspace_.apply_remote(*frame)) {
+        notify_workspace_changed(NoteSessionEvent::RemoteApplied, *frame);
+      }
       if (frame->type == NoteFrameType::Update || frame->type == NoteFrameType::Clear) {
-        (void)send(make_note_ack(frame->pad_id, frame->revision));
+        (void)queue_frame(make_note_ack(frame->pad_id, frame->revision));
       }
     }
 
@@ -89,7 +94,7 @@ NoteSessionEnd NoteSession::run() {
   }
 }
 
-bool NoteSession::send(NoteFrame frame) {
+bool NoteSession::queue_frame(NoteFrame frame) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (stop_.load()) return false;
   outgoing_.push_back(std::move(frame));
@@ -114,6 +119,10 @@ std::shared_ptr<TransferCancellation> NoteSession::cancellation() const {
   return cancellation_;
 }
 
+void NoteSession::notify_workspace_changed(NoteSessionEvent event, const NoteFrame& frame) const {
+  if (callbacks_.workspace_changed) callbacks_.workspace_changed(*this, event, frame);
+}
+
 void NoteSession::sender_loop() {
   try {
     while (true) {
@@ -133,7 +142,9 @@ void NoteSession::sender_loop() {
         cipher = cipher_.get();
       }
       send_note_frame(*channel, *cipher, frame);
-      if (callbacks_.frame_sent) callbacks_.frame_sent(frame);
+      if (frame.type == NoteFrameType::Update || frame.type == NoteFrameType::Clear) {
+        notify_workspace_changed(NoteSessionEvent::LocalSent, frame);
+      }
     }
   } catch (...) {
     {

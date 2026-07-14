@@ -2,7 +2,6 @@
 
 #include "core/qrcode_print.hpp"
 #include "note/note_session.hpp"
-#include "note/note_workspace.hpp"
 #include "platform/platform.hpp"
 
 #include <ftxui/component/component.hpp>
@@ -150,7 +149,6 @@ int run_tui_note(const NoteConfig& config) {
 
   TuiNoteState state;
   state.title = config.role == Role::Sender ? "kiko note host" : "kiko note join";
-  NoteWorkspace workspace;
 
   auto run_config = config;
   auto screen = ScreenInteractive::Fullscreen();
@@ -167,24 +165,20 @@ int run_tui_note(const NoteConfig& config) {
     }
     wake();
   };
-  callbacks.frame_received = [&](const NoteFrame& frame) {
-    if (frame.type == NoteFrameType::Ack) {
-      workspace.acknowledge(frame);
-      set_status(state, workspace.snapshot().synced ? "synced" : "sent");
+  callbacks.workspace_changed = [&](const NoteSession& active_session, NoteSessionEvent event,
+                                    const NoteFrame& frame) {
+    if (event == NoteSessionEvent::Acknowledged) {
+      set_status(state, active_session.snapshot().synced ? "synced" : "sent");
       wake();
       return;
     }
-    if (frame.type != NoteFrameType::Update && frame.type != NoteFrameType::Clear) return;
-    {
+    if (event == NoteSessionEvent::RemoteApplied) {
       std::lock_guard<std::mutex> lock(state.mutex);
       state.pending_remote.push_back(frame);
       state.status = "remote update";
+    } else if (event == NoteSessionEvent::LocalSent) {
+      set_status(state, active_session.snapshot().synced ? "synced" : "sent");
     }
-    wake();
-  };
-  callbacks.frame_sent = [&](const NoteFrame& frame) {
-    if (frame.type != NoteFrameType::Update && frame.type != NoteFrameType::Clear) return;
-    set_status(state, workspace.snapshot().synced ? "synced" : "sent");
     wake();
   };
 
@@ -197,6 +191,19 @@ int run_tui_note(const NoteConfig& config) {
   std::string note_qr;
   std::atomic_bool debounce_pending{false};
   std::optional<std::chrono::steady_clock::time_point> dirty_since;
+
+  auto reset_local_edit = [&] {
+    local_dirty = false;
+    debounce_pending.store(false);
+    dirty_since.reset();
+  };
+  auto load_active_document = [&] {
+    applying_remote = true;
+    editor_text = session->active_document().text;
+    note_qr.clear();
+    applying_remote = false;
+    reset_local_edit();
+  };
 
   auto mark_local_changed = [&] {
     if (applying_remote) return;
@@ -213,25 +220,16 @@ int run_tui_note(const NoteConfig& config) {
         std::chrono::steady_clock::now() - *dirty_since < std::chrono::milliseconds(250)) {
       return;
     }
-    auto frame = workspace.update_active(editor_text);
-    if (!session->send(std::move(frame))) return;
-    local_dirty = false;
-    debounce_pending.store(false);
-    dirty_since.reset();
+    if (!session->update_active(editor_text)) return;
+    reset_local_edit();
     set_status(state, session->connected() ? "syncing" : "edited locally");
   };
 
   auto switch_active_pad = [&](const std::string& pad_id) {
-    if (pad_id.empty() || pad_id == workspace.snapshot().active_pad) return;
+    if (pad_id.empty() || pad_id == session->snapshot().active_pad) return;
     send_editor(false);
-    if (!workspace.select_pad(pad_id)) return;
-    applying_remote = true;
-    editor_text = workspace.active_document().text;
-    note_qr.clear();
-    applying_remote = false;
-    local_dirty = false;
-    debounce_pending.store(false);
-    dirty_since.reset();
+    if (!session->select_pad(pad_id)) return;
+    load_active_document();
   };
 
   auto apply_remote_updates = [&] {
@@ -247,15 +245,8 @@ int run_tui_note(const NoteConfig& config) {
       frames.swap(state.pending_remote);
     }
     for (const auto& frame : frames) {
-      if (!workspace.apply_remote(frame)) continue;
-      if (workspace.snapshot().active_pad != frame.pad_id) continue;
-      applying_remote = true;
-      editor_text = workspace.active_document().text;
-      note_qr.clear();
-      applying_remote = false;
-      local_dirty = false;
-      debounce_pending.store(false);
-      dirty_since.reset();
+      if (session->snapshot().active_pad != frame.pad_id) continue;
+      load_active_document();
     }
   };
 
@@ -296,21 +287,19 @@ int run_tui_note(const NoteConfig& config) {
   auto clear_button = Button("Clear", [&] {
     editor_text.clear();
     note_qr.clear();
-    if (session->send(workspace.clear_active())) set_status(state, "syncing");
-    local_dirty = false;
-    debounce_pending.store(false);
-    dirty_since.reset();
+    if (session->clear_active()) set_status(state, "syncing");
+    reset_local_edit();
     wake();
   });
   auto prev_button = Button("Prev", [&] {
-    const auto snapshot = workspace.snapshot();
+    const auto snapshot = session->snapshot();
     if (snapshot.documents.size() <= 1) return;
     const auto index = active_pad_index(snapshot);
     switch_active_pad(snapshot.documents[(index + snapshot.documents.size() - 1) % snapshot.documents.size()].pad_id);
     wake();
   });
   auto next_button = Button("Next", [&] {
-    const auto snapshot = workspace.snapshot();
+    const auto snapshot = session->snapshot();
     if (snapshot.documents.size() <= 1) return;
     const auto index = active_pad_index(snapshot);
     switch_active_pad(snapshot.documents[(index + 1) % snapshot.documents.size()].pad_id);
@@ -318,16 +307,9 @@ int run_tui_note(const NoteConfig& config) {
   });
   auto new_button = Button("New", [&] {
     send_editor(false);
-    auto frame = workspace.create_pad();
-    const auto title = frame.title;
-    (void)session->send(std::move(frame));
-    applying_remote = true;
-    editor_text = workspace.active_document().text;
-    note_qr.clear();
-    applying_remote = false;
-    local_dirty = false;
-    debounce_pending.store(false);
-    dirty_since.reset();
+    if (!session->create_pad()) return;
+    const auto title = session->active_document().title;
+    load_active_document();
     set_status(state, "created " + title);
     wake();
   });
@@ -390,8 +372,8 @@ int run_tui_note(const NoteConfig& config) {
     header.push_back(text(title) | bold);
     if (!code.empty()) header.push_back(text("code: " + code));
     if (!route.empty()) header.push_back(text("route: " + route));
-    const auto snapshot = workspace.snapshot();
-    const auto document = workspace.active_document();
+    const auto snapshot = session->snapshot();
+    const auto document = session->active_document();
     header.push_back(text("pad: " + note_pad_title(document) + " (" +
                           std::to_string(active_pad_index(snapshot) + 1) + "/" +
                           std::to_string(std::max<std::size_t>(snapshot.documents.size(), 1)) + ")"));

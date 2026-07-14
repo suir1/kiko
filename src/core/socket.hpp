@@ -80,8 +80,5 @@ class TcpListener {
                                     const std::optional<ProxyConfig>& proxy = std::nullopt);
 [[nodiscard]] TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeout,
                                     const ConnectOptions& options, const std::atomic_bool* cancel = nullptr);
-[[nodiscard]] std::vector<std::string> local_interface_addresses();
-// LAN/private candidates for punch and hello; excludes typical VPN tunnel interfaces.
-[[nodiscard]] std::vector<std::string> local_lan_candidate_addresses();
 
 }  // namespace kiko
