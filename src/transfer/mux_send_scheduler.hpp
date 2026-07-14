@@ -53,7 +53,7 @@ class MuxSendScheduler {
   void record_backpressure_wait(std::int64_t elapsed_ms);
   void record_send_timing(std::int64_t elapsed_ms);
   void set_error(std::exception_ptr error);
-  void close_channels();
+  void interrupt_channels();
   void worker(std::size_t channel_index);
 
   std::vector<TcpSocket>& channels_;
@@ -71,7 +71,7 @@ class MuxSendScheduler {
   std::size_t next_channel_ = 0;
   bool finishing_ = false;
   bool joined_ = false;
-  bool closing_ = false;
+  bool interrupting_ = false;
 };
 
 }  // namespace kiko::detail

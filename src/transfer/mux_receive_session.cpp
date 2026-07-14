@@ -141,7 +141,7 @@ void MuxReceiveSession::record_failure(const std::exception& error) {
     std::lock_guard<std::mutex> report_lock(report_mutex_);
     if (error_text_.empty()) error_text_ = error.what();
   }
-  close_channels();
+  interrupt_channels();
 }
 
 void MuxReceiveSession::truncate_partial_to_contiguous_prefix() {
@@ -159,10 +159,10 @@ void MuxReceiveSession::truncate_partial_to_contiguous_prefix() {
   error_text_ += "failed to trim mux partial to resumable prefix: " + ec.message();
 }
 
-void MuxReceiveSession::close_channels() {
+void MuxReceiveSession::interrupt_channels() {
   bool expected = false;
-  if (!closing_.compare_exchange_strong(expected, true)) return;
-  for (auto& channel : channels_) channel.close();
+  if (!interrupting_.compare_exchange_strong(expected, true)) return;
+  for (auto& channel : channels_) channel.interrupt();
 }
 
 }  // namespace kiko::detail

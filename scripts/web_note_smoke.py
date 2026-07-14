@@ -57,6 +57,17 @@ def terminate(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=3)
 
 
+def dump_child_output(procs: list[subprocess.Popen[str]]) -> None:
+    for proc in procs:
+        if not proc.stdout:
+            continue
+        output = proc.stdout.read()
+        if not output:
+            continue
+        print(f"--- child output: {proc.args} ---", file=sys.stderr)
+        print(output[-12000:], file=sys.stderr)
+
+
 def free_tcp_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -202,6 +213,11 @@ def main() -> None:
             fail("join output did not contain synced note text:\n" + output[-2000:])
         if pad_text not in output:
             fail("join output did not contain second pad note text:\n" + output[-2000:])
+    except BaseException:
+        for proc in reversed(procs):
+            terminate(proc)
+        dump_child_output(procs)
+        raise
     finally:
         for proc in reversed(procs):
             terminate(proc)

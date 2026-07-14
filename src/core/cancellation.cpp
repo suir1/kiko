@@ -5,13 +5,13 @@ namespace kiko {
 void TransferCancellation::request() {
   requested_.store(true);
 
-  std::vector<std::shared_ptr<asio::ip::tcp::socket>> sockets;
+  std::vector<SocketInterruptHandle> sockets;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     sockets.reserve(sockets_.size());
     for (auto it = sockets_.begin(); it != sockets_.end();) {
-      if (auto socket = it->lock()) {
-        sockets.push_back(std::move(socket));
+      if (!it->expired()) {
+        sockets.push_back(*it);
         ++it;
       } else {
         it = sockets_.erase(it);
@@ -19,15 +19,7 @@ void TransferCancellation::request() {
     }
   }
 
-  for (auto& socket : sockets) {
-    if (!socket || !socket->is_open()) continue;
-    asio::error_code ignored;
-    socket->cancel(ignored);
-    ignored.clear();
-    socket->shutdown(asio::ip::tcp::socket::shutdown_both, ignored);
-    ignored.clear();
-    socket->close(ignored);
-  }
+  for (const auto& socket : sockets) socket.interrupt();
 }
 
 bool TransferCancellation::requested() const { return requested_.load(); }
@@ -38,13 +30,13 @@ void TransferCancellation::track(TcpSocket& socket) {
   if (!socket.valid()) return;
 
   if (requested()) {
-    socket.close();
+    socket.interrupt();
     return;
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
-  sockets_.push_back(socket.weak_handle());
-  if (requested_.load()) socket.close();
+  sockets_.push_back(socket.interrupt_handle());
+  if (requested_.load()) socket.interrupt();
 }
 
 }  // namespace kiko

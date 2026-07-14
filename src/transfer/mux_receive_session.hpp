@@ -27,7 +27,7 @@ class MuxReceiveSession {
   [[nodiscard]] std::uint64_t record_written_range_locked(std::uint64_t offset, std::uint64_t size);
   void record_failure(const std::exception& error);
   void truncate_partial_to_contiguous_prefix();
-  void close_channels();
+  void interrupt_channels();
 
   std::vector<TcpSocket>& channels_;
   std::vector<StreamCipher>& ciphers_;
@@ -46,7 +46,7 @@ class MuxReceiveSession {
   std::uint64_t contiguous_prefix_ = 0;
   std::map<std::uint64_t, std::uint64_t> pending_ranges_;
   std::atomic<bool> failed_{false};
-  std::atomic<bool> closing_{false};
+  std::atomic<bool> interrupting_{false};
   std::string error_text_;
 };
 

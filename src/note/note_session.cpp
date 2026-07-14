@@ -24,6 +24,7 @@ NoteSession::NoteSession(PeerSessionConfig config, ProgressReporter& reporter, N
 NoteSession::~NoteSession() {
   request_stop();
   stop_sender();
+  close_channel();
 }
 
 NoteSessionEnd NoteSession::run() {
@@ -78,17 +79,19 @@ NoteSessionEnd NoteSession::run() {
     }
 
     stop_.store(true);
-    close_channel();
+    interrupt_channel();
     changed_.notify_all();
     stop_sender();
+    close_channel();
     if (sender_error_) std::rethrow_exception(sender_error_);
     if (explicit_stop_.load() || cancellation_->requested()) return NoteSessionEnd::Stopped;
     return NoteSessionEnd::PeerClosed;
   } catch (...) {
     stop_.store(true);
-    close_channel();
+    interrupt_channel();
     changed_.notify_all();
     stop_sender();
+    close_channel();
     if (sender_error_) std::rethrow_exception(sender_error_);
     throw;
   }
@@ -106,7 +109,7 @@ void NoteSession::request_stop() {
   explicit_stop_.store(true);
   stop_.store(true);
   if (cancellation_) cancellation_->request();
-  close_channel();
+  interrupt_channel();
   changed_.notify_all();
 }
 
@@ -153,14 +156,19 @@ void NoteSession::sender_loop() {
     }
     stop_.store(true);
     if (cancellation_) cancellation_->request();
-    close_channel();
+    interrupt_channel();
     changed_.notify_all();
   }
 }
 
-void NoteSession::close_channel() {
+void NoteSession::interrupt_channel() {
   std::lock_guard<std::mutex> lock(mutex_);
   connected_ = false;
+  if (channel_) channel_->interrupt();
+}
+
+void NoteSession::close_channel() {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (channel_) channel_->close();
 }
 

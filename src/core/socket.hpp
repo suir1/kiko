@@ -15,6 +15,23 @@
 
 namespace kiko {
 
+class SocketInterruptHandle {
+ public:
+  SocketInterruptHandle() = default;
+
+  void interrupt() const;
+  [[nodiscard]] bool expired() const;
+
+ private:
+  struct State;
+
+  explicit SocketInterruptHandle(std::weak_ptr<State> state);
+
+  std::weak_ptr<State> state_;
+
+  friend class TcpSocket;
+};
+
 struct ConnectOptions {
   std::optional<ProxyConfig> proxy;
   std::string bind_interface;
@@ -27,16 +44,17 @@ class TcpSocket {
   explicit TcpSocket(asio::ip::tcp::socket socket);
   TcpSocket(const TcpSocket&) = delete;
   TcpSocket& operator=(const TcpSocket&) = delete;
-  TcpSocket(TcpSocket&&) noexcept = default;
-  TcpSocket& operator=(TcpSocket&&) noexcept = default;
+  TcpSocket(TcpSocket&& other) noexcept;
+  TcpSocket& operator=(TcpSocket&& other) noexcept;
   ~TcpSocket();
 
   [[nodiscard]] bool valid() const;
   [[nodiscard]] int fd() const;
   [[nodiscard]] asio::ip::tcp::socket& asio_socket();
   [[nodiscard]] const asio::ip::tcp::socket& asio_socket() const;
-  [[nodiscard]] std::weak_ptr<asio::ip::tcp::socket> weak_handle() const;
+  [[nodiscard]] SocketInterruptHandle interrupt_handle() const;
 
+  void interrupt() const;
   void close();
   void set_no_delay(bool enabled);
   void set_reuse_addr(bool enabled);
@@ -55,6 +73,7 @@ class TcpSocket {
 
  private:
   std::shared_ptr<asio::ip::tcp::socket> socket_;
+  std::shared_ptr<SocketInterruptHandle::State> interrupt_state_;
 };
 
 class TcpListener {

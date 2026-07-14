@@ -69,6 +69,7 @@ class NoteSession {
   [[nodiscard]] bool queue_frame(NoteFrame frame);
   void notify_workspace_changed(NoteSessionEvent event, const NoteFrame& frame) const;
   void sender_loop();
+  void interrupt_channel();
   void close_channel();
   void stop_sender();
 

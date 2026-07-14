@@ -19,7 +19,7 @@ class TransferCancellation {
  private:
   mutable std::mutex mutex_;
   std::atomic_bool requested_{false};
-  std::vector<std::weak_ptr<asio::ip::tcp::socket>> sockets_;
+  std::vector<SocketInterruptHandle> sockets_;
 };
 
 }  // namespace kiko
