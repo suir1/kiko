@@ -11,6 +11,23 @@ int main() {
   using namespace kiko;
   using namespace std::chrono_literals;
 
+  {
+    auto cancellation = std::make_shared<TransferCancellation>();
+    throw_if_cancelled(cancellation);
+    cancellation->request();
+
+    std::string message;
+    try {
+      throw_if_cancelled(cancellation, "session canceled");
+    } catch (const KikoError& error) {
+      message = error.what();
+    }
+    if (message != "session canceled") {
+      std::cerr << "FAIL: cancellation helper did not preserve the requested error\n";
+      return 1;
+    }
+  }
+
   auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
   TcpSocket client;
   std::thread connector([&] { client = connect_tcp(listener.local_endpoint(), 2s); });

@@ -25,25 +25,25 @@ int main() {
   stats.successful_candidate_priority = 90;
   stats.successful_elapsed_ms = 7;
   stats.candidate_failures_by_kind["public"] = 2;
-  ProfileRelayPath relay;
+  OutboundHistory relay;
   relay.path = "physical";
   relay.bind_interface = "en0";
   relay.reason = "physical_lower_rtt";
   relay.rtt_by_path["default"] = 90;
   relay.rtt_by_path["physical"] = 42;
 
-  save_profile_success("fp-test", "direct", stats, relay);
+  save_profile_success("fp-test", ProfileSuccess{"direct", stats, relay});
 
   auto loaded = load_profile("fp-test");
   assert(loaded);
   assert(loaded->last_path == "direct");
   assert(loaded->success_count == 1);
   assert(loaded->path_streak == 1);
-  assert(loaded->last_relay_path == "physical");
-  assert(loaded->last_relay_interface == "en0");
-  assert(loaded->last_relay_reason == "physical_lower_rtt");
-  assert(loaded->relay_rtt_by_path["default"] == 90);
-  assert(loaded->relay_rtt_by_path["physical"] == 42);
+  assert(loaded->outbound_history.path == "physical");
+  assert(loaded->outbound_history.bind_interface == "en0");
+  assert(loaded->outbound_history.reason == "physical_lower_rtt");
+  assert(loaded->outbound_history.rtt_by_path["default"] == 90);
+  assert(loaded->outbound_history.rtt_by_path["physical"] == 42);
   assert(loaded->last_direct_candidate_kind == "lan");
   assert(loaded->last_direct_rtt_ms == 7);
   assert(loaded->candidate_failures_by_kind["public"] == 2);
@@ -55,36 +55,28 @@ int main() {
   assert(outbound_history->rtt_by_path["default"] == 90);
   assert(outbound_history->rtt_by_path["physical"] == 42);
 
-  std::vector<DirectCandidate> candidates{
-      make_direct_candidate(Endpoint{"203.0.113.7", 5000}, "public", 20),
-      make_direct_candidate(Endpoint{"192.168.1.10", 5000}, "lan", 90),
-  };
-  apply_profile_candidate_bias(*loaded, candidates);
-  assert(candidates[0].priority == 10);
-  assert(candidates[1].priority == 115);
-
   ConnectivitySnapshot snapshot;
-  apply_profile_to_snapshot(*loaded, snapshot);
-  assert(snapshot.profile_last_path == "direct");
-  assert(snapshot.profile_success_count == 1);
-  assert(snapshot.profile_path_streak == 1);
-  assert(snapshot.profile_relay_path == "physical");
-  assert(snapshot.profile_relay_interface == "en0");
-  assert(snapshot.profile_relay_reason == "physical_lower_rtt");
-  assert(snapshot.profile_relay_rtt_by_path["default"] == 90);
-  assert(snapshot.profile_relay_rtt_by_path["physical"] == 42);
-  assert(snapshot.profile_direct_candidate_kind == "lan");
-  assert(snapshot.profile_direct_rtt_ms == 7);
-  assert(snapshot.profile_candidate_failures_by_kind["public"] == 2);
+  snapshot.profile = *loaded;
+  assert(snapshot.profile.last_path == "direct");
+  assert(snapshot.profile.success_count == 1);
+  assert(snapshot.profile.path_streak == 1);
+  assert(snapshot.profile.outbound_history.path == "physical");
+  assert(snapshot.profile.outbound_history.bind_interface == "en0");
+  assert(snapshot.profile.outbound_history.reason == "physical_lower_rtt");
+  assert(snapshot.profile.outbound_history.rtt_by_path["default"] == 90);
+  assert(snapshot.profile.outbound_history.rtt_by_path["physical"] == 42);
+  assert(snapshot.profile.last_direct_candidate_kind == "lan");
+  assert(snapshot.profile.last_direct_rtt_ms == 7);
+  assert(snapshot.profile.candidate_failures_by_kind["public"] == 2);
 
-  save_profile_success("fp-test", "direct", stats, relay);
+  save_profile_success("fp-test", ProfileSuccess{"direct", stats, relay});
   loaded = load_profile("fp-test");
   assert(loaded);
   assert(loaded->last_path == "direct");
   assert(loaded->success_count == 2);
   assert(loaded->path_streak == 2);
 
-  save_profile_success("fp-test", "relay", relay);
+  save_profile_success("fp-test", ProfileSuccess{"relay", std::nullopt, relay});
   loaded = load_profile("fp-test");
   assert(loaded);
   assert(loaded->last_path == "relay");
@@ -97,7 +89,7 @@ int main() {
   same_port_fail.same_port_attempts = 4;
   same_port_fail.same_port_failures = 4;
   same_port_fail.same_port_last_elapsed_ms = 91;
-  save_profile_success("fp-same-port", "relay", same_port_fail);
+  save_profile_success("fp-same-port", ProfileSuccess{"relay", same_port_fail, std::nullopt});
   auto same_port_loaded = load_profile("fp-same-port");
   assert(same_port_loaded);
   assert(same_port_loaded->same_port_attempts == 4);
@@ -111,7 +103,7 @@ int main() {
   same_port_success.same_port_attempts = 1;
   same_port_success.same_port_successes = 1;
   same_port_success.same_port_last_elapsed_ms = 37;
-  save_profile_success("fp-same-port", "direct", same_port_success);
+  save_profile_success("fp-same-port", ProfileSuccess{"direct", same_port_success, std::nullopt});
   same_port_loaded = load_profile("fp-same-port");
   assert(same_port_loaded);
   assert(same_port_loaded->same_port_attempts == 5);

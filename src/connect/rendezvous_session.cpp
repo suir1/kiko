@@ -2,15 +2,6 @@
 
 namespace kiko {
 
-LanAnnounceCleanup::LanAnnounceCleanup(std::atomic<bool>& stop, std::thread& worker) : stop_(stop), worker_(worker) {}
-
-LanAnnounceCleanup::~LanAnnounceCleanup() { stop_now(); }
-
-void LanAnnounceCleanup::stop_now() {
-  stop_.store(true);
-  if (worker_.joinable()) worker_.join();
-}
-
 void push_unique_endpoint(std::vector<Endpoint>& out, const Endpoint& ep) {
   if (ep.port == 0) return;
   for (const auto& existing : out) {

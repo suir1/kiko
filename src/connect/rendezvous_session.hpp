@@ -4,24 +4,10 @@
 #include "core/network_interfaces.hpp"
 #include "relay/relay_race.hpp"
 
-#include <atomic>
 #include <optional>
-#include <thread>
 #include <vector>
 
 namespace kiko {
-
-class LanAnnounceCleanup {
- public:
-  LanAnnounceCleanup(std::atomic<bool>& stop, std::thread& worker);
-  ~LanAnnounceCleanup();
-
-  void stop_now();
-
- private:
-  std::atomic<bool>& stop_;
-  std::thread& worker_;
-};
 
 void push_unique_endpoint(std::vector<Endpoint>& out, const Endpoint& ep);
 

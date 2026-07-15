@@ -2,11 +2,12 @@
 
 #include "core/adaptive.hpp"
 #include "core/common.hpp"
-#include "diagnostics/network_probe.hpp"
 #include "core/protocol.hpp"
 #include "core/proxy.hpp"
-#include "relay/relay_race.hpp"
 #include "core/socket.hpp"
+#include "diagnostics/network_probe.hpp"
+#include "diagnostics/outbound_policy.hpp"
+#include "relay/relay_race.hpp"
 #include <atomic>
 #include <cstdint>
 #include <map>
@@ -15,6 +16,20 @@
 #include <vector>
 
 namespace kiko {
+
+struct NetworkProfileEntry {
+  std::string last_path;  // direct | relay | lan_relay
+  int success_count = 0;
+  int path_streak = 0;
+  OutboundHistory outbound_history;
+  std::string last_direct_candidate_kind;
+  std::int64_t last_direct_rtt_ms = -1;
+  std::map<std::string, int> candidate_failures_by_kind;
+  int same_port_attempts = 0;
+  int same_port_successes = 0;
+  int same_port_failure_streak = 0;
+  std::int64_t same_port_last_elapsed_ms = -1;
+};
 
 struct PunchStats {
   bool attempted = false;
@@ -40,26 +55,12 @@ struct ConnectivitySnapshot {
   StunNatClass stun_nat = StunNatClass::Unknown;
   bool vpn_detected = false;
   std::size_t lan_discovered_count = 0;
-  std::string gateway_hint;
   std::vector<RelayProbeEntry> relays;
   PunchStats punch;
   std::vector<std::string> lan_candidates;
   bool no_direct_config = false;
   bool only_local = false;
-  std::string profile_last_path;
-  int profile_success_count = 0;
-  int profile_path_streak = 0;
-  std::string profile_relay_path;
-  std::string profile_relay_interface;
-  std::string profile_relay_reason;
-  std::map<std::string, std::int64_t> profile_relay_rtt_by_path;
-  std::string profile_direct_candidate_kind;
-  std::int64_t profile_direct_rtt_ms = -1;
-  std::map<std::string, int> profile_candidate_failures_by_kind;
-  int profile_same_port_attempts = 0;
-  int profile_same_port_successes = 0;
-  int profile_same_port_failure_streak = 0;
-  std::int64_t profile_same_port_last_elapsed_ms = -1;
+  NetworkProfileEntry profile;
   std::size_t self_global_ipv6_count = 0;
   std::size_t peer_global_ipv6_count = 0;
   std::uint64_t total_bytes = 0;
@@ -88,28 +89,10 @@ struct RoutePlan {
   std::string reason;
 };
 
-class RuleScheduler {
- public:
-  [[nodiscard]] RoutePlan plan(const ConnectivitySnapshot& snapshot, const std::optional<StunProbeResult>& stun,
-                               bool force_no_direct, int default_connections) const;
-};
-
-[[nodiscard]] ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local,
-                                                                 std::size_t lan_discovered_count,
-                                                                 std::uint64_t total_bytes);
 [[nodiscard]] ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local,
                                                                  std::size_t lan_discovered_count,
                                                                  std::uint64_t total_bytes,
                                                                  const NetworkInterfaceInventory& interfaces);
-
-void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePuncher& puncher,
-                                  const std::vector<DirectCandidate>& candidates, const NatProfile& self,
-                                  const NatProfile& peer, PunchPlan& out);
-
-void apply_direct_candidate_scoring(std::vector<DirectCandidate>& candidates,
-                                    const RoutePlan::DirectCandidateScoreHints& hints,
-                                    const std::vector<std::string>& kind_order = {});
-void apply_direct_candidate_kind_order(std::vector<DirectCandidate>& candidates, const std::vector<std::string>& kind_order);
 
 [[nodiscard]] std::optional<TcpSocket> try_direct_with_plan(Role role, TcpListener& listener, PunchPlan plan,
                                                             AdaptivePuncher& puncher, const std::string& room,

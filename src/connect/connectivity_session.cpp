@@ -23,7 +23,7 @@ RouteSelection select_connectivity_route(TcpSocket relay, const ConnectivitySess
                           session.connect_options, &reporter, cancel);
   };
 
-  if (session.peer.get("route_commit") == "v2") {
+  if (session.peer.route_commit_v2) {
     return race_transfer_route(std::move(relay), direct_attempt, puncher, session.route_plan, reporter,
                                session.confirmation_timeout, session.timing, session.cancel);
   }

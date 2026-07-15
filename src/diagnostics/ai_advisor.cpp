@@ -68,41 +68,44 @@ std::string connectivity_snapshot_to_json(const ConnectivitySnapshot& snapshot) 
                    {"largest_file_bytes", snapshot.largest_file_bytes},
                    {"compressible_ratio", snapshot.compressible_ratio},
                    {"connections_hint", snapshot.connections_hint}};
-  if (!snapshot.profile_last_path.empty() || !snapshot.profile_direct_candidate_kind.empty() ||
-      !snapshot.profile_relay_path.empty() || !snapshot.profile_relay_rtt_by_path.empty() ||
-      !snapshot.profile_candidate_failures_by_kind.empty()) {
+  const auto& history = snapshot.profile;
+  if (!history.last_path.empty() || !history.last_direct_candidate_kind.empty() ||
+      !history.outbound_history.path.empty() || !history.outbound_history.rtt_by_path.empty() ||
+      !history.candidate_failures_by_kind.empty()) {
     nlohmann::json profile;
-    profile["last_path"] = snapshot.profile_last_path;
-    profile["success_count"] = snapshot.profile_success_count;
-    if (!snapshot.profile_relay_path.empty()) {
+    profile["last_path"] = history.last_path;
+    profile["success_count"] = history.success_count;
+    if (!history.outbound_history.path.empty()) {
       nlohmann::json relay;
-      relay["path"] = snapshot.profile_relay_path;
-      if (!snapshot.profile_relay_interface.empty()) relay["interface"] = snapshot.profile_relay_interface;
-      if (!snapshot.profile_relay_reason.empty()) relay["reason"] = snapshot.profile_relay_reason;
-      if (!snapshot.profile_relay_rtt_by_path.empty()) {
+      relay["path"] = history.outbound_history.path;
+      if (!history.outbound_history.bind_interface.empty()) {
+        relay["interface"] = history.outbound_history.bind_interface;
+      }
+      if (!history.outbound_history.reason.empty()) relay["reason"] = history.outbound_history.reason;
+      if (!history.outbound_history.rtt_by_path.empty()) {
         relay["rtt_by_path"] = nlohmann::json::object();
-        for (const auto& [path, rtt] : snapshot.profile_relay_rtt_by_path) {
+        for (const auto& [path, rtt] : history.outbound_history.rtt_by_path) {
           relay["rtt_by_path"][path] = rtt;
         }
       }
       profile["relay_outbound"] = std::move(relay);
     }
-    if (!snapshot.profile_direct_candidate_kind.empty()) {
-      profile["last_direct_candidate_kind"] = snapshot.profile_direct_candidate_kind;
-      if (snapshot.profile_direct_rtt_ms >= 0) profile["last_direct_rtt_ms"] = snapshot.profile_direct_rtt_ms;
+    if (!history.last_direct_candidate_kind.empty()) {
+      profile["last_direct_candidate_kind"] = history.last_direct_candidate_kind;
+      if (history.last_direct_rtt_ms >= 0) profile["last_direct_rtt_ms"] = history.last_direct_rtt_ms;
     }
-    if (!snapshot.profile_candidate_failures_by_kind.empty()) {
+    if (!history.candidate_failures_by_kind.empty()) {
       profile["candidate_failures_by_kind"] = nlohmann::json::object();
-      for (const auto& [kind, count] : snapshot.profile_candidate_failures_by_kind) {
+      for (const auto& [kind, count] : history.candidate_failures_by_kind) {
         profile["candidate_failures_by_kind"][kind] = count;
       }
     }
-    if (snapshot.profile_same_port_attempts > 0 || snapshot.profile_same_port_successes > 0 ||
-        snapshot.profile_same_port_failure_streak > 0 || snapshot.profile_same_port_last_elapsed_ms >= 0) {
-      profile["same_port"] = {{"attempts", snapshot.profile_same_port_attempts},
-                              {"successes", snapshot.profile_same_port_successes},
-                              {"failure_streak", snapshot.profile_same_port_failure_streak},
-                              {"last_elapsed_ms", snapshot.profile_same_port_last_elapsed_ms}};
+    if (history.same_port_attempts > 0 || history.same_port_successes > 0 ||
+        history.same_port_failure_streak > 0 || history.same_port_last_elapsed_ms >= 0) {
+      profile["same_port"] = {{"attempts", history.same_port_attempts},
+                              {"successes", history.same_port_successes},
+                              {"failure_streak", history.same_port_failure_streak},
+                              {"last_elapsed_ms", history.same_port_last_elapsed_ms}};
     }
     j["profile"] = std::move(profile);
   }

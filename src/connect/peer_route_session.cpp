@@ -32,14 +32,6 @@ int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
   return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
 }
 
-const std::atomic_bool* cancel_flag(const PeerConnectionOptions& options) {
-  return options.cancellation ? options.cancellation->flag() : nullptr;
-}
-
-void throw_if_cancelled(const PeerConnectionOptions& options) {
-  if (options.cancellation && options.cancellation->requested()) throw KikoError("session canceled");
-}
-
 void track_socket(const PeerConnectionOptions& options, TcpSocket& socket) {
   if (options.cancellation) options.cancellation->track(socket);
 }
@@ -78,15 +70,15 @@ void emit_punch_report(const AdaptivePuncher& puncher, ProgressReporter& reporte
   if (report != "no punch observations\n") reporter.connectivity_report(report);
 }
 
-ProfileRelayPath profile_relay_path_from(const OutboundSelection& selection) {
-  ProfileRelayPath relay;
-  relay.path = selection.chosen_path;
-  relay.bind_interface = selection.connect_options.bind_interface;
-  relay.reason = selection.reason;
+OutboundHistory outbound_history_from_selection(const OutboundSelection& selection) {
+  OutboundHistory history;
+  history.path = selection.chosen_path;
+  history.bind_interface = selection.connect_options.bind_interface;
+  history.reason = selection.reason;
   for (const auto& probe : selection.probes) {
-    if (!probe.path.empty() && probe.rtt_ms >= 0) relay.rtt_by_path[probe.path] = probe.rtt_ms;
+    if (!probe.path.empty() && probe.rtt_ms >= 0) history.rtt_by_path[probe.path] = probe.rtt_ms;
   }
-  return relay;
+  return history;
 }
 
 bool is_loopback_host(const std::string& host) {
@@ -106,7 +98,8 @@ std::vector<TcpSocket> open_relay_mux_channels(TcpSocket primary, Role role, con
   auto aux_options = connect_options;
   if (is_loopback_host(relay.host)) aux_options.bind_interface.clear();
   for (int index = 1; index < connections; ++index) {
-    auto auxiliary = connect_tcp(relay, std::chrono::seconds(5), aux_options, cancel_flag(options));
+    auto auxiliary =
+        connect_tcp(relay, std::chrono::seconds(5), aux_options, cancellation_flag(options.cancellation));
     if (!auxiliary.valid()) throw KikoError("failed to open auxiliary relay connection");
     track_socket(options, auxiliary);
     RelayHello hello;
@@ -128,35 +121,24 @@ struct PeerRouteSession::Impl {
   ProgressReporter& reporter;
   std::string code;
   TcpListener listener;
-  Endpoint local_listen;
   std::shared_ptr<BackgroundRelay> embedded;
-  Endpoint embedded_endpoint;
   std::atomic_bool stop_lan{false};
   std::thread lan_thread;
   Endpoint external_relay;
-  NetworkInterfaceInventory interfaces;
   std::string fingerprint;
-  std::optional<NetworkProfileEntry> profile;
   OutboundSelection outbound;
-  ConnectOptions connect_options;
-  std::optional<StunProbeResult> stun_early;
   std::future<StunProbeResult> stun_future;
   std::optional<StunProbeResult> stun_result;
   std::vector<std::string> local_addrs;
   Endpoint advertised_listen;
   std::vector<Endpoint> lan_extra;
   std::vector<RelayRaceEntry> race_entries;
-  std::vector<RelayProbeEntry> relay_probes;
+  ConnectivitySnapshot base_snapshot;
   TcpSocket relay;
-  std::optional<Message> peer_message;
   std::optional<RelayPeerInfo> peer_info;
   Endpoint active_relay;
-  NatProfile self_nat;
-  NatProfile peer_nat;
   RouteTiming route_timing;
-  bool rendezvoused = false;
   bool established = false;
-  bool profile_recorded = false;
 
   Impl(PeerRouteSessionConfig config_in, ProgressReporter& reporter_in)
       : config(std::move(config_in)), reporter(reporter_in) {}
@@ -170,18 +152,19 @@ struct PeerRouteSession::Impl {
 
   void prepare() {
     const auto& connection = config.connection;
-    throw_if_cancelled(connection);
+    throw_if_cancelled(connection.cancellation, "session canceled");
     const bool is_host = config.role == Role::Sender;
     code = is_host && config.code.empty() ? random_code(3) : normalize_pairing_code(config.code);
     if (auto error = validate_pairing_code_format(code, true)) throw KikoError(*error);
 
     listener = TcpListener::bind(connection.listen);
-    local_listen = listener.local_endpoint();
+    const auto local_listen = listener.local_endpoint();
     reporter.status("listening for direct peer on " + local_listen.to_string());
     if (is_host) reporter.code_ready(code, config.show_qrcode);
 
     const bool use_embedded =
         is_host && connection.lan_discover && !connection.disable_local && !connection.manual_ip;
+    Endpoint embedded_endpoint;
     if (use_embedded) {
       embedded = std::make_shared<BackgroundRelay>();
       embedded->start(Endpoint{"0.0.0.0", 0});
@@ -193,19 +176,19 @@ struct PeerRouteSession::Impl {
     }
 
     external_relay = relay_with_manual_ip(connection.relay, connection.manual_ip);
-    interfaces = collect_network_interface_inventory();
+    const auto interfaces = collect_network_interface_inventory();
+    std::optional<NetworkProfileEntry> profile;
     fingerprint = network_fingerprint(interfaces);
     if (config.use_profile) profile = load_profile(fingerprint);
     outbound = select_outbound_for_relay(
         external_relay, connection.proxy, connection.bind_interface, connection.avoid_vpn,
         profile ? outbound_history_from_profile(*profile) : std::nullopt, interfaces);
     emit_outbound_summary(outbound, external_relay, reporter);
-    connect_options = outbound.connect_options;
 
     if (config.run_stun_probe) {
       stun_future = std::async(std::launch::async, [] { return probe_stun_nat(std::chrono::milliseconds(800)); });
       if (stun_future.wait_for(std::chrono::milliseconds(200)) == std::future_status::ready) {
-        stun_early = stun_future.get();
+        stun_result = stun_future.get();
       }
     }
 
@@ -234,22 +217,17 @@ struct PeerRouteSession::Impl {
       if (relay_targets.empty()) throw KikoError("no relay endpoints to try");
       race_entries = relay_race_entries_for_recv(relay_targets, external_relay);
     }
-    relay_probes = probe_and_sort_relay_race_entries(race_entries, external_relay, connect_options);
+    base_snapshot = build_pre_rendezvous_snapshot(connection.no_direct, connection.only_local, lan_extra.size(), 0,
+                                                  interfaces);
+    if (profile) base_snapshot.profile = *profile;
+    base_snapshot.relays =
+        probe_and_sort_relay_race_entries(race_entries, external_relay, outbound.connect_options);
   }
 
-  ConnectivitySnapshot snapshot(std::uint64_t total_bytes, bool include_peer) const {
-    auto value = build_pre_rendezvous_snapshot(config.connection.no_direct, config.connection.only_local,
-                                               lan_extra.size(), total_bytes, interfaces);
-    if (profile) apply_profile_to_snapshot(*profile, value);
-    value.relays = relay_probes;
-    const auto& observed_stun = include_peer ? stun_result : stun_early;
-    if (observed_stun && observed_stun->ok) value.stun_nat = observed_stun->nat_class;
-    if (!include_peer) return value;
-    if (!peer_info) throw KikoError("peer rendezvous has not completed");
-    value.self_global_ipv6_count = count_global_ipv6_addresses(local_addrs);
-    value.peer_global_ipv6_count = peer_global_ipv6_count(*peer_info);
-    value.self_nat = self_nat.type;
-    value.peer_nat = peer_nat.type;
+  ConnectivitySnapshot snapshot(std::uint64_t total_bytes) const {
+    auto value = base_snapshot;
+    value.total_bytes = total_bytes;
+    if (stun_result && stun_result->ok) value.stun_nat = stun_result->nat_class;
     return value;
   }
 };
@@ -266,48 +244,45 @@ PeerRouteSession::~PeerRouteSession() = default;
 const std::string& PeerRouteSession::code() const { return impl_->code; }
 
 std::int64_t PeerRouteSession::probe_external_relay_rtt() const {
-  return probe_relay_rtt_ms(impl_->external_relay, impl_->connect_options);
+  return probe_relay_rtt_ms(impl_->external_relay, impl_->outbound.connect_options);
 }
 
-const std::optional<StunProbeResult>& PeerRouteSession::early_stun() const { return impl_->stun_early; }
+const std::optional<StunProbeResult>& PeerRouteSession::stun_probe() const { return impl_->stun_result; }
 
 ConnectivitySnapshot PeerRouteSession::pre_rendezvous_snapshot(std::uint64_t total_bytes) const {
-  return impl_->snapshot(total_bytes, false);
+  return impl_->snapshot(total_bytes);
 }
 
 void PeerRouteSession::apply_relay_order(const std::vector<std::string>& relay_order) {
-  if (impl_->rendezvoused) throw KikoError("cannot reorder relays after rendezvous");
+  if (impl_->peer_info) throw KikoError("cannot reorder relays after rendezvous");
   apply_relay_kind_order(impl_->race_entries, relay_order, impl_->external_relay);
 }
 
-void PeerRouteSession::rendezvous(const std::map<std::string, std::string>& hello_fields) {
-  if (impl_->rendezvoused) throw KikoError("peer rendezvous already completed");
+void PeerRouteSession::rendezvous(RelayHello hello) {
+  if (impl_->peer_info) throw KikoError("peer rendezvous already completed");
   const auto& connection = impl_->config.connection;
 
-  Message hello_message{"hello", hello_fields};
-  hello_message.fields["room"] = room_token(impl_->code);
-  hello_message.fields["role"] = role_name(impl_->config.role);
-  hello_message.fields["listen_host"] = impl_->advertised_listen.host;
-  hello_message.fields["listen_port"] = std::to_string(impl_->local_listen.port);
-  hello_message.fields["local_candidates"] = join_csv(impl_->local_addrs);
-  hello_message.fields["no_direct"] = connection.no_direct ? "1" : "0";
-  hello_message.fields.erase("app");
-  if (!impl_->config.app.empty()) hello_message.fields["app"] = impl_->config.app;
-  hello_message.fields.erase("stun_nat");
-  if (impl_->stun_early && impl_->stun_early->ok) {
-    hello_message.fields["stun_nat"] = stun_nat_class_name(impl_->stun_early->nat_class);
+  hello.room = room_token(impl_->code);
+  hello.role = impl_->config.role;
+  hello.listen = impl_->advertised_listen;
+  hello.local_candidates = impl_->local_addrs;
+  hello.no_direct = connection.no_direct;
+  hello.app = impl_->config.app;
+  hello.stun_nat.clear();
+  if (impl_->stun_result && impl_->stun_result->ok) {
+    hello.stun_nat = stun_nat_class_name(impl_->stun_result->nat_class);
   }
 
   ConnectivityRendezvous rendezvous;
   rendezvous.entries = impl_->race_entries;
-  rendezvous.hello = encode_relay_hello(decode_relay_hello(hello_message));
-  rendezvous.connect_options = impl_->connect_options;
+  rendezvous.hello = std::move(hello);
+  rendezvous.connect_options = impl_->outbound.connect_options;
   rendezvous.relay_pass = connection.relay_pass;
   rendezvous.deadline = connection.pair_timeout;
   rendezvous.failure_message = impl_->config.failure_message.empty()
                                    ? "failed to connect relay or rendezvous peer"
                                    : impl_->config.failure_message;
-  rendezvous.cancel = cancel_flag(connection);
+  rendezvous.cancel = cancellation_flag(connection.cancellation);
 
   std::string waiting_for = "peer";
   if (impl_->config.app.empty()) waiting_for = impl_->config.role == Role::Sender ? "receiver" : "sender";
@@ -315,57 +290,51 @@ void PeerRouteSession::rendezvous(const std::map<std::string, std::string>& hell
                               RoutePhaseDetail{"waiting for " + waiting_for + " via relay", {}, false});
   const auto start = std::chrono::steady_clock::now();
   auto peer_result = wait_for_connectivity_peer(rendezvous);
-  throw_if_cancelled(connection);
+  throw_if_cancelled(connection.cancellation, "session canceled");
   impl_->route_timing.rendezvous_ms = elapsed_ms_since(start);
   impl_->stop_lan_now();
 
   impl_->relay = std::move(peer_result.socket);
   track_socket(connection, impl_->relay);
   impl_->peer_info = decode_relay_peer_info(peer_result.peer);
-  impl_->peer_message = std::move(peer_result.peer);
   impl_->active_relay = peer_result.relay;
   impl_->reporter.status("rendezvous relay: " + impl_->active_relay.to_string());
 
-  impl_->self_nat = classify_nat(impl_->local_addrs, impl_->peer_info->self_public);
-  impl_->peer_nat = classify_nat(impl_->peer_info->peer_local_candidates, impl_->peer_info->peer_public);
-  impl_->reporter.status("nat: self=" + nat_type_name(impl_->self_nat.type) +
-                         " peer=" + nat_type_name(impl_->peer_nat.type));
+  impl_->base_snapshot.self_nat = classify_nat(impl_->local_addrs, impl_->peer_info->self_public).type;
+  impl_->base_snapshot.peer_nat =
+      classify_nat(impl_->peer_info->peer_local_candidates, impl_->peer_info->peer_public).type;
+  impl_->base_snapshot.self_global_ipv6_count = count_global_ipv6_addresses(impl_->local_addrs);
+  impl_->base_snapshot.peer_global_ipv6_count = peer_global_ipv6_count(*impl_->peer_info);
+  impl_->reporter.status("nat: self=" + nat_type_name(impl_->base_snapshot.self_nat) +
+                         " peer=" + nat_type_name(impl_->base_snapshot.peer_nat));
 
-  if (impl_->stun_early) {
-    impl_->stun_result = impl_->stun_early;
-  } else if (impl_->stun_future.valid()) {
+  if (!impl_->stun_result && impl_->stun_future.valid()) {
     impl_->stun_result = impl_->stun_future.get();
   }
   if (impl_->stun_result && impl_->stun_result->ok) {
     impl_->reporter.status("stun nat: " + stun_nat_class_name(impl_->stun_result->nat_class) +
                            " mapped=" + impl_->stun_result->mapped.to_string());
   }
-  impl_->rendezvoused = true;
 }
 
-const Message& PeerRouteSession::peer() const {
-  if (!impl_->peer_message) throw KikoError("peer rendezvous has not completed");
-  return *impl_->peer_message;
-}
-
-const std::optional<StunProbeResult>& PeerRouteSession::stun() const {
-  if (!impl_->rendezvoused) throw KikoError("peer rendezvous has not completed");
-  return impl_->stun_result;
+const RelayPeerInfo& PeerRouteSession::peer() const {
+  if (!impl_->peer_info) throw KikoError("peer rendezvous has not completed");
+  return *impl_->peer_info;
 }
 
 ConnectivitySnapshot PeerRouteSession::connectivity_snapshot(std::uint64_t total_bytes) const {
-  if (!impl_->rendezvoused) throw KikoError("peer rendezvous has not completed");
-  return impl_->snapshot(total_bytes, true);
+  if (!impl_->peer_info) throw KikoError("peer rendezvous has not completed");
+  return impl_->snapshot(total_bytes);
 }
 
 RoutePlan PeerRouteSession::apply_peer_policy(RoutePlan plan) const {
-  apply_peer_direct_policy(plan, peer());
+  apply_peer_direct_policy(plan, peer().peer_no_direct);
   return plan;
 }
 
 EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int connections,
                                                  std::chrono::milliseconds mux_setup_timeout) {
-  if (!impl_->rendezvoused) throw KikoError("peer rendezvous has not completed");
+  if (!impl_->peer_info) throw KikoError("peer rendezvous has not completed");
   if (impl_->established) throw KikoError("peer route already established");
   if (connections < 1) connections = 1;
   route_plan = apply_peer_policy(std::move(route_plan));
@@ -374,20 +343,20 @@ EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int conne
   ConnectivitySession connectivity_session{
       impl_->config.role,
       impl_->listener,
-      *impl_->peer_message,
+      *impl_->peer_info,
       impl_->lan_extra,
-      impl_->self_nat,
-      impl_->peer_nat,
+      NatProfile{impl_->base_snapshot.self_nat},
+      NatProfile{impl_->base_snapshot.peer_nat},
       route_plan,
       room_token(impl_->code),
-      impl_->connect_options,
+      impl_->outbound.connect_options,
       kRouteConfirmationTimeout,
       impl_->route_timing,
-      cancel_flag(impl_->config.connection),
+      cancellation_flag(impl_->config.connection.cancellation),
   };
   auto selected =
       select_connectivity_route(std::move(impl_->relay), connectivity_session, puncher, impl_->reporter);
-  throw_if_cancelled(impl_->config.connection);
+  throw_if_cancelled(impl_->config.connection.cancellation, "session canceled");
   emit_punch_report(puncher, impl_->reporter);
 
   TcpSocket primary;
@@ -399,7 +368,7 @@ EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int conne
     if (selected.allow_lan_upgrade && impl_->config.connection.lan_discover &&
         !impl_->config.connection.no_direct && !peer_no_direct) {
       primary = resolve_relay_channel(impl_->config.role, std::move(primary), impl_->listener,
-                                      impl_->local_listen.port, impl_->local_addrs,
+                                      impl_->advertised_listen.port, impl_->local_addrs,
                                       impl_->config.connection.no_direct);
     }
   } else if (selected.direct) {
@@ -422,11 +391,6 @@ EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int conne
   established.punch_stats = selected.punch_stats;
   established.explain_direct_failure = selected.explain_direct_failure;
   established.relay_keepalive = impl_->embedded;
-  if (impl_->config.use_profile && selected.path == RoutePath::Direct) {
-    save_profile_success(impl_->fingerprint, "direct", established.punch_stats,
-                         profile_relay_path_from(impl_->outbound));
-    impl_->profile_recorded = true;
-  }
 
   if (connections == 1) {
     established.channels.push_back(std::move(encrypted.channel));
@@ -434,23 +398,22 @@ EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int conne
     impl_->reporter.status("opening " + std::to_string(connections) + " parallel relay connections");
     established.channels =
         open_relay_mux_channels(std::move(encrypted.channel), impl_->config.role, impl_->active_relay,
-                                room_token(impl_->code), connections, impl_->connect_options,
+                                room_token(impl_->code), connections, impl_->outbound.connect_options,
                                 impl_->config.connection.relay_pass, impl_->config.connection);
     established.mux_enabled = true;
   } else {
     auto mux = negotiate_direct_mux_channels(std::move(encrypted.channel), impl_->config.role, impl_->listener,
-                                             *impl_->peer_message, connections, room_token(impl_->code),
-                                             impl_->connect_options, mux_setup_timeout,
-                                             cancel_flag(impl_->config.connection));
+                                             *impl_->peer_info, connections, room_token(impl_->code),
+                                             impl_->outbound.connect_options, mux_setup_timeout,
+                                             cancellation_flag(impl_->config.connection.cancellation));
     track_sockets(impl_->config.connection, mux.channels);
     established.channels = std::move(mux.channels);
     established.mux_enabled = mux.mux_enabled;
-    established.mux_fallback_reason = std::move(mux.fallback_reason);
     if (established.mux_enabled) {
       impl_->reporter.status("opening " + std::to_string(connections) + " parallel direct connections");
     } else {
       impl_->reporter.status("parallel direct unavailable, using single direct connection (" +
-                             established.mux_fallback_reason + ")");
+                             mux.fallback_reason + ")");
     }
   }
 
@@ -459,10 +422,11 @@ EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int conne
 }
 
 void PeerRouteSession::record_success(const EstablishedPeerRoute& established) {
-  if (!impl_->config.use_profile || impl_->profile_recorded) return;
+  if (!impl_->config.use_profile) return;
   const auto path = established.path == RoutePath::Direct ? "direct" : "relay";
-  save_profile_success(impl_->fingerprint, path, established.punch_stats, profile_relay_path_from(impl_->outbound));
-  impl_->profile_recorded = true;
+  save_profile_success(
+      impl_->fingerprint,
+      ProfileSuccess{path, established.punch_stats, outbound_history_from_selection(impl_->outbound)});
 }
 
 }  // namespace kiko

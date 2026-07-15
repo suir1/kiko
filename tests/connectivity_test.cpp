@@ -1,5 +1,6 @@
 #include "connect/connectivity.hpp"
 #include "connect/direct_session.hpp"
+#include "connect/route_planner.hpp"
 #include "relay/relay_race.hpp"
 #include "transfer/transfer.hpp"
 
@@ -13,11 +14,9 @@
 int main() {
   using namespace kiko;
 
-  RuleScheduler scheduler;
-
   {
     ConnectivitySnapshot snap;
-    auto plan = scheduler.plan(snap, std::nullopt, true, 4);
+    auto plan = build_route_plan(true, snap, std::nullopt, 4);
     assert(plan.skip_direct);
     assert(plan.reason == "no_direct");
   }
@@ -35,7 +34,7 @@ int main() {
     stun.nat_class = StunNatClass::Symmetric;
     stun.mapped = Endpoint{"203.0.113.1", 54321};
     ConnectivitySnapshot snap;
-    auto plan = scheduler.plan(snap, stun, false, 4);
+    auto plan = build_route_plan(false, snap, stun, 4);
     assert(!plan.skip_direct);
     assert(plan.direct_timeout.count() == 500);
     assert(plan.direct_connect.count() == 220);
@@ -46,7 +45,7 @@ int main() {
     ConnectivitySnapshot snap;
     snap.vpn_detected = true;
     snap.lan_discovered_count = 2;
-    auto plan = scheduler.plan(snap, std::nullopt, false, 4);
+    auto plan = build_route_plan(false, snap, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert(plan.direct_timeout.count() == 1000);
     assert(plan.direct_connect.count() == 250);
@@ -59,7 +58,7 @@ int main() {
     snap.peer_nat = NatType::BehindNat;
     snap.self_global_ipv6_count = 1;
     snap.peer_global_ipv6_count = 1;
-    auto plan = scheduler.plan(snap, std::nullopt, false, 4);
+    auto plan = build_route_plan(false, snap, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert(plan.direct_timeout.count() == 3500);
     assert(plan.direct_connect.count() == 450);
@@ -78,7 +77,7 @@ int main() {
     ConnectivitySnapshot snap;
     snap.self_nat = NatType::BehindNat;
     snap.peer_nat = NatType::BehindNat;
-    auto plan = scheduler.plan(snap, std::nullopt, false, 4);
+    auto plan = build_route_plan(false, snap, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert(plan.direct_timeout.count() == 500);
     assert(plan.direct_connect.count() == 220);
@@ -91,7 +90,7 @@ int main() {
     stun.nat_class = StunNatClass::Open;
     stun.mapped = Endpoint{"192.168.1.5", 40000};
     ConnectivitySnapshot snap;
-    auto plan = scheduler.plan(snap, stun, false, 8);
+    auto plan = build_route_plan(false, snap, stun, 8);
     assert(!plan.skip_direct);
     assert(plan.direct_timeout.count() == 3500);
     assert(plan.connections == 8);
@@ -104,7 +103,7 @@ int main() {
     stun.nat_class = StunNatClass::Cone;
     stun.mapped = Endpoint{"203.0.113.2", 40000};
     ConnectivitySnapshot snap;
-    auto plan = scheduler.plan(snap, stun, false, 4);
+    auto plan = build_route_plan(false, snap, stun, 4);
     assert(!plan.skip_direct);
     assert(!plan.udp_punch_enabled);
     assert(plan.reason == "stun_cone_direct_probe");
@@ -115,7 +114,7 @@ int main() {
     stun.ok = true;
     stun.nat_class = StunNatClass::Cone;
     ConnectivitySnapshot snap;
-    auto plan = scheduler.plan(snap, stun, true, 4);
+    auto plan = build_route_plan(true, snap, stun, 4);
     assert(plan.skip_direct);
     assert(!plan.udp_punch_enabled);
   }
@@ -123,7 +122,7 @@ int main() {
   {
     ConnectivitySnapshot snap;
     snap.stun_nat = StunNatClass::Cone;
-    auto plan = scheduler.plan(snap, std::nullopt, false, 4);
+    auto plan = build_route_plan(false, snap, std::nullopt, 4);
     assert(!plan.udp_punch_enabled);
     assert(plan.reason == "stun_cone_direct_probe");
   }
@@ -142,7 +141,7 @@ int main() {
         make_direct_candidate(Endpoint{"192.168.1.10", 5000}, "lan", 90),
         make_direct_candidate(Endpoint{"198.51.100.9", 5000}, "listen", 60),
     };
-    apply_direct_candidate_kind_order(candidates, {"public", "listen"});
+    apply_direct_candidate_scoring(candidates, RoutePlan::DirectCandidateScoreHints{}, {"public", "listen"});
     AdaptivePuncher puncher;
     auto plan = puncher.plan(Role::Receiver, candidates);
     if (plan.candidates.front().kind != "public") {
@@ -340,7 +339,8 @@ int main() {
     });
 
     const std::vector<RelayRaceEntry> entries{{endpoint, false}};
-    Message hello{"hello", {{"room", "silent-race"}, {"role", "sender"}}};
+    RelayHello hello;
+    hello.room = "silent-race";
     const auto start = std::chrono::steady_clock::now();
     auto result = race_until_peer(entries, hello, std::chrono::milliseconds(200), ConnectOptions{});
     const auto elapsed = std::chrono::steady_clock::now() - start;
@@ -370,10 +370,10 @@ int main() {
       return 1;
     }
 
-    Message sender_peer{"peer",
-                        {{"peer_listen_host", "127.0.0.1"},
-                         {"peer_listen_port", std::to_string(receiver_listener.local_endpoint().port)}}};
-    Message receiver_peer{"peer", {{"peer_listen_host", "127.0.0.1"}, {"peer_listen_port", "1"}}};
+    RelayPeerInfo sender_peer;
+    sender_peer.peer_listen = Endpoint{"127.0.0.1", receiver_listener.local_endpoint().port};
+    RelayPeerInfo receiver_peer;
+    receiver_peer.peer_listen = Endpoint{"127.0.0.1", 1};
     constexpr auto setup_timeout = std::chrono::milliseconds(200);
     auto sender_future =
         std::async(std::launch::async,

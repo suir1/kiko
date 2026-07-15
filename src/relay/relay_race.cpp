@@ -55,7 +55,7 @@ ConnectOptions connect_options_for_entry(const RelayRaceEntry& entry, const Conn
   return options;
 }
 
-std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const Message& hello,
+std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const RelayHello& hello,
                                             const ConnectOptions& connect_options,
                                             const std::optional<std::string>& relay_pass,
                                             std::chrono::milliseconds timeout,
@@ -63,22 +63,15 @@ std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const Message
   if (connect_options.proxy || timeout.count() <= 0) return std::nullopt;
   if (cancel && cancel->load()) return std::nullopt;
 
-  RelayHello registration;
-  try {
-    registration = decode_relay_hello(hello);
-  } catch (const KikoError&) {
-    return std::nullopt;
-  }
-  if (registration.listen.port == 0) return std::nullopt;
+  if (hello.listen.port == 0) return std::nullopt;
 
   ConnectOptions probe_options = connect_options;
-  probe_options.local_bind = Endpoint{"", registration.listen.port};
+  probe_options.local_bind = Endpoint{"", hello.listen.port};
 
   auto socket = connect_tcp(relay, timeout, probe_options, cancel);
   if (!socket.valid()) return std::nullopt;
 
-  Message probe{
-      "punch_probe", {{"room", registration.room}, {"role", role_name(registration.role)}}};
+  Message probe{"punch_probe", {{"room", hello.room}, {"role", role_name(hello.role)}}};
   if (relay_pass && !relay_pass->empty()) probe.fields["relay_pass"] = *relay_pass;
 
   try {
@@ -96,22 +89,21 @@ std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const Message
 
 }  // namespace
 
-std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const Message& hello,
+std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const RelayHello& hello,
                                                         const ConnectOptions& connect_options,
                                                         const std::optional<std::string>& relay_pass,
                                                         std::chrono::milliseconds timeout,
                                                         const std::atomic_bool* cancel) {
   if (cancel && cancel->load()) return std::nullopt;
-  Message registration = hello;
-  if (relay_pass && !relay_pass->empty()) registration.fields["relay_pass"] = *relay_pass;
+  RelayHello registration = hello;
+  if (relay_pass && !relay_pass->empty()) registration.relay_pass = relay_pass;
 
   if (timeout.count() <= 0) timeout = std::chrono::milliseconds(1);
   const auto deadline = std::chrono::steady_clock::now() + timeout;
 
   const auto probe_budget = std::min<std::chrono::milliseconds>(timeout, std::chrono::milliseconds(600));
   if (auto punch_mapping = probe_punch_mapping(relay, hello, connect_options, relay_pass, probe_budget, cancel)) {
-    registration.fields["punch_public_host"] = punch_mapping->host;
-    registration.fields["punch_public_port"] = std::to_string(punch_mapping->port);
+    registration.punch_public = *punch_mapping;
   }
 
   auto socket = connect_tcp(relay, timeout, connect_options, cancel);
@@ -162,7 +154,7 @@ std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, c
   }
 
   try {
-    send_message(socket, registration);
+    send_message(socket, encode_relay_hello(registration));
   } catch (const std::exception&) {
     socket.close();
     return std::nullopt;
@@ -243,7 +235,7 @@ std::optional<RelayPeerResult> wait_for_peer_candidates(std::vector<ActiveRelayC
   return std::nullopt;
 }
 
-std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>& entries, const Message& hello,
+std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>& entries, const RelayHello& hello,
                                                std::chrono::milliseconds deadline,
                                                const ConnectOptions& connect_options,
                                                const std::optional<std::string>& relay_pass,

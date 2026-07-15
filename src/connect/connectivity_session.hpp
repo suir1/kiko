@@ -3,8 +3,8 @@
 #include "core/adaptive.hpp"
 #include "connectivity.hpp"
 #include "core/progress.hpp"
-#include "core/protocol.hpp"
 #include "relay/relay_race.hpp"
+#include "relay/relay_protocol.hpp"
 #include "route_session.hpp"
 #include "core/socket.hpp"
 
@@ -18,7 +18,7 @@ namespace kiko {
 
 struct ConnectivityRendezvous {
   std::vector<RelayRaceEntry> entries;
-  Message hello;
+  RelayHello hello;
   ConnectOptions connect_options;
   std::optional<std::string> relay_pass;
   std::chrono::milliseconds deadline = kDefaultPairTimeout;
@@ -29,7 +29,7 @@ struct ConnectivityRendezvous {
 struct ConnectivitySession {
   Role role;
   TcpListener& listener;
-  const Message& peer;
+  const RelayPeerInfo& peer;
   std::vector<Endpoint> direct_extra_candidates;
   NatProfile self_nat;
   NatProfile peer_nat;

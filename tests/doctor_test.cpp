@@ -18,9 +18,9 @@ int main() {
     report.plan.same_port_timeout = std::chrono::milliseconds(180);
     report.plan.same_port_connect = std::chrono::milliseconds(100);
     report.plan.connections = 4;
-    report.snapshot.profile_same_port_attempts = 4;
-    report.snapshot.profile_same_port_failure_streak = 4;
-    report.snapshot.profile_same_port_last_elapsed_ms = 91;
+    report.snapshot.profile.same_port_attempts = 4;
+    report.snapshot.profile.same_port_failure_streak = 4;
+    report.snapshot.profile.same_port_last_elapsed_ms = 91;
     report.diagnosis = "synthetic";
 
     const auto j = nlohmann::json::parse(doctor_report_to_json(report));

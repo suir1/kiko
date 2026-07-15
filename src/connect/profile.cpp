@@ -59,10 +59,12 @@ nlohmann::json rtt_by_path_json(const std::map<std::string, std::int64_t>& rtts)
   return out;
 }
 
-void save_profile_success_impl(const std::string& fingerprint, const std::string& path, const PunchStats* stats,
-                               const ProfileRelayPath* relay) {
+}  // namespace
+
+void save_profile_success(const std::string& fingerprint, const ProfileSuccess& success) {
+  const auto storage_path = profile_path();
   nlohmann::json root;
-  std::ifstream in(profile_path());
+  std::ifstream in(storage_path);
   if (in) {
     try {
       in >> root;
@@ -73,56 +75,54 @@ void save_profile_success_impl(const std::string& fingerprint, const std::string
   const int prev = root.contains(fingerprint) ? root[fingerprint].value("success_count", 0) : 0;
   auto entry = root.contains(fingerprint) && root[fingerprint].is_object() ? root[fingerprint] : nlohmann::json::object();
   const auto prev_path = entry.value("last_path", std::string{});
-  const int prev_streak = entry.value("path_streak", prev_path == path ? prev : 0);
-  entry["last_path"] = path;
+  const int prev_streak = entry.value("path_streak", prev_path == success.path ? prev : 0);
+  entry["last_path"] = success.path;
   entry["success_count"] = prev + 1;
-  entry["path_streak"] = prev_path == path ? std::max(0, prev_streak) + 1 : 1;
+  entry["path_streak"] = prev_path == success.path ? std::max(0, prev_streak) + 1 : 1;
 
-  if (relay) {
-    if (!relay->path.empty()) entry["last_relay_path"] = relay->path;
-    if (!relay->bind_interface.empty()) {
-      entry["last_relay_interface"] = relay->bind_interface;
+  if (success.outbound) {
+    if (!success.outbound->path.empty()) entry["last_relay_path"] = success.outbound->path;
+    if (!success.outbound->bind_interface.empty()) {
+      entry["last_relay_interface"] = success.outbound->bind_interface;
     } else {
       entry.erase("last_relay_interface");
     }
-    if (!relay->reason.empty()) entry["last_relay_reason"] = relay->reason;
-    if (!relay->rtt_by_path.empty()) entry["relay_rtt_by_path"] = rtt_by_path_json(relay->rtt_by_path);
+    if (!success.outbound->reason.empty()) entry["last_relay_reason"] = success.outbound->reason;
+    if (!success.outbound->rtt_by_path.empty()) {
+      entry["relay_rtt_by_path"] = rtt_by_path_json(success.outbound->rtt_by_path);
+    }
   }
 
-  if (stats) {
-    if (path == "direct" && !stats->successful_candidate_kind.empty() && stats->successful_candidate_kind != "accept") {
-      entry["last_direct_candidate_kind"] = stats->successful_candidate_kind;
-      if (stats->successful_elapsed_ms >= 0) entry["last_direct_rtt_ms"] = stats->successful_elapsed_ms;
+  if (success.punch) {
+    const auto& stats = *success.punch;
+    if (success.path == "direct" && !stats.successful_candidate_kind.empty() &&
+        stats.successful_candidate_kind != "accept") {
+      entry["last_direct_candidate_kind"] = stats.successful_candidate_kind;
+      if (stats.successful_elapsed_ms >= 0) entry["last_direct_rtt_ms"] = stats.successful_elapsed_ms;
     }
-    if (!stats->candidate_failures_by_kind.empty()) {
-      entry["candidate_failures_by_kind"] = failures_by_kind_json(stats->candidate_failures_by_kind);
+    if (!stats.candidate_failures_by_kind.empty()) {
+      entry["candidate_failures_by_kind"] = failures_by_kind_json(stats.candidate_failures_by_kind);
     }
-    if (stats->same_port_attempts > 0) {
-      entry["same_port_attempts"] = entry.value("same_port_attempts", 0) + stats->same_port_attempts;
-      entry["same_port_successes"] = entry.value("same_port_successes", 0) + stats->same_port_successes;
-      if (stats->same_port_successes > 0) {
+    if (stats.same_port_attempts > 0) {
+      entry["same_port_attempts"] = entry.value("same_port_attempts", 0) + stats.same_port_attempts;
+      entry["same_port_successes"] = entry.value("same_port_successes", 0) + stats.same_port_successes;
+      if (stats.same_port_successes > 0) {
         entry["same_port_failure_streak"] = 0;
       } else {
         entry["same_port_failure_streak"] =
-            entry.value("same_port_failure_streak", 0) + stats->same_port_failures;
+            entry.value("same_port_failure_streak", 0) + stats.same_port_failures;
       }
-      if (stats->same_port_last_elapsed_ms >= 0) {
-        entry["same_port_last_elapsed_ms"] = stats->same_port_last_elapsed_ms;
+      if (stats.same_port_last_elapsed_ms >= 0) {
+        entry["same_port_last_elapsed_ms"] = stats.same_port_last_elapsed_ms;
       }
     }
   }
 
   root[fingerprint] = std::move(entry);
   std::error_code ec;
-  std::filesystem::create_directories(profile_path().parent_path(), ec);
-  std::ofstream out(profile_path());
+  std::filesystem::create_directories(storage_path.parent_path(), ec);
+  std::ofstream out(storage_path);
   if (out) out << root.dump(2);
-}
-
-}  // namespace
-
-std::string network_fingerprint() {
-  return network_fingerprint(collect_network_interface_inventory());
 }
 
 std::string network_fingerprint(const NetworkInterfaceInventory& interfaces) {
@@ -142,15 +142,14 @@ std::optional<NetworkProfileEntry> load_profile(const std::string& fingerprint) 
   }
   if (!root.contains(fingerprint)) return std::nullopt;
   NetworkProfileEntry entry;
-  entry.fingerprint = fingerprint;
   entry.last_path = root[fingerprint].value("last_path", "");
   entry.success_count = root[fingerprint].value("success_count", 0);
   entry.path_streak = root[fingerprint].value("path_streak", entry.last_path.empty() ? 0 : entry.success_count);
-  entry.last_relay_path = root[fingerprint].value("last_relay_path", "");
-  entry.last_relay_interface = root[fingerprint].value("last_relay_interface", "");
-  entry.last_relay_reason = root[fingerprint].value("last_relay_reason", "");
+  entry.outbound_history.path = root[fingerprint].value("last_relay_path", "");
+  entry.outbound_history.bind_interface = root[fingerprint].value("last_relay_interface", "");
+  entry.outbound_history.reason = root[fingerprint].value("last_relay_reason", "");
   if (root[fingerprint].contains("relay_rtt_by_path")) {
-    entry.relay_rtt_by_path = parse_rtt_by_path(root[fingerprint]["relay_rtt_by_path"]);
+    entry.outbound_history.rtt_by_path = parse_rtt_by_path(root[fingerprint]["relay_rtt_by_path"]);
   }
   entry.last_direct_candidate_kind = root[fingerprint].value("last_direct_candidate_kind", "");
   entry.last_direct_rtt_ms = root[fingerprint].value("last_direct_rtt_ms", -1);
@@ -164,59 +163,12 @@ std::optional<NetworkProfileEntry> load_profile(const std::string& fingerprint) 
   return entry;
 }
 
-void save_profile_success(const std::string& fingerprint, const std::string& path) {
-  save_profile_success_impl(fingerprint, path, nullptr, nullptr);
-}
-
-void save_profile_success(const std::string& fingerprint, const std::string& path, const PunchStats& stats) {
-  save_profile_success_impl(fingerprint, path, &stats, nullptr);
-}
-
-void save_profile_success(const std::string& fingerprint, const std::string& path, const ProfileRelayPath& relay) {
-  save_profile_success_impl(fingerprint, path, nullptr, &relay);
-}
-
-void save_profile_success(const std::string& fingerprint, const std::string& path, const PunchStats& stats,
-                          const ProfileRelayPath& relay) {
-  save_profile_success_impl(fingerprint, path, &stats, &relay);
-}
-
 std::optional<OutboundHistory> outbound_history_from_profile(const NetworkProfileEntry& profile) {
-  if (profile.last_relay_path.empty() && profile.last_relay_interface.empty() && profile.last_relay_reason.empty() &&
-      profile.relay_rtt_by_path.empty()) {
+  const auto& history = profile.outbound_history;
+  if (history.path.empty() && history.bind_interface.empty() && history.reason.empty() && history.rtt_by_path.empty()) {
     return std::nullopt;
   }
-  OutboundHistory history;
-  history.path = profile.last_relay_path;
-  history.bind_interface = profile.last_relay_interface;
-  history.reason = profile.last_relay_reason;
-  history.rtt_by_path = profile.relay_rtt_by_path;
   return history;
-}
-
-void apply_profile_to_snapshot(const NetworkProfileEntry& profile, ConnectivitySnapshot& snapshot) {
-  snapshot.profile_last_path = profile.last_path;
-  snapshot.profile_success_count = profile.success_count;
-  snapshot.profile_path_streak = profile.path_streak;
-  snapshot.profile_relay_path = profile.last_relay_path;
-  snapshot.profile_relay_interface = profile.last_relay_interface;
-  snapshot.profile_relay_reason = profile.last_relay_reason;
-  snapshot.profile_relay_rtt_by_path = profile.relay_rtt_by_path;
-  snapshot.profile_direct_candidate_kind = profile.last_direct_candidate_kind;
-  snapshot.profile_direct_rtt_ms = profile.last_direct_rtt_ms;
-  snapshot.profile_candidate_failures_by_kind = profile.candidate_failures_by_kind;
-  snapshot.profile_same_port_attempts = profile.same_port_attempts;
-  snapshot.profile_same_port_successes = profile.same_port_successes;
-  snapshot.profile_same_port_failure_streak = profile.same_port_failure_streak;
-  snapshot.profile_same_port_last_elapsed_ms = profile.same_port_last_elapsed_ms;
-}
-
-void apply_profile_candidate_bias(const NetworkProfileEntry& profile, std::vector<DirectCandidate>& candidates) {
-  RoutePlan::DirectCandidateScoreHints hints;
-  hints.profile_last_path = profile.last_path;
-  hints.profile_direct_candidate_kind = profile.last_direct_candidate_kind;
-  hints.profile_candidate_failures_by_kind = profile.candidate_failures_by_kind;
-  apply_direct_candidate_scoring(candidates, hints);
 }
 
 }  // namespace kiko

@@ -1,9 +1,9 @@
 #pragma once
 
 #include "core/common.hpp"
-#include "core/protocol.hpp"
 #include "core/proxy.hpp"
 #include "core/socket.hpp"
+#include "relay/relay_protocol.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -34,7 +34,7 @@ struct RelayRaceEntry {
   std::chrono::milliseconds start_delay{0};
 };
 
-[[nodiscard]] std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const Message& hello,
+[[nodiscard]] std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const RelayHello& hello,
                                                                       const ConnectOptions& connect_options,
                                                                       const std::optional<std::string>& relay_pass = std::nullopt,
                                                                       std::chrono::milliseconds timeout =
@@ -42,7 +42,7 @@ struct RelayRaceEntry {
                                                                       const std::atomic_bool* cancel = nullptr);
 
 [[nodiscard]] std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>& entries,
-                                                             const Message& hello,
+                                                             const RelayHello& hello,
                                                              std::chrono::milliseconds deadline,
                                                              const ConnectOptions& connect_options,
                                                              const std::optional<std::string>& relay_pass = std::nullopt,

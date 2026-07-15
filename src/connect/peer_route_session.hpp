@@ -5,11 +5,10 @@
 #include "connect/route_session.hpp"
 #include "core/crypto.hpp"
 #include "core/progress.hpp"
-#include "core/protocol.hpp"
+#include "relay/relay_protocol.hpp"
 
 #include <chrono>
 #include <cstdint>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -40,7 +39,6 @@ struct EstablishedPeerRoute {
   PunchStats punch_stats;
   bool explain_direct_failure = false;
   bool mux_enabled = false;
-  std::string mux_fallback_reason;
   std::shared_ptr<BackgroundRelay> relay_keepalive;
 };
 
@@ -55,13 +53,12 @@ class PeerRouteSession {
 
   [[nodiscard]] const std::string& code() const;
   [[nodiscard]] std::int64_t probe_external_relay_rtt() const;
-  [[nodiscard]] const std::optional<StunProbeResult>& early_stun() const;
+  [[nodiscard]] const std::optional<StunProbeResult>& stun_probe() const;
   [[nodiscard]] ConnectivitySnapshot pre_rendezvous_snapshot(std::uint64_t total_bytes) const;
   void apply_relay_order(const std::vector<std::string>& relay_order);
 
-  void rendezvous(const std::map<std::string, std::string>& hello_fields = {});
-  [[nodiscard]] const Message& peer() const;
-  [[nodiscard]] const std::optional<StunProbeResult>& stun() const;
+  void rendezvous(RelayHello hello = {});
+  [[nodiscard]] const RelayPeerInfo& peer() const;
   [[nodiscard]] ConnectivitySnapshot connectivity_snapshot(std::uint64_t total_bytes) const;
   [[nodiscard]] RoutePlan apply_peer_policy(RoutePlan plan) const;
 

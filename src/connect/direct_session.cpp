@@ -1,6 +1,8 @@
 #include "direct_session.hpp"
 
+#include "core/cancellation.hpp"
 #include "core/progress.hpp"
+#include "route_planner.hpp"
 #include "udp_punch.hpp"
 
 #include <algorithm>
@@ -42,7 +44,7 @@ void apply_relay_fallback_guard(PunchPlan& punch, const RoutePlan& route_plan) {
   tune_direct_candidate_timeouts(punch);
 }
 
-std::vector<DirectCandidate> peer_candidates(const Message& peer, const std::vector<Endpoint>& extra = {}) {
+std::vector<DirectCandidate> peer_candidates(const RelayPeerInfo& peer, const std::vector<Endpoint>& extra = {}) {
   std::vector<DirectCandidate> out;
   auto unspecified_host = [](const std::string& host) {
     return host == "0.0.0.0" || host == "::" || host == "[::]";
@@ -75,19 +77,17 @@ std::vector<DirectCandidate> peer_candidates(const Message& peer, const std::vec
 
   for (const auto& e : extra) push_unique(e, "discovered", 95, "lan_discovery");
 
-  auto listen_port = message_port_field(peer, "peer_listen_port");
-  if (listen_port) {
-    for (const auto& host : split_csv(peer.get("peer_local_candidates"))) {
-      push_unique(Endpoint{host, *listen_port}, "lan", 90, "peer_local_candidates");
+  if (peer.peer_listen.port > 0) {
+    for (const auto& host : peer.peer_local_candidates) {
+      push_unique(Endpoint{host, peer.peer_listen.port}, "lan", 90, "peer_local_candidates");
     }
-    if (!peer.get("peer_listen_host").empty()) {
-      push_unique(Endpoint{peer.get("peer_listen_host"), *listen_port}, "listen", 60, "peer_listen_host");
+    if (!peer.peer_listen.host.empty()) {
+      push_unique(peer.peer_listen, "listen", 60, "peer_listen_host");
     }
   }
 
-  auto public_port = message_port_field(peer, "peer_public_port");
-  if (!peer.get("peer_public_host").empty() && public_port) {
-    push_unique(Endpoint{peer.get("peer_public_host"), *public_port}, "public", 20, "peer_public_host");
+  if (!peer.peer_public.host.empty() && peer.peer_public.port > 0) {
+    push_unique(peer.peer_public, "public", 20, "peer_public_host");
   }
   return out;
 }
@@ -122,7 +122,7 @@ std::string describe_direct_plan(const RoutePlan& route_plan, const PunchPlan& p
   return oss.str();
 }
 
-std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& listener, const Message& peer,
+std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& listener, const RelayPeerInfo& peer,
                                                       int connections, const std::string& room,
                                                       const ConnectOptions& connect_options,
                                                       std::chrono::milliseconds setup_timeout,
@@ -138,7 +138,7 @@ std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& li
     std::vector<bool> seen(static_cast<std::size_t>(connections), false);
     seen[0] = true;
     for (int accepted_count = 1; accepted_count < connections; ++accepted_count) {
-      if (cancel && cancel->load()) throw KikoError("transfer canceled");
+      throw_if_cancelled(cancel);
       auto wait = remaining();
       if (wait.count() <= 0) throw KikoError("timed out accepting auxiliary direct connection");
       auto accepted = listener.accept(std::min(wait, std::chrono::milliseconds(500)));
@@ -164,7 +164,7 @@ std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& li
   const auto candidates = peer_candidates(peer);
   if (candidates.empty()) throw KikoError("peer listen candidates missing for direct mux");
   for (int k = 1; k < connections; ++k) {
-    if (cancel && cancel->load()) throw KikoError("transfer canceled");
+    throw_if_cancelled(cancel);
     TcpSocket connected;
     for (const auto& candidate : candidates) {
       auto wait = remaining();
@@ -186,7 +186,7 @@ bool direct_mux_status_ok(const Message& status, const std::string& room, int co
 
 }  // namespace
 
-std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const Message& peer,
+std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const RelayPeerInfo& peer,
                                         const std::vector<Endpoint>& lan_extra, AdaptivePuncher& puncher,
                                         const NatProfile& self, const NatProfile& peer_nat,
                                         const RoutePlan& route_plan, const std::string& room,
@@ -199,15 +199,14 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
   apply_relay_fallback_guard(punch, route_plan);
   if (reporter) reporter->status(describe_direct_plan(route_plan, punch));
   if (route_plan.udp_punch_enabled) {
-    Endpoint peer_wan{peer.get("peer_public_host"), message_port_or(peer, "peer_public_port", 0, true)};
-    return try_udp_assisted_direct(role, listener, peer_wan, peer.get("punch_token"), punch, puncher, room,
+    return try_udp_assisted_direct(role, listener, peer.peer_public, peer.punch_token, punch, puncher, room,
                                    connect_options, cancel);
   }
-  return try_direct_with_plan(role, listener, punch, puncher, room, connect_options, peer.get("punch_token"), cancel);
+  return try_direct_with_plan(role, listener, punch, puncher, room, connect_options, peer.punch_token, cancel);
 }
 
-DirectMuxResult negotiate_direct_mux_channels(TcpSocket primary, Role role, TcpListener& listener, const Message& peer,
-                                              int connections, const std::string& room,
+DirectMuxResult negotiate_direct_mux_channels(TcpSocket primary, Role role, TcpListener& listener,
+                                              const RelayPeerInfo& peer, int connections, const std::string& room,
                                               const ConnectOptions& connect_options,
                                               std::chrono::milliseconds setup_timeout,
                                               const std::atomic_bool* cancel) {

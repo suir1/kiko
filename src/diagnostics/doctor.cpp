@@ -84,12 +84,12 @@ std::string same_port_policy_for(const DoctorReport& report) {
 }
 
 std::string same_port_profile_summary(const DoctorReport& report) {
-  const auto& s = report.snapshot;
-  return "attempts=" + std::to_string(s.profile_same_port_attempts) +
-         " successes=" + std::to_string(s.profile_same_port_successes) +
-         " failure_streak=" + std::to_string(s.profile_same_port_failure_streak) +
-         (s.profile_same_port_last_elapsed_ms >= 0
-              ? " last_ms=" + std::to_string(s.profile_same_port_last_elapsed_ms)
+  const auto& profile = report.snapshot.profile;
+  return "attempts=" + std::to_string(profile.same_port_attempts) +
+         " successes=" + std::to_string(profile.same_port_successes) +
+         " failure_streak=" + std::to_string(profile.same_port_failure_streak) +
+         (profile.same_port_last_elapsed_ms >= 0
+              ? " last_ms=" + std::to_string(profile.same_port_last_elapsed_ms)
               : std::string{});
 }
 
@@ -267,7 +267,7 @@ DoctorReport run_doctor(const DoctorOptions& options) {
   report.outbound_reason = outbound.reason;
   report.outbound_probes = outbound.probes;
   if (!report.bound_interface.empty()) report.bound_route = route_to_host(options.relay.host, report.bound_interface);
-  if (profile) apply_profile_to_snapshot(*profile, report.snapshot);
+  if (profile) report.snapshot.profile = *profile;
   report.snapshot.lan_discovered_count = discovered.size();
 
   RelayProbeEntry entry;
@@ -358,13 +358,13 @@ std::string doctor_report_to_json(const DoctorReport& report) {
                        {"timeout_ms", report.plan.direct_timeout.count()},
                        {"connect_timeout_ms", report.plan.direct_connect.count()},
                        {"same_port",
-                        {{"policy", same_port_policy_for(report)},
+                         {{"policy", same_port_policy_for(report)},
                          {"timeout_ms", report.plan.same_port_timeout.count()},
                          {"connect_timeout_ms", report.plan.same_port_connect.count()},
-                         {"profile_attempts", report.snapshot.profile_same_port_attempts},
-                         {"profile_successes", report.snapshot.profile_same_port_successes},
-                         {"profile_failure_streak", report.snapshot.profile_same_port_failure_streak},
-                         {"profile_last_elapsed_ms", report.snapshot.profile_same_port_last_elapsed_ms}}},
+                         {"profile_attempts", report.snapshot.profile.same_port_attempts},
+                         {"profile_successes", report.snapshot.profile.same_port_successes},
+                         {"profile_failure_streak", report.snapshot.profile.same_port_failure_streak},
+                         {"profile_last_elapsed_ms", report.snapshot.profile.same_port_last_elapsed_ms}}},
                        {"udp_assist", report.plan.udp_punch_enabled},
                        {"candidate_order", report.plan.direct_candidate_order}};
   if (!report.plan.direct_candidate_order.empty()) {

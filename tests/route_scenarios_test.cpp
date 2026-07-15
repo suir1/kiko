@@ -1,13 +1,10 @@
-#include "platform/platform.hpp"
 #include "connect/direct_session.hpp"
-#include "connect/profile.hpp"
 #include "core/progress.hpp"
 #include "connect/route_planner.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
-#include <filesystem>
 #include <iostream>
 #include <vector>
 
@@ -49,23 +46,10 @@ struct RecordingReporter : ProgressReporter {
 
 int main() {
   using namespace kiko;
-  namespace fs = std::filesystem;
-
-  const auto profile_path =
-      fs::temp_directory_path() / ("kiko_route_scenarios_" + std::to_string(process_id()) + ".json");
-  fs::remove(profile_path);
-#ifdef _WIN32
-  _putenv_s("KIKO_PROFILE_PATH", profile_path.string().c_str());
-#else
-  setenv("KIKO_PROFILE_PATH", profile_path.string().c_str(), 1);
-#endif
-
-  RuleScheduler rules;
-  auto clear_profile = [&]() { fs::remove(profile_path); };
 
   {
     ConnectivitySnapshot snapshot;
-    const auto plan = rules.plan(snapshot, std::nullopt, true, 4);
+    const auto plan = build_route_plan(true, snapshot, std::nullopt, 4);
     assert(plan.skip_direct);
     assert(!plan.udp_punch_enabled);
     assert_ms(plan.direct_timeout, 0, "no-direct timeout");
@@ -74,9 +58,8 @@ int main() {
 
   {
     ConnectivitySnapshot snapshot;
-    auto plan = rules.plan(snapshot, std::nullopt, false, 4);
-    Message peer{"peer", {{"peer_no_direct", "1"}}};
-    apply_peer_direct_policy(plan, peer);
+    auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
+    apply_peer_direct_policy(plan, true);
     assert(plan.skip_direct);
     assert(!plan.udp_punch_enabled);
     assert_ms(plan.direct_timeout, 0, "peer-no-direct timeout");
@@ -86,10 +69,9 @@ int main() {
 
   {
     auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
-    Message peer{"peer",
-                 {{"peer_local_candidates", "127.0.0.1"},
-                  {"peer_listen_host", "127.0.0.1"},
-                  {"peer_listen_port", std::to_string(listener.local_endpoint().port)}}};
+    RelayPeerInfo peer;
+    peer.peer_local_candidates = {"127.0.0.1"};
+    peer.peer_listen = Endpoint{"127.0.0.1", listener.local_endpoint().port};
     RoutePlan plan;
     plan.skip_direct = true;
     plan.direct_timeout = std::chrono::milliseconds(0);
@@ -104,7 +86,7 @@ int main() {
 
   {
     ConnectivitySnapshot snapshot;
-    const auto plan = rules.plan(snapshot, stun(StunNatClass::Open), false, 8);
+    const auto plan = build_route_plan(false, snapshot, stun(StunNatClass::Open), 8);
     assert(!plan.skip_direct);
     assert_ms(plan.direct_timeout, 3500, "open NAT direct window");
     assert_ms(plan.direct_connect, 450, "open NAT connect timeout");
@@ -114,7 +96,7 @@ int main() {
 
   {
     ConnectivitySnapshot snapshot;
-    const auto plan = rules.plan(snapshot, stun(StunNatClass::Cone), false, 4);
+    const auto plan = build_route_plan(false, snapshot, stun(StunNatClass::Cone), 4);
     assert(!plan.skip_direct);
     assert(!plan.udp_punch_enabled);
     assert_ms(plan.direct_timeout, 2500, "cone NAT direct window");
@@ -123,7 +105,7 @@ int main() {
 
   {
     ConnectivitySnapshot snapshot;
-    const auto plan = rules.plan(snapshot, stun(StunNatClass::Symmetric), false, 4);
+    const auto plan = build_route_plan(false, snapshot, stun(StunNatClass::Symmetric), 4);
     assert(!plan.skip_direct);
     assert(!plan.udp_punch_enabled);
     assert_ms(plan.direct_timeout, 500, "symmetric NAT direct window");
@@ -137,7 +119,7 @@ int main() {
     snapshot.peer_nat = NatType::BehindNat;
     snapshot.self_global_ipv6_count = 1;
     snapshot.peer_global_ipv6_count = 1;
-    const auto plan = rules.plan(snapshot, std::nullopt, false, 4);
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert_ms(plan.direct_timeout, 3500, "global IPv6 direct window");
     assert_ms(plan.direct_connect, 450, "global IPv6 connect timeout");
@@ -156,7 +138,7 @@ int main() {
     ConnectivitySnapshot snapshot;
     snapshot.self_nat = NatType::BehindNat;
     snapshot.peer_nat = NatType::BehindNat;
-    const auto plan = rules.plan(snapshot, std::nullopt, false, 4);
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert_ms(plan.direct_timeout, 500, "double NAT direct window");
     assert_ms(plan.direct_connect, 220, "double NAT connect timeout");
@@ -167,7 +149,7 @@ int main() {
     ConnectivitySnapshot snapshot;
     snapshot.vpn_detected = true;
     snapshot.lan_discovered_count = 2;
-    const auto plan = rules.plan(snapshot, std::nullopt, false, 4);
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert_ms(plan.direct_timeout, 1000, "VPN LAN direct window");
     assert_ms(plan.direct_connect, 250, "VPN LAN connect timeout");
@@ -177,13 +159,12 @@ int main() {
   {
     ConnectivitySnapshot snapshot;
     snapshot.only_local = true;
-    const auto plan = rules.plan(snapshot, std::nullopt, false, 4);
+    const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert_reason(plan, "only_local");
   }
 
   {
-    clear_profile();
     ConnectivitySnapshot snapshot;
     snapshot.relays.push_back(RelayProbeEntry{"external", "relay.example:9000", 25, true});
     const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
@@ -193,18 +174,10 @@ int main() {
   }
 
   {
-    clear_profile();
-    const auto fingerprint = network_fingerprint();
-    PunchStats stats;
-    stats.attempted = true;
-    stats.direct_ok = true;
-    stats.successful_candidate_kind = "lan";
-    stats.successful_candidate_priority = 90;
-    stats.successful_elapsed_ms = 12;
-    stats.candidate_failures_by_kind["public"] = 3;
-    save_profile_success(fingerprint, "direct", stats);
-
     ConnectivitySnapshot snapshot;
+    snapshot.profile.last_path = "direct";
+    snapshot.profile.last_direct_candidate_kind = "lan";
+    snapshot.profile.candidate_failures_by_kind["public"] = 3;
     const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert_ms(plan.direct_timeout, 2500, "direct success profile keeps default direct window");
@@ -216,15 +189,9 @@ int main() {
   }
 
   {
-    clear_profile();
-    const auto fingerprint = network_fingerprint();
-    PunchStats stats;
-    stats.attempted = true;
-    stats.direct_ok = false;
-    stats.candidate_failures_by_kind["ipv6_global"] = 2;
-    save_profile_success(fingerprint, "relay", stats);
-
     ConnectivitySnapshot snapshot;
+    snapshot.profile.last_path = "relay";
+    snapshot.profile.candidate_failures_by_kind["ipv6_global"] = 2;
     snapshot.self_global_ipv6_count = 1;
     snapshot.peer_global_ipv6_count = 1;
     const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
@@ -235,16 +202,10 @@ int main() {
   }
 
   {
-    clear_profile();
-    const auto fingerprint = network_fingerprint();
-    PunchStats stats;
-    stats.attempted = true;
-    stats.direct_ok = false;
-    stats.candidate_failures_by_kind["public"] = 1;
-    stats.candidate_failures_by_kind["public-same-port"] = 1;
-    save_profile_success(fingerprint, "relay", stats);
-
     ConnectivitySnapshot snapshot;
+    snapshot.profile.last_path = "relay";
+    snapshot.profile.candidate_failures_by_kind["public"] = 1;
+    snapshot.profile.candidate_failures_by_kind["public-same-port"] = 1;
     const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert_ms(plan.direct_timeout, 900, "public failure profile direct window");
@@ -258,12 +219,9 @@ int main() {
   }
 
   {
-    clear_profile();
-    const auto fingerprint = network_fingerprint();
-    save_profile_success(fingerprint, "relay");
-    save_profile_success(fingerprint, "relay");
-
     ConnectivitySnapshot snapshot;
+    snapshot.profile.last_path = "relay";
+    snapshot.profile.path_streak = 2;
     const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert_ms(plan.direct_timeout, 600, "relay history direct window");
@@ -272,13 +230,9 @@ int main() {
   }
 
   {
-    clear_profile();
-    const auto fingerprint = network_fingerprint();
-    save_profile_success(fingerprint, "direct");
-    save_profile_success(fingerprint, "direct");
-    save_profile_success(fingerprint, "relay");
-
     ConnectivitySnapshot snapshot;
+    snapshot.profile.last_path = "relay";
+    snapshot.profile.path_streak = 1;
     const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert(!plan.skip_direct);
     assert_ms(plan.direct_timeout, 2500, "single relay after direct history should keep default direct window");
@@ -286,33 +240,20 @@ int main() {
   }
 
   {
-    clear_profile();
-    const auto fingerprint = network_fingerprint();
-    PunchStats stats;
-    stats.attempted = true;
-    stats.direct_ok = true;
-    stats.successful_candidate_kind = "public-same-port";
-    stats.same_port_attempts = 1;
-    stats.same_port_successes = 1;
-    save_profile_success(fingerprint, "direct", stats);
-
     ConnectivitySnapshot snapshot;
+    snapshot.profile.last_path = "direct";
+    snapshot.profile.same_port_attempts = 1;
+    snapshot.profile.same_port_successes = 1;
     const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert_ms(plan.same_port_timeout, 650, "same-port success profile window");
     assert_ms(plan.same_port_connect, 180, "same-port success profile connect window");
   }
 
   {
-    clear_profile();
-    const auto fingerprint = network_fingerprint();
-    PunchStats stats;
-    stats.attempted = true;
-    stats.direct_ok = false;
-    stats.same_port_attempts = 4;
-    stats.same_port_failures = 4;
-    save_profile_success(fingerprint, "relay", stats);
-
     ConnectivitySnapshot snapshot;
+    snapshot.profile.last_path = "relay";
+    snapshot.profile.same_port_attempts = 4;
+    snapshot.profile.same_port_failure_streak = 4;
     const auto plan = build_route_plan(false, snapshot, std::nullopt, 4);
     assert_ms(plan.direct_timeout, 2500, "same-port failures should not shorten whole direct window");
     assert_ms(plan.same_port_timeout, 180, "same-port failure profile window");
@@ -345,12 +286,10 @@ int main() {
 
   {
     auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
-    Message peer{"peer",
-                 {{"peer_listen_host", "127.0.0.1"},
-                  {"peer_listen_port", "1"},
-                  {"peer_local_candidates", "2001:db8::5"},
-                  {"peer_public_host", "2001:4860:4860::8888"},
-                  {"peer_public_port", "5000"}}};
+    RelayPeerInfo peer;
+    peer.peer_listen = Endpoint{"127.0.0.1", 1};
+    peer.peer_local_candidates = {"2001:db8::5"};
+    peer.peer_public = Endpoint{"2001:4860:4860::8888", 5000};
     RoutePlan plan;
     plan.direct_timeout = std::chrono::milliseconds(20);
     plan.direct_connect = std::chrono::milliseconds(5);
@@ -379,7 +318,8 @@ int main() {
 
   {
     auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
-    Message peer{"peer", {{"peer_public_host", "fd00::1"}, {"peer_public_port", "5000"}}};
+    RelayPeerInfo peer;
+    peer.peer_public = Endpoint{"fd00::1", 5000};
     RoutePlan plan;
     plan.direct_timeout = std::chrono::milliseconds(20);
     plan.direct_connect = std::chrono::milliseconds(5);
@@ -403,7 +343,8 @@ int main() {
 
   {
     auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
-    Message peer{"peer", {{"peer_public_host", "127.0.0.1"}, {"peer_public_port", "1"}}};
+    RelayPeerInfo peer;
+    peer.peer_public = Endpoint{"127.0.0.1", 1};
     RoutePlan plan;
     plan.direct_timeout = std::chrono::milliseconds(2500);
     plan.direct_connect = std::chrono::milliseconds(450);
@@ -427,7 +368,6 @@ int main() {
     }
   }
 
-  fs::remove(profile_path);
   std::cout << "PASS: route scenario decisions\n";
   return 0;
 }

@@ -13,43 +13,11 @@ namespace kiko {
 namespace {
 
 constexpr auto kDirectPreflightTimeout = std::chrono::milliseconds(1500);
-constexpr auto kRelayStandbyDirectWindow = std::chrono::milliseconds(500);
-constexpr auto kRelayStandbyConnectWindow = std::chrono::milliseconds(220);
 constexpr auto kSyncSamePortConnectWindow = std::chrono::milliseconds(160);
 
 bool direct_cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
 
-void push_unique_kind(std::vector<std::string>& kinds, const std::string& kind) {
-  if (kind.empty()) return;
-  if (std::find(kinds.begin(), kinds.end(), kind) == kinds.end()) kinds.push_back(kind);
-}
-
-void prefer_global_ipv6(RoutePlan& plan) {
-  std::vector<std::string> order;
-  push_unique_kind(order, "manual");
-  push_unique_kind(order, "discovered");
-  push_unique_kind(order, "lan");
-  push_unique_kind(order, "listen");
-  push_unique_kind(order, "ipv6_global");
-  push_unique_kind(order, "public");
-  for (const auto& kind : plan.direct_candidate_order) push_unique_kind(order, kind);
-  plan.direct_candidate_order = std::move(order);
-}
-
-void fill_candidate_score_hints(RoutePlan& plan, const ConnectivitySnapshot& snapshot) {
-  plan.candidate_score_hints.vpn_detected = snapshot.vpn_detected;
-  plan.candidate_score_hints.profile_last_path = snapshot.profile_last_path;
-  plan.candidate_score_hints.profile_direct_candidate_kind = snapshot.profile_direct_candidate_kind;
-  plan.candidate_score_hints.profile_candidate_failures_by_kind = snapshot.profile_candidate_failures_by_kind;
-}
-
 }  // namespace
-
-ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local, std::size_t lan_discovered_count,
-                                                   std::uint64_t total_bytes) {
-  return build_pre_rendezvous_snapshot(no_direct, only_local, lan_discovered_count, total_bytes,
-                                       collect_network_interface_inventory());
-}
 
 ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_local, std::size_t lan_discovered_count,
                                                    std::uint64_t total_bytes,
@@ -63,86 +31,6 @@ ConnectivitySnapshot build_pre_rendezvous_snapshot(bool no_direct, bool only_loc
   s.lan_candidates = interfaces.lan_candidate_addresses();
   s.self_global_ipv6_count = count_global_ipv6_addresses(s.lan_candidates);
   return s;
-}
-
-RoutePlan RuleScheduler::plan(const ConnectivitySnapshot& snapshot, const std::optional<StunProbeResult>& stun,
-                              bool force_no_direct, int default_connections) const {
-  RoutePlan plan;
-  plan.connections = default_connections;
-  plan.reason = "default";
-  fill_candidate_score_hints(plan, snapshot);
-
-  if (force_no_direct || snapshot.no_direct_config) {
-    plan.skip_direct = true;
-    plan.direct_timeout = std::chrono::milliseconds(0);
-    plan.reason = "no_direct";
-    return plan;
-  }
-
-  if (snapshot.only_local) {
-    plan.reason = "only_local";
-  }
-
-  if (snapshot.vpn_detected && snapshot.lan_discovered_count > 0) {
-    plan.direct_timeout = std::chrono::milliseconds(1000);
-    plan.direct_connect = std::chrono::milliseconds(250);
-    plan.reason = "vpn_lan_short_direct";
-  }
-
-  if (stun && stun->ok) {
-    if (stun->nat_class == StunNatClass::Symmetric) {
-      plan.direct_timeout = kRelayStandbyDirectWindow;
-      plan.direct_connect = kRelayStandbyConnectWindow;
-      plan.reason = "stun_symmetric_short_direct";
-    } else if (stun->nat_class == StunNatClass::Open) {
-      plan.direct_timeout = std::chrono::milliseconds(3500);
-      plan.reason = "stun_open";
-    }
-  }
-
-  const bool both_global_ipv6 = snapshot.self_global_ipv6_count > 0 && snapshot.peer_global_ipv6_count > 0;
-  if (both_global_ipv6) {
-    plan.direct_timeout = std::chrono::milliseconds(3500);
-    plan.direct_connect = std::chrono::milliseconds(450);
-    plan.reason = "ipv6_global_direct";
-    prefer_global_ipv6(plan);
-  }
-
-  if (!both_global_ipv6 && snapshot.self_nat == NatType::BehindNat && snapshot.peer_nat == NatType::BehindNat) {
-    if (plan.direct_timeout > kRelayStandbyDirectWindow) {
-      plan.direct_timeout = kRelayStandbyDirectWindow;
-    }
-    plan.direct_connect = kRelayStandbyConnectWindow;
-    if (plan.reason == "default") plan.reason = "double_nat_short_punch";
-  }
-
-  if (!plan.skip_direct) {
-    const StunNatClass nat = stun && stun->ok ? stun->nat_class : snapshot.stun_nat;
-    if (nat == StunNatClass::Cone) {
-      // UDP is currently a probe signal only. Do not promise UDP-assisted TCP
-      // punching until we can coordinate a real same-path TCP punch strategy.
-      if (plan.reason == "default") plan.reason = "stun_cone_direct_probe";
-    }
-  }
-
-  return plan;
-}
-
-void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePuncher& puncher,
-                                  const std::vector<DirectCandidate>& candidates, const NatProfile& self,
-                                  const NatProfile& peer, PunchPlan& out) {
-  auto ordered = candidates;
-  apply_direct_candidate_scoring(ordered, plan.candidate_score_hints, plan.direct_candidate_order);
-  out = puncher.plan(role, ordered, self, peer);
-  if (plan.direct_timeout.count() > 0 && plan.direct_timeout < out.total_timeout) {
-    out.total_timeout = plan.direct_timeout;
-  }
-  if (plan.direct_connect.count() > 0) {
-    out.connect_timeout = plan.direct_connect;
-  }
-  if (plan.same_port_timeout.count() > 0) out.same_port_timeout = plan.same_port_timeout;
-  if (plan.same_port_connect.count() > 0) out.same_port_connect_timeout = plan.same_port_connect;
-  tune_direct_candidate_timeouts(out);
 }
 
 namespace {
@@ -518,52 +406,6 @@ PunchStats punch_stats_from(const AdaptivePuncher& puncher, bool direct_ok, bool
     if (!observation.kind.empty()) ++stats.candidate_failures_by_kind[observation.kind];
   }
   return stats;
-}
-
-void apply_direct_candidate_scoring(std::vector<DirectCandidate>& candidates,
-                                    const RoutePlan::DirectCandidateScoreHints& hints,
-                                    const std::vector<std::string>& kind_order) {
-  if (candidates.empty()) return;
-
-  auto rank = [&](const std::string& kind) {
-    for (std::size_t i = 0; i < kind_order.size(); ++i) {
-      if (kind_order[i] == kind) return static_cast<int>(i);
-    }
-    return static_cast<int>(kind_order.size());
-  };
-
-  for (auto& candidate : candidates) {
-    if (!kind_order.empty()) {
-      const auto r = rank(candidate.kind);
-      if (r < static_cast<int>(kind_order.size())) {
-        candidate.priority += 1000 - r * 100;
-        add_direct_candidate_reason(candidate, "route_order_hint");
-      }
-    }
-
-    if (!hints.profile_direct_candidate_kind.empty() && hints.profile_last_path == "direct" &&
-        candidate.kind == hints.profile_direct_candidate_kind) {
-      candidate.priority += 25;
-      add_direct_candidate_reason(candidate, "profile_direct_success");
-    }
-
-    const auto failure = hints.profile_candidate_failures_by_kind.find(candidate.kind);
-    if (failure != hints.profile_candidate_failures_by_kind.end()) {
-      candidate.priority -= std::min(30, failure->second * 5);
-      add_direct_candidate_reason(candidate, "profile_previous_failure");
-    }
-
-    if (hints.vpn_detected && (candidate.kind == "discovered" || candidate.kind == "lan")) {
-      candidate.priority -= 10;
-      add_direct_candidate_reason(candidate, "vpn_lan_caution");
-    }
-  }
-}
-
-void apply_direct_candidate_kind_order(std::vector<DirectCandidate>& candidates,
-                                       const std::vector<std::string>& kind_order) {
-  RoutePlan::DirectCandidateScoreHints hints;
-  apply_direct_candidate_scoring(candidates, hints, kind_order);
 }
 
 }  // namespace kiko

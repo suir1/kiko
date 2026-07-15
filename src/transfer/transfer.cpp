@@ -29,31 +29,26 @@ int normalize_connection_count(int connections) {
   return connections;
 }
 
-void emit_debug_route(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,
-                      const std::optional<std::string>& relay_pass, const std::string& bind_interface, bool avoid_vpn,
-                      bool udp_probe, bool no_direct, bool only_local, ProgressReporter& reporter) {
-  DoctorOptions options;
-  options.relay = relay;
-  options.proxy = proxy;
-  options.relay_pass = relay_pass;
-  options.bind_interface = bind_interface;
-  options.avoid_vpn = avoid_vpn;
-  options.udp_probe = udp_probe;
-  options.no_direct = no_direct;
-  options.only_local = only_local;
-  const auto report = run_doctor(options);
-  for (const auto& line : doctor_debug_lines(report)) reporter.status(line);
+void fill_transfer_snapshot(ConnectivitySnapshot& snapshot, const std::vector<FileEntry>& files, int connections_hint) {
+  const auto stats = transfer_payload_stats(files);
+  snapshot.file_count = files.size();
+  snapshot.largest_file_bytes = stats.largest_file_bytes;
+  snapshot.compressible_ratio = stats.compressible_ratio;
+  snapshot.connections_hint = connections_hint;
 }
 
-std::string describe_route_plan_for_transfer(const RoutePlan& plan) {
-  std::string line = plan.reason;
-  if (plan.skip_direct) return line + " (skip direct)";
-  line += " direct_window=" + std::to_string(plan.direct_timeout.count()) + "ms";
-  line += " direct_connect=" + std::to_string(plan.direct_connect.count()) + "ms";
-  line += " same_port=" + std::to_string(plan.same_port_timeout.count()) + "ms/" +
-          std::to_string(plan.same_port_connect.count()) + "ms";
-  if (plan.udp_punch_enabled) line += " udp-assist";
-  return line;
+void emit_debug_route(const PeerConnectionOptions& config, ProgressReporter& reporter) {
+  DoctorOptions options;
+  options.relay = relay_with_manual_ip(config.relay, config.manual_ip);
+  options.proxy = config.proxy;
+  options.relay_pass = config.relay_pass;
+  options.bind_interface = config.bind_interface;
+  options.avoid_vpn = config.avoid_vpn;
+  options.udp_probe = config.udp_probe;
+  options.no_direct = config.no_direct;
+  options.only_local = config.only_local;
+  const auto report = run_doctor(options);
+  for (const auto& line : doctor_debug_lines(report)) reporter.status(line);
 }
 
 PeerRouteSessionConfig make_route_config(const PeerConnectionOptions& connection, Role role, const std::string& code,
@@ -69,31 +64,31 @@ PeerRouteSessionConfig make_route_config(const PeerConnectionOptions& connection
   return config;
 }
 
-template <typename Fn>
-int run_with_auto_reconnect(int max_attempts, std::chrono::milliseconds delay, ProgressReporter& reporter,
-                            const std::shared_ptr<TransferCancellation>& cancellation, Fn&& fn) {
+template <typename Config, typename Fn>
+int run_with_auto_reconnect(Config config, bool generate_code, ProgressReporter& reporter, Fn run_once) {
+  if (generate_code && config.code.empty()) config.code = random_code(3);
+  else config.code = normalize_pairing_code(config.code);
+  if (auto error = validate_pairing_code_format(config.code, true)) throw KikoError(*error);
+
+  const int max_attempts = total_transfer_attempts(config.auto_reconnect, config.reconnect_attempts);
   for (int attempt = 1;; ++attempt) {
     try {
-      if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");
-      return fn();
+      throw_if_cancelled(config.cancellation);
+      return run_once(config, reporter);
     } catch (const std::exception& error) {
-      if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");
+      throw_if_cancelled(config.cancellation);
       if (attempt >= max_attempts || !is_retryable_transfer_error(error)) throw;
       reporter.transfer_retry(attempt + 1, max_attempts, error.what());
-      reporter.transfer_retry_delay(attempt + 1, max_attempts, delay);
-      auto remaining = delay;
+      reporter.transfer_retry_delay(attempt + 1, max_attempts, config.reconnect_delay);
+      auto remaining = config.reconnect_delay;
       while (remaining.count() > 0) {
-        if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");
+        throw_if_cancelled(config.cancellation);
         const auto slice = std::min<std::chrono::milliseconds>(remaining, std::chrono::milliseconds(50));
         std::this_thread::sleep_for(slice);
         remaining -= slice;
       }
     }
   }
-}
-
-void throw_if_cancelled(const std::shared_ptr<TransferCancellation>& cancellation) {
-  if (cancellation && cancellation->requested()) throw KikoError("transfer canceled");
 }
 
 void send_established_route(EstablishedPeerRoute& established, const std::vector<FileEntry>& files,
@@ -116,6 +111,19 @@ void receive_established_route(EstablishedPeerRoute& established, const std::fil
   }
 }
 
+EstablishedPeerRoute establish_transfer_route(PeerRouteSession& route, RoutePlan plan, int connections,
+                                               ConnectivitySnapshot& snapshot, bool ai_route,
+                                               ProgressReporter& reporter) {
+  plan = route.apply_peer_policy(std::move(plan));
+  reporter.status("route plan: " + describe_route_plan(plan, true));
+  auto established = route.establish(plan, connections);
+  if (established.path == RoutePath::Relay && established.explain_direct_failure) {
+    snapshot.punch = established.punch_stats;
+    explain_direct_failure(snapshot, plan, ai_route, reporter);
+  }
+  return established;
+}
+
 }  // namespace
 
 int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
@@ -128,18 +136,13 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
   for (const auto& entry : files) total_size += entry.size;
 
   int connections = normalize_connection_count(config.connections);
-  const auto external_relay = relay_with_manual_ip(config.relay, config.manual_ip);
-  if (config.debug_route) {
-    emit_debug_route(external_relay, config.proxy, config.relay_pass, config.bind_interface, config.avoid_vpn,
-                     config.udp_probe, config.no_direct, config.only_local, reporter);
-  }
+  if (config.debug_route) emit_debug_route(config, reporter);
 
   const bool run_stun_probe = should_run_stun_probe(config.udp_probe, config.ai_route, config.ai_route_plan_only);
   if (run_stun_probe && !config.udp_probe) reporter.status("ai route: running STUN NAT probe");
-  auto route_config =
-      make_route_config(config, Role::Sender, config.code, config.show_qrcode, run_stun_probe,
-                        "failed to connect relay or rendezvous peer");
-  PeerRouteSession route(std::move(route_config), reporter);
+  PeerRouteSession route(make_route_config(config, Role::Sender, config.code, config.show_qrcode, run_stun_probe,
+                                           "failed to connect relay or rendezvous peer"),
+                         reporter);
   reporter.transfer_overview(files.size(), total_size);
 
   if (config.auto_connections) {
@@ -158,7 +161,7 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
     auto pre_snapshot = route.pre_rendezvous_snapshot(total_size);
     fill_transfer_snapshot(pre_snapshot, files, connections_hint);
     const auto pre_plan =
-        resolve_route_plan(config.no_direct, pre_snapshot, route.early_stun(), connections, config.ai_route,
+        resolve_route_plan(config.no_direct, pre_snapshot, route.stun_probe(), connections, config.ai_route,
                            config.ai_route_plan_only, config.ai_route_connectivity_only, reporter);
     if (config.ai_route && !config.ai_route_plan_only) {
       if (!config.ai_route_connectivity_only) connections = normalize_connection_count(pre_plan.connections);
@@ -167,26 +170,21 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
     }
   }
 
-  route.rendezvous({{"conn_index", "0"},
-                    {"conn_count", std::to_string(connections)},
-                    {"file_count", std::to_string(files.size())},
-                    {"total_size", std::to_string(total_size)}});
+  RelayHello hello;
+  hello.conn_count = static_cast<std::uint64_t>(connections);
+  hello.file_count = files.size();
+  hello.total_size = total_size;
+  route.rendezvous(std::move(hello));
 
   auto snapshot = route.connectivity_snapshot(total_size);
   fill_transfer_snapshot(snapshot, files, connections_hint);
-  auto route_plan = build_route_plan(config.no_direct, snapshot, route.stun(), connections);
+  auto route_plan = build_route_plan(config.no_direct, snapshot, route.stun_probe(), connections);
   if (pre_peer_ai_plan && config.ai_route && !config.ai_route_plan_only) {
     route_plan = merge_route_plan_hint(route_plan, *pre_peer_ai_plan);
     connections = normalize_connection_count(route_plan.connections);
   }
-  route_plan = route.apply_peer_policy(std::move(route_plan));
-  reporter.status("route plan: " + describe_route_plan_for_transfer(route_plan));
-
-  auto established = route.establish(route_plan, connections);
-  if (established.path == RoutePath::Relay && established.explain_direct_failure) {
-    snapshot.punch = established.punch_stats;
-    explain_direct_failure(snapshot, route_plan, config.ai_route, reporter);
-  }
+  auto established =
+      establish_transfer_route(route, std::move(route_plan), connections, snapshot, config.ai_route, reporter);
   send_established_route(established, files, reporter);
   route.record_success(established);
   return 0;
@@ -194,71 +192,44 @@ int run_send_once(const SendConfig& config, ProgressReporter& reporter) {
 
 int run_recv_once(const RecvConfig& config, ProgressReporter& reporter) {
   throw_if_cancelled(config.cancellation);
-  const auto external_relay = relay_with_manual_ip(config.relay, config.manual_ip);
-  if (config.debug_route) {
-    emit_debug_route(external_relay, config.proxy, config.relay_pass, config.bind_interface, config.avoid_vpn,
-                     config.udp_probe, config.no_direct, config.only_local, reporter);
-  }
+  if (config.debug_route) emit_debug_route(config, reporter);
 
   const bool run_stun_probe = should_run_stun_probe(config.udp_probe, config.ai_route, config.ai_route_plan_only);
   if (run_stun_probe && !config.udp_probe) reporter.status("ai route: running STUN NAT probe");
-  auto route_config =
-      make_route_config(config, Role::Receiver, config.code, false, run_stun_probe,
-                        "failed to connect any relay or rendezvous peer");
-  PeerRouteSession route(std::move(route_config), reporter);
+  PeerRouteSession route(make_route_config(config, Role::Receiver, config.code, false, run_stun_probe,
+                                           "failed to connect any relay or rendezvous peer"),
+                         reporter);
   route.rendezvous();
 
   const auto& peer = route.peer();
-  const auto file_count = static_cast<std::size_t>(peer.get_u64("file_count", 0));
-  const auto total_size = peer.get_u64("total_size", 0);
+  const auto file_count = static_cast<std::size_t>(peer.file_count);
+  const auto total_size = peer.total_size;
   reporter.transfer_overview(file_count, total_size);
   std::filesystem::create_directories(config.output_dir);
 
   auto snapshot = route.connectivity_snapshot(total_size);
   snapshot.file_count = file_count;
 
-  const auto peer_connection_count = peer.get_u64("conn_count", 1);
+  const auto peer_connection_count = peer.conn_count;
   if (peer_connection_count > static_cast<std::uint64_t>(kMaxMuxConnections)) {
     throw KikoError("peer requested too many mux connections");
   }
   const int connections = normalize_connection_count(static_cast<int>(peer_connection_count));
-  auto route_plan = build_route_plan(config.no_direct, snapshot, route.stun(), connections);
-  if (config.ai_route || config.ai_route_plan_only) {
-    const auto ai_plan = resolve_route_plan(config.no_direct, snapshot, route.stun(), connections, config.ai_route,
-                                            config.ai_route_plan_only, false, reporter);
-    if (config.ai_route && !config.ai_route_plan_only) route_plan = merge_route_plan_hint(route_plan, ai_plan);
-  }
-  route_plan = route.apply_peer_policy(std::move(route_plan));
-  reporter.status("route plan: " + describe_route_plan_for_transfer(route_plan));
-
-  auto established = route.establish(route_plan, connections);
-  if (established.path == RoutePath::Relay && established.explain_direct_failure) {
-    snapshot.punch = established.punch_stats;
-    explain_direct_failure(snapshot, route_plan, config.ai_route, reporter);
-  }
+  auto route_plan = resolve_route_plan(config.no_direct, snapshot, route.stun_probe(), connections, config.ai_route,
+                                       config.ai_route_plan_only, false, reporter);
+  auto established =
+      establish_transfer_route(route, std::move(route_plan), connections, snapshot, config.ai_route, reporter);
   receive_established_route(established, config.output_dir, reporter, config.conflict_policy);
   route.record_success(established);
   return 0;
 }
 
 int run_send(const SendConfig& config, ProgressReporter& reporter) {
-  SendConfig attempt_config = config;
-  if (attempt_config.code.empty()) attempt_config.code = random_code(3);
-  else attempt_config.code = normalize_pairing_code(attempt_config.code);
-  if (auto error = validate_pairing_code_format(attempt_config.code, true)) throw KikoError(*error);
-  return run_with_auto_reconnect(
-      total_transfer_attempts(attempt_config.auto_reconnect, attempt_config.reconnect_attempts),
-      attempt_config.reconnect_delay, reporter, attempt_config.cancellation,
-      [&]() { return run_send_once(attempt_config, reporter); });
+  return run_with_auto_reconnect(config, true, reporter, run_send_once);
 }
 
 int run_recv(const RecvConfig& config, ProgressReporter& reporter) {
-  RecvConfig attempt_config = config;
-  attempt_config.code = normalize_pairing_code(attempt_config.code);
-  if (auto error = validate_pairing_code_format(attempt_config.code, true)) throw KikoError(*error);
-  return run_with_auto_reconnect(total_transfer_attempts(attempt_config.auto_reconnect, attempt_config.reconnect_attempts),
-                                 attempt_config.reconnect_delay, reporter, attempt_config.cancellation,
-                                 [&]() { return run_recv_once(attempt_config, reporter); });
+  return run_with_auto_reconnect(config, false, reporter, run_recv_once);
 }
 
 }  // namespace kiko

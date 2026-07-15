@@ -39,4 +39,16 @@ void TransferCancellation::track(TcpSocket& socket) {
   if (requested_.load()) socket.interrupt();
 }
 
+const std::atomic_bool* cancellation_flag(const std::shared_ptr<TransferCancellation>& cancellation) {
+  return cancellation ? cancellation->flag() : nullptr;
+}
+
+void throw_if_cancelled(const std::atomic_bool* cancel, std::string_view message) {
+  if (cancel && cancel->load()) throw KikoError(std::string(message));
+}
+
+void throw_if_cancelled(const std::shared_ptr<TransferCancellation>& cancellation, std::string_view message) {
+  throw_if_cancelled(cancellation_flag(cancellation), message);
+}
+
 }  // namespace kiko

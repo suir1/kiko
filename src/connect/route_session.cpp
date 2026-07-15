@@ -1,7 +1,8 @@
 #include "route_session.hpp"
 
-#include "platform/platform.hpp"
+#include "core/cancellation.hpp"
 #include "core/protocol.hpp"
+#include "platform/platform.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -171,10 +172,6 @@ std::optional<TcpSocket> finish_direct_future(std::future<std::optional<TcpSocke
     if (!suppress_errors) throw;
   }
   return std::nullopt;
-}
-
-void throw_if_cancelled(const std::atomic_bool* cancel) {
-  if (cancel && cancel->load()) throw KikoError("transfer canceled");
 }
 
 std::optional<TcpSocket> collect_direct_future(std::future<std::optional<TcpSocket>>& future,

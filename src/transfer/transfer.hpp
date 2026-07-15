@@ -23,20 +23,23 @@ enum class ConflictPolicy {
   Rename,
 };
 
-struct SendConfig : PeerConnectionOptions {
-  std::filesystem::path file;
+struct TransferSessionConfig : PeerConnectionOptions {
   std::string code;
-  bool use_gitignore = true;
-  bool show_qrcode = true;
   bool ai_route = false;
   bool ai_route_plan_only = false;
-  bool ai_route_connectivity_only = false;
-  bool auto_connections = false;
   bool auto_reconnect = true;
   int reconnect_attempts = 3;
   std::chrono::milliseconds reconnect_delay{1000};
-  SymlinkMode symlink_mode = SymlinkMode::Follow;
   bool debug_route = false;
+};
+
+struct SendConfig : TransferSessionConfig {
+  std::filesystem::path file;
+  bool use_gitignore = true;
+  bool show_qrcode = true;
+  bool ai_route_connectivity_only = false;
+  bool auto_connections = false;
+  SymlinkMode symlink_mode = SymlinkMode::Follow;
   // Number of parallel TCP connections to use on the relay path (1 = single
   // stream). The sender controls this; the receiver mirrors it.
   int connections = 4;
@@ -79,16 +82,9 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
 void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, const std::filesystem::path& output_dir,
                        ProgressReporter& reporter, ConflictPolicy conflict_policy = ConflictPolicy::Overwrite);
 
-struct RecvConfig : PeerConnectionOptions {
-  std::string code;
+struct RecvConfig : TransferSessionConfig {
   std::filesystem::path output_dir{"."};
-  bool ai_route = false;
-  bool ai_route_plan_only = false;
-  bool auto_reconnect = true;
-  int reconnect_attempts = 3;
-  std::chrono::milliseconds reconnect_delay{1000};
   ConflictPolicy conflict_policy = ConflictPolicy::Overwrite;
-  bool debug_route = false;
 };
 
 int run_send(const SendConfig& config, ProgressReporter& reporter);

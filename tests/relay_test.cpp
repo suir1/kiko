@@ -64,8 +64,11 @@ int main() {
     const auto endpoint = relay.local_endpoint();
     const std::vector<RelayRaceEntry> entries{{endpoint, false}};
 
-    Message sender_hello{"hello", {{"room", "room-standby"}, {"role", "sender"}}};
-    Message receiver_hello{"hello", {{"room", "room-standby"}, {"role", "receiver"}}};
+    RelayHello sender_hello;
+    sender_hello.room = "room-standby";
+    RelayHello receiver_hello;
+    receiver_hello.room = "room-standby";
+    receiver_hello.role = Role::Receiver;
 
     auto sender_future = std::async(std::launch::async, [&] {
       return race_until_peer(entries, sender_hello, std::chrono::seconds(2), ConnectOptions{});
@@ -112,8 +115,11 @@ int main() {
     const auto endpoint = relay.local_endpoint();
     const std::vector<RelayRaceEntry> entries{{endpoint, false}};
 
-    Message sender_hello{"hello", {{"room", "room-route-drop"}, {"role", "sender"}}};
-    Message receiver_hello{"hello", {{"room", "room-route-drop"}, {"role", "receiver"}}};
+    RelayHello sender_hello;
+    sender_hello.room = "room-route-drop";
+    RelayHello receiver_hello;
+    receiver_hello.room = "room-route-drop";
+    receiver_hello.role = Role::Receiver;
 
     auto sender_future = std::async(std::launch::async, [&] {
       return race_until_peer(entries, sender_hello, std::chrono::seconds(2), ConnectOptions{});
@@ -223,8 +229,11 @@ int main() {
     const auto endpoint = relay.local_endpoint();
     const std::vector<RelayRaceEntry> entries{{endpoint, false}};
 
-    Message sender_hello{"hello", {{"room", "room-b"}, {"role", "sender"}}};
-    Message receiver_hello{"hello", {{"room", "room-b"}, {"role", "receiver"}}};
+    RelayHello sender_hello;
+    sender_hello.room = "room-b";
+    RelayHello receiver_hello;
+    receiver_hello.room = "room-b";
+    receiver_hello.role = Role::Receiver;
 
     auto sender_future = std::async(std::launch::async, [&] {
       return race_until_peer(entries, sender_hello, std::chrono::seconds(2), ConnectOptions{});
@@ -269,10 +278,13 @@ int main() {
       receiver_port = receiver_reservation.local_endpoint().port;
     }
 
-    Message sender_hello{
-        "hello", {{"room", "room-punch-map"}, {"role", "sender"}, {"listen_port", std::to_string(sender_port)}}};
-    Message receiver_hello{
-        "hello", {{"room", "room-punch-map"}, {"role", "receiver"}, {"listen_port", std::to_string(receiver_port)}}};
+    RelayHello sender_hello;
+    sender_hello.room = "room-punch-map";
+    sender_hello.listen.port = sender_port;
+    RelayHello receiver_hello;
+    receiver_hello.room = "room-punch-map";
+    receiver_hello.role = Role::Receiver;
+    receiver_hello.listen.port = receiver_port;
 
     auto sender_future = std::async(std::launch::async, [&] {
       return race_until_peer(entries, sender_hello, std::chrono::seconds(2), ConnectOptions{});
@@ -312,8 +324,12 @@ int main() {
     const auto endpoint = relay.local_endpoint();
     const std::vector<RelayRaceEntry> entries{{endpoint, false}};
 
-    Message sender_hello{"hello", {{"room", "room-c"}, {"role", "sender"}, {"no_direct", "1"}}};
-    Message receiver_hello{"hello", {{"room", "room-c"}, {"role", "receiver"}}};
+    RelayHello sender_hello;
+    sender_hello.room = "room-c";
+    sender_hello.no_direct = true;
+    RelayHello receiver_hello;
+    receiver_hello.room = "room-c";
+    receiver_hello.role = Role::Receiver;
 
     auto sender_future = std::async(std::launch::async, [&] {
       return race_until_peer(entries, sender_hello, std::chrono::seconds(2), ConnectOptions{});
