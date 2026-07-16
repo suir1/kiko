@@ -116,12 +116,6 @@ void send_message(TcpSocket& socket, const Message& message) {
   send_frame(socket, Bytes(text.begin(), text.end()));
 }
 
-std::optional<Message> recv_message(TcpSocket& socket) {
-  auto payload = recv_frame(socket);
-  if (!payload) return std::nullopt;
-  return decode_message(std::string(payload->begin(), payload->end()));
-}
-
 std::optional<Message> recv_message_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
                                             const std::atomic_bool* cancel) {
   auto payload = recv_frame_timeout(socket, timeout, cancel);

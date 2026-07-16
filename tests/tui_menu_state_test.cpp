@@ -1,7 +1,7 @@
 #include "tui/tui_menu_state.hpp"
 #include "tui/tui_transfer_view.hpp"
 
-#include "platform/platform.hpp"
+#include "core/common.hpp"
 
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
@@ -88,7 +88,7 @@ int main() {
     if (expect_error(state, "connections must be a number") != 0) return 1;
   }
 
-  const auto send_path = fs::temp_directory_path() / ("kiko_tui_menu_state_test_" + std::to_string(process_id()));
+  const auto send_path = fs::temp_directory_path() / ("kiko_tui_menu_state_test_" + std::to_string(now_ms()));
   {
     std::ofstream out(send_path);
     out << "hello kiko\n";

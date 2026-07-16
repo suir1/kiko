@@ -1,5 +1,5 @@
+#include "core/common.hpp"
 #include "core/progress.hpp"
-#include "platform/platform.hpp"
 #include "transfer/transfer.hpp"
 
 #include <chrono>
@@ -55,7 +55,7 @@ struct RecordingReporter : ProgressReporter {
 }  // namespace
 
 int main() {
-  auto root = fs::temp_directory_path() / ("kiko_progress_test_" + std::to_string(process_id()));
+  auto root = fs::temp_directory_path() / ("kiko_progress_test_" + std::to_string(now_ms()));
   auto src = root / "data";
   auto dst = root / "out";
   fs::remove_all(root);

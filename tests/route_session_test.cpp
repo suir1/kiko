@@ -1,4 +1,3 @@
-#include "platform/platform.hpp"
 #include "core/protocol.hpp"
 #include "core/progress.hpp"
 #include "connect/route_session.hpp"
@@ -86,7 +85,7 @@ int main() {
     direct.emplace(std::move(direct_pair.first));
 
     std::thread peer([relay = std::move(relay_pair.second)]() mutable {
-      auto msg = recv_message(relay);
+      auto msg = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(msg);
       assert(msg->type == "direct_ok");
       send_message(relay, Message{"direct_start", {}});
@@ -116,7 +115,7 @@ int main() {
     direct.emplace(std::move(direct_pair.first));
 
     std::thread peer([relay = std::move(relay_pair.second)]() mutable {
-      auto msg = recv_message(relay);
+      auto msg = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(msg);
       assert(msg->type == "direct_ok");
       send_message(relay, Message{"direct_start", {}});
@@ -146,10 +145,10 @@ int main() {
     direct.emplace(std::move(direct_pair.first));
 
     std::thread peer([relay = std::move(relay_pair.second)]() mutable {
-      auto standby = recv_message(relay);
+      auto standby = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(standby);
       assert(standby->type == "relay_standby");
-      auto choice = recv_message(relay);
+      auto choice = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(choice);
       assert(choice->type == "direct_ok");
       send_message(relay, Message{"direct_start", {}});
@@ -185,7 +184,7 @@ int main() {
     std::atomic_bool cancel_seen{false};
 
     std::thread peer([relay = std::move(relay_pair.second)]() mutable {
-      auto standby = recv_message(relay);
+      auto standby = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(standby);
       assert(standby->type == "relay_standby");
       send_message(relay, Message{"relay_start", {{"reason", "standby"}}});
@@ -224,10 +223,10 @@ int main() {
   {
     auto relay_pair = connected_pair();
     std::thread peer([relay = std::move(relay_pair.second)]() mutable {
-      auto standby = recv_message(relay);
+      auto standby = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(standby);
       assert(standby->type == "relay_standby");
-      auto choice = recv_message(relay);
+      auto choice = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(choice);
       assert(choice->type == "relay_ready");
       send_message(relay, Message{"relay_start", {{"reason", "relay"}}});
@@ -261,10 +260,10 @@ int main() {
   {
     auto relay_pair = connected_pair();
     std::thread peer([relay = std::move(relay_pair.second)]() mutable {
-      auto standby = recv_message(relay);
+      auto standby = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(standby);
       assert(standby->type == "relay_standby");
-      auto choice = recv_message(relay);
+      auto choice = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(choice);
       assert(choice->type == "relay_ready");
       send_message(relay, Message{"relay_start", {{"reason", "relay"}}});
@@ -295,7 +294,7 @@ int main() {
   {
     auto relay_pair = connected_pair();
     std::thread peer([relay = std::move(relay_pair.second)]() mutable {
-      auto msg = recv_message(relay);
+      auto msg = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(msg);
       assert(msg->type == "relay_ready");
       send_message(relay, Message{"relay_start", {}});
@@ -327,7 +326,7 @@ int main() {
   {
     auto relay_pair = connected_pair();
     std::thread peer([relay = std::move(relay_pair.second)]() mutable {
-      auto msg = recv_message(relay);
+      auto msg = recv_message_timeout(relay, std::chrono::seconds(2));
       assert(msg);
       assert(msg->type == "relay_ready");
       send_message(relay, Message{"relay_start", {{"reason", "mismatch"}}});

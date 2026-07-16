@@ -1,5 +1,5 @@
-#include "platform/platform.hpp"
 #include "connect/profile.hpp"
+#include "core/common.hpp"
 
 #include <cassert>
 #include <cstdlib>
@@ -10,7 +10,7 @@ int main() {
   using namespace kiko;
   namespace fs = std::filesystem;
 
-  const auto path = fs::temp_directory_path() / ("kiko_profile_test_" + std::to_string(process_id()) + ".json");
+  const auto path = fs::temp_directory_path() / ("kiko_profile_test_" + std::to_string(now_ms()) + ".json");
   fs::remove(path);
 #ifdef _WIN32
   _putenv_s("KIKO_PROFILE_PATH", path.string().c_str());

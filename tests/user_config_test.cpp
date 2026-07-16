@@ -1,7 +1,7 @@
 #include "platform/user_config.hpp"
 
+#include "core/common.hpp"
 #include "core/config.hpp"
-#include "platform/platform.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -43,7 +43,7 @@ int main() {
   using namespace kiko;
 
   const auto config_path =
-      fs::temp_directory_path() / ("kiko_user_config_test_" + std::to_string(process_id()) + ".json");
+      fs::temp_directory_path() / ("kiko_user_config_test_" + std::to_string(now_ms()) + ".json");
   const auto legacy_path = config_path.parent_path() / (config_path.stem().string() + "_legacy.json");
 
   fs::remove(config_path);

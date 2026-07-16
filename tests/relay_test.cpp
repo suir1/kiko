@@ -184,7 +184,7 @@ int main() {
       return 1;
     }
     send_message(sender, Message{"ping", {}});
-    auto sender_pong = recv_message(sender);
+    auto sender_pong = recv_message_timeout(sender, std::chrono::seconds(2));
     if (!sender_pong || sender_pong->type != "pong") {
       std::cerr << "FAIL: sender did not receive relay pong\n";
       return 1;
@@ -197,23 +197,23 @@ int main() {
       return 1;
     }
     send_message(receiver, Message{"ping", {}});
-    auto receiver_pong = recv_message(receiver);
+    auto receiver_pong = recv_message_timeout(receiver, std::chrono::seconds(2));
     if (!receiver_pong || receiver_pong->type != "pong") {
       std::cerr << "FAIL: receiver did not receive relay pong\n";
       return 1;
     }
     send_message(receiver, Message{"hello", {{"room", "room-a"}, {"role", "receiver"}}});
 
-    auto sender_peer = recv_message(sender);
-    auto receiver_peer = recv_message(receiver);
+    auto sender_peer = recv_message_timeout(sender, std::chrono::seconds(2));
+    auto receiver_peer = recv_message_timeout(receiver, std::chrono::seconds(2));
     if (!sender_peer || sender_peer->type != "peer" || !receiver_peer || receiver_peer->type != "peer") {
       std::cerr << "FAIL: relay did not rendezvous peers after ping preflight\n";
       return 1;
     }
     send_message(sender, Message{"direct_ok", {}});
     send_message(receiver, Message{"direct_ok", {}});
-    auto sender_direct_start = recv_message(sender);
-    auto receiver_direct_start = recv_message(receiver);
+    auto sender_direct_start = recv_message_timeout(sender, std::chrono::seconds(2));
+    auto receiver_direct_start = recv_message_timeout(receiver, std::chrono::seconds(2));
     if (!sender_direct_start || sender_direct_start->type != "direct_start" || !receiver_direct_start ||
         receiver_direct_start->type != "direct_start") {
       std::cerr << "FAIL: relay did not confirm direct route\n";
@@ -250,8 +250,8 @@ int main() {
     }
     send_message(sender_peer->socket, Message{"direct_ok", {}});
     send_message(receiver_peer->socket, Message{"direct_ok", {}});
-    auto sender_direct_start = recv_message(sender_peer->socket);
-    auto receiver_direct_start = recv_message(receiver_peer->socket);
+    auto sender_direct_start = recv_message_timeout(sender_peer->socket, std::chrono::seconds(2));
+    auto receiver_direct_start = recv_message_timeout(receiver_peer->socket, std::chrono::seconds(2));
     if (!sender_direct_start || sender_direct_start->type != "direct_start" || !receiver_direct_start ||
         receiver_direct_start->type != "direct_start") {
       std::cerr << "FAIL: race_until_peer did not receive direct confirmation\n";
@@ -312,8 +312,8 @@ int main() {
 
     send_message(sender_peer->socket, Message{"direct_ok", {}});
     send_message(receiver_peer->socket, Message{"direct_ok", {}});
-    (void)recv_message(sender_peer->socket);
-    (void)recv_message(receiver_peer->socket);
+    (void)recv_message_timeout(sender_peer->socket, std::chrono::seconds(2));
+    (void)recv_message_timeout(receiver_peer->socket, std::chrono::seconds(2));
 
     relay.stop();
   }
@@ -350,8 +350,8 @@ int main() {
     }
     send_message(sender_peer->socket, Message{"direct_ok", {}});
     send_message(receiver_peer->socket, Message{"relay_ready", {}});
-    auto sender_relay_start = recv_message(sender_peer->socket);
-    auto receiver_relay_start = recv_message(receiver_peer->socket);
+    auto sender_relay_start = recv_message_timeout(sender_peer->socket, std::chrono::seconds(2));
+    auto receiver_relay_start = recv_message_timeout(receiver_peer->socket, std::chrono::seconds(2));
     if (!sender_relay_start || sender_relay_start->type != "relay_start" || !receiver_relay_start ||
         receiver_relay_start->type != "relay_start") {
       std::cerr << "FAIL: relay did not fall back when route choices mismatched\n";
@@ -390,16 +390,16 @@ int main() {
     send_message(sender, Message{"hello", {{"room", "room-d"}, {"role", "sender"}}});
     send_message(receiver, Message{"hello", {{"room", "room-d"}, {"role", "receiver"}}});
 
-    auto sender_peer = recv_message(sender);
-    auto receiver_peer = recv_message(receiver);
+    auto sender_peer = recv_message_timeout(sender, std::chrono::seconds(2));
+    auto receiver_peer = recv_message_timeout(receiver, std::chrono::seconds(2));
     if (!sender_peer || sender_peer->type != "peer" || !receiver_peer || receiver_peer->type != "peer") {
       std::cerr << "FAIL: stale waiting peer was not purged before replacement rendezvous\n";
       return 1;
     }
     send_message(sender, Message{"direct_ok", {}});
     send_message(receiver, Message{"direct_ok", {}});
-    (void)recv_message(sender);
-    (void)recv_message(receiver);
+    (void)recv_message_timeout(sender, std::chrono::seconds(2));
+    (void)recv_message_timeout(receiver, std::chrono::seconds(2));
 
     relay.stop();
   }

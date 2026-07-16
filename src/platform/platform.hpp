@@ -32,7 +32,6 @@
 
 #ifdef _WIN32
 #include <io.h>
-#include <process.h>
 #endif
 
 namespace kiko {
@@ -131,14 +130,6 @@ inline bool stdin_is_tty() {
   return _isatty(_fileno(stdin)) != 0;
 #else
   return isatty(fileno(stdin)) != 0;
-#endif
-}
-
-inline int process_id() {
-#ifdef _WIN32
-  return static_cast<int>(_getpid());
-#else
-  return static_cast<int>(getpid());
 #endif
 }
 

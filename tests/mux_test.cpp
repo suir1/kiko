@@ -1,5 +1,5 @@
 #include "transfer/file_metadata.hpp"
-#include "platform/platform.hpp"
+#include "core/common.hpp"
 #include "transfer/transfer.hpp"
 #include "transfer/transfer_stream.hpp"
 
@@ -128,7 +128,7 @@ bool run_round(TcpListener& listener, const Endpoint& endpoint, int n, const Ses
 }  // namespace
 
 int main() {
-  auto root = fs::temp_directory_path() / ("kiko_mux_test_" + std::to_string(process_id()));
+  auto root = fs::temp_directory_path() / ("kiko_mux_test_" + std::to_string(now_ms()));
   auto src = root / "src" / "payload";
   auto dst = root / "out";
   fs::remove_all(root);
