@@ -102,6 +102,35 @@ struct WebJobStore::Access {
     }
   }
 
+  template <typename Config>
+  static bool start_transfer(WebJobStore& store, const char* kind, const char* activity, Config config,
+                             int (*run)(const Config&, ProgressReporter&), std::string& error) {
+    try {
+      store.join_finished_worker();
+      auto cancellation = std::make_shared<TransferCancellation>();
+      config.cancellation = cancellation;
+      if (!begin_task(*store.impl_, kind, cancellation, error)) return false;
+
+      launch_worker(*store.impl_,
+                    [&store, config = std::move(config), cancellation = std::move(cancellation),
+                     activity = std::string(activity), run] {
+                      WebReporter reporter(store);
+                      try {
+                        const int rc = run(config, reporter);
+                        if (rc == 0) finish_success(store, activity + " complete");
+                        else if (cancellation->requested()) finish_canceled(store);
+                        else finish_failed(store, activity + " exited with code " + std::to_string(rc));
+                      } catch (const std::exception& e) {
+                        cancellation->requested() ? finish_canceled(store) : finish_failed(store, e.what());
+                      }
+                    });
+      return true;
+    } catch (const std::exception& e) {
+      error = e.what();
+      return false;
+    }
+  }
+
   static void finish_success(WebJobStore& store, const std::string& activity) {
     store.update([&](WebJobSnapshot& state) {
       state.running = false;
@@ -136,57 +165,19 @@ struct WebJobStore::Access {
 };
 
 bool WebJobStore::start_send(SendConfig config, std::string& error) {
-  try {
-    join_finished_worker();
-    if (config.file.empty()) throw KikoError("send path is required");
-    auto cancellation = std::make_shared<TransferCancellation>();
-    config.cancellation = cancellation;
-    if (!Access::begin_task(*impl_, "send", cancellation, error)) return false;
-
-    Access::launch_worker(
-        *impl_, [this, config = std::move(config), cancellation = std::move(cancellation)]() mutable {
-          WebReporter reporter(*this);
-          try {
-            const int rc = run_send(config, reporter);
-            if (rc == 0) Access::finish_success(*this, "send complete");
-            else if (cancellation->requested()) Access::finish_canceled(*this);
-            else Access::finish_failed(*this, "send exited with code " + std::to_string(rc));
-          } catch (const std::exception& e) {
-            cancellation->requested() ? Access::finish_canceled(*this) : Access::finish_failed(*this, e.what());
-          }
-        });
-    return true;
-  } catch (const std::exception& e) {
-    error = e.what();
+  if (config.file.empty()) {
+    error = "send path is required";
     return false;
   }
+  return Access::start_transfer(*this, "send", "send", std::move(config), run_send, error);
 }
 
 bool WebJobStore::start_recv(RecvConfig config, std::string& error) {
-  try {
-    join_finished_worker();
-    if (config.code.empty()) throw KikoError("receive code is required");
-    auto cancellation = std::make_shared<TransferCancellation>();
-    config.cancellation = cancellation;
-    if (!Access::begin_task(*impl_, "recv", cancellation, error)) return false;
-
-    Access::launch_worker(
-        *impl_, [this, config = std::move(config), cancellation = std::move(cancellation)]() mutable {
-          WebReporter reporter(*this);
-          try {
-            const int rc = run_recv(config, reporter);
-            if (rc == 0) Access::finish_success(*this, "receive complete");
-            else if (cancellation->requested()) Access::finish_canceled(*this);
-            else Access::finish_failed(*this, "receive exited with code " + std::to_string(rc));
-          } catch (const std::exception& e) {
-            cancellation->requested() ? Access::finish_canceled(*this) : Access::finish_failed(*this, e.what());
-          }
-        });
-    return true;
-  } catch (const std::exception& e) {
-    error = e.what();
+  if (config.code.empty()) {
+    error = "receive code is required";
     return false;
   }
+  return Access::start_transfer(*this, "recv", "receive", std::move(config), run_recv, error);
 }
 
 bool WebJobStore::start_doctor(DoctorOptions options, std::string& error) {
