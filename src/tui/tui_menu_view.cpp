@@ -130,7 +130,7 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
         *summary_path = menu.path;
         *summary_cache = summarize_path(menu.path);
       }
-      if (summary_cache->ok) {
+      if (!summary_cache->text.empty()) {
         rows.push_back(hbox({text("       "), text(summary_cache->text) | dim}));
       }
       rows.push_back(hbox({text("code:  "), code_input->Render() | flex, text(" (optional)") | dim}));

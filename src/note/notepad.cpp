@@ -21,7 +21,7 @@ void print_note(const NoteDocument& document) {
 
 }  // namespace
 
-int run_note(const NoteConfig& config, ProgressReporter& reporter) {
+int run_note(const PeerSessionConfig& config, ProgressReporter& reporter) {
   std::mutex output_mutex;
   std::mutex connection_mutex;
   std::condition_variable connection_changed;

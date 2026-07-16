@@ -18,26 +18,23 @@ struct TuiMenuState {
   std::string path;
   std::string code;
   std::string output_dir = ".";
-  TuiNetworkOptions network;
+  NetworkPreferences network;
   std::string connections_text;
 };
 
 struct PathSummary {
-  bool ok = false;
   std::string text;
 };
 
 struct TuiPreparedTransfer {
-  bool ok = false;
   std::string error;
   std::string title;
   TuiTransferSpec spec;
 };
 
 struct TuiPreparedNote {
-  bool ok = false;
   std::string error;
-  NoteConfig config;
+  PeerSessionConfig config;
 };
 
 [[nodiscard]] TuiMenuState load_tui_menu_state(const Endpoint& default_relay);

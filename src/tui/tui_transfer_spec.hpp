@@ -15,7 +15,7 @@ struct TuiTransferSpec {
   std::string output_dir;
   Endpoint relay;
   std::optional<std::string> relay_pass;
-  TuiNetworkOptions network;
+  NetworkPreferences network;
 };
 
 }  // namespace kiko

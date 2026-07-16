@@ -5,7 +5,7 @@
 int main() {
   using namespace kiko;
 
-  TuiNetworkOptions options;
+  NetworkPreferences options;
   apply_network_preset(2, options);
   if (!options.no_direct || options.lan_discover) {
     std::cerr << "FAIL: corp preset should force relay and disable LAN discovery\n";

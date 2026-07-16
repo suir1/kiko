@@ -4,6 +4,6 @@
 
 namespace kiko {
 
-int run_tui_note(const NoteConfig& config);
+int run_tui_note(const PeerSessionConfig& config);
 
 }  // namespace kiko

@@ -166,8 +166,8 @@ DoctorOptions parse_doctor_options(const json& body, const WebOptions& options) 
   return doctor;
 }
 
-NoteConfig parse_note_config(const json& body, const WebOptions& options) {
-  NoteConfig config;
+PeerSessionConfig parse_note_config(const json& body, const WebOptions& options) {
+  PeerSessionConfig config;
   apply_peer_connection_json(config, body, options);
   config.role = json_string(body, "role", "host") == "join" ? Role::Receiver : Role::Sender;
   config.code = normalize_pairing_code(json_string(body, "code"));

@@ -122,7 +122,7 @@ int run_tui_recv(const RecvConfig& config) {
 
 namespace {
 
-int run_tui_menu_screen(const Endpoint& default_relay, std::optional<NoteConfig>& note_request) {
+int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSessionConfig>& note_request) {
   using namespace ftxui;
 
   if (!stdin_is_tty()) {
@@ -187,7 +187,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<NoteConfig>
   auto begin_transfer = [&]() -> bool {
     menu_error.clear();
     auto prepared = prepare_tui_transfer(menu);
-    if (!prepared.ok) {
+    if (!prepared.error.empty()) {
       menu_error = std::move(prepared.error);
       return false;
     }
@@ -240,7 +240,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<NoteConfig>
     }
     menu_error.clear();
     auto prepared = prepare_tui_note(menu);
-    if (!prepared.ok) {
+    if (!prepared.error.empty()) {
       menu_error = std::move(prepared.error);
       wake();
       return;
@@ -348,7 +348,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<NoteConfig>
 
 int run_tui_menu(const Endpoint& default_relay) {
   while (true) {
-    std::optional<NoteConfig> note_request;
+    std::optional<PeerSessionConfig> note_request;
     const int menu_result = run_tui_menu_screen(default_relay, note_request);
     if (menu_result != 0 || !note_request) return menu_result;
 

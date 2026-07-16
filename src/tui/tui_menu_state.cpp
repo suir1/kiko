@@ -82,7 +82,6 @@ TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
   }
 
   TuiPreparedTransfer prepared;
-  prepared.ok = true;
   prepared.title = state.mode == 0 ? "kiko send" : "kiko receive";
   prepared.spec.mode = state.mode;
   prepared.spec.path = state.path;
@@ -113,7 +112,6 @@ TuiPreparedNote prepare_tui_note(TuiMenuState& state) {
   }
 
   TuiPreparedNote prepared;
-  prepared.ok = true;
   prepared.config.role = join ? Role::Receiver : Role::Sender;
   prepared.config.code = code;
   prepared.config.relay = relay_ep;
@@ -143,7 +141,7 @@ PathSummary summarize_path(const std::string& path_text) {
   if (!std::filesystem::exists(path, ec)) return {};
 
   if (std::filesystem::is_regular_file(path, ec)) {
-    return {true, "file, " + human_bytes(std::filesystem::file_size(path, ec))};
+    return {"file, " + human_bytes(std::filesystem::file_size(path, ec))};
   }
   if (!std::filesystem::is_directory(path, ec)) return {};
 
@@ -156,8 +154,8 @@ PathSummary summarize_path(const std::string& path_text) {
     ++file_count;
     total_bytes += std::filesystem::file_size(it->path(), ec);
   }
-  if (file_count == 0) return {true, "empty directory"};
-  return {true, std::to_string(file_count) + " file(s), " + human_bytes(total_bytes)};
+  if (file_count == 0) return {"empty directory"};
+  return {std::to_string(file_count) + " file(s), " + human_bytes(total_bytes)};
 }
 
 std::string relay_kind_label(const std::string& relay_text, const Endpoint& default_relay) {

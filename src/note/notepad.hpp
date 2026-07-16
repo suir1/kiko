@@ -4,8 +4,6 @@
 
 namespace kiko {
 
-using NoteConfig = PeerSessionConfig;
-
-int run_note(const NoteConfig& config, ProgressReporter& reporter);
+int run_note(const PeerSessionConfig& config, ProgressReporter& reporter);
 
 }  // namespace kiko

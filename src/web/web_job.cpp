@@ -214,7 +214,7 @@ bool WebJobStore::start_doctor(DoctorOptions options, std::string& error) {
   }
 }
 
-bool WebJobStore::start_note(NoteConfig config, std::string& error) {
+bool WebJobStore::start_note(PeerSessionConfig config, std::string& error) {
   try {
     join_finished_worker();
     if (config.role == Role::Receiver && config.code.empty()) throw KikoError("note code is required");

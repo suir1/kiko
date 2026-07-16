@@ -348,7 +348,7 @@ int main(int argc, char** argv) {
     }
 
     if (app.got_subcommand(note_cmd)) {
-      kiko::NoteConfig config;
+      kiko::PeerSessionConfig config;
       bool note_tui = false;
       if (note_cmd->got_subcommand(note_host_cmd)) {
         apply_peer_cli_options(config, note_host_peer, user_config);

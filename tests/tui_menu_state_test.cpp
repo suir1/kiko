@@ -40,9 +40,9 @@ std::string line_containing(const std::string& text, const std::string& needle) 
 
 int expect_error(kiko::TuiMenuState state, const std::string& expected) {
   const auto prepared = kiko::prepare_tui_transfer(state);
-  if (prepared.ok || !contains(prepared.error, expected)) {
+  if (prepared.error.empty() || !contains(prepared.error, expected)) {
     std::cerr << "FAIL: expected error containing '" << expected << "', got '"
-              << (prepared.ok ? std::string("<ok>") : prepared.error) << "'\n";
+              << (prepared.error.empty() ? std::string("<ok>") : prepared.error) << "'\n";
     return 1;
   }
   return 0;
@@ -102,7 +102,7 @@ int main() {
     state.network.no_direct = true;
 
     const auto prepared = prepare_tui_transfer(state);
-    if (!prepared.ok || prepared.title != "kiko send" || prepared.spec.mode != 0 ||
+    if (!prepared.error.empty() || prepared.title != "kiko send" || prepared.spec.mode != 0 ||
         prepared.spec.path != send_path.string() || prepared.spec.relay.host != "127.0.0.1" ||
         prepared.spec.relay.port != 9000 || prepared.spec.network.connections != 8 ||
         !prepared.spec.network.no_direct) {
@@ -117,7 +117,7 @@ int main() {
     state.mode = 2;
     state.network.no_direct = true;
     const auto prepared = prepare_tui_note(state);
-    if (!prepared.ok || prepared.config.role != Role::Sender || !prepared.config.code.empty() ||
+    if (!prepared.error.empty() || prepared.config.role != Role::Sender || !prepared.config.code.empty() ||
         prepared.config.relay.host != "127.0.0.1" || !prepared.config.no_direct ||
         prepared.config.app != "note") {
       std::cerr << "FAIL: notepad host config was not prepared correctly\n";
@@ -131,7 +131,7 @@ int main() {
     state.mode = 2;
     state.code = "abc234";
     const auto prepared = prepare_tui_note(state);
-    if (!prepared.ok || prepared.config.role != Role::Receiver || prepared.config.code != "abc234") {
+    if (!prepared.error.empty() || prepared.config.role != Role::Receiver || prepared.config.code != "abc234") {
       std::cerr << "FAIL: notepad should join when code is present\n";
       fs::remove(send_path);
       return 1;
@@ -144,7 +144,7 @@ int main() {
     state.code = "abc234";
     state.note_custom_host = true;
     const auto prepared = prepare_tui_note(state);
-    if (!prepared.ok || prepared.config.role != Role::Sender || prepared.config.code != "abc234") {
+    if (!prepared.error.empty() || prepared.config.role != Role::Sender || prepared.config.code != "abc234") {
       std::cerr << "FAIL: notepad custom code host should host with the provided code\n";
       fs::remove(send_path);
       return 1;
@@ -156,7 +156,7 @@ int main() {
     state.mode = 1;
     state.code = " R561 \n";
     const auto prepared = prepare_tui_transfer(state);
-    if (!prepared.ok || prepared.spec.code != "r561") {
+    if (!prepared.error.empty() || prepared.spec.code != "r561") {
       std::cerr << "FAIL: receive should normalize alphanumeric pairing code R561\n";
       fs::remove(send_path);
       return 1;
@@ -168,7 +168,7 @@ int main() {
     state.mode = 2;
     state.code = " 4827-Stone-IRIS ";
     const auto prepared = prepare_tui_note(state);
-    if (!prepared.ok || prepared.config.role != Role::Receiver || prepared.config.code != "4827-stone-iris") {
+    if (!prepared.error.empty() || prepared.config.role != Role::Receiver || prepared.config.code != "4827-stone-iris") {
       std::cerr << "FAIL: notepad join should normalize mnemonic pairing code\n";
       fs::remove(send_path);
       return 1;
@@ -184,7 +184,7 @@ int main() {
     state.relay_pass = "secret";
 
     const auto prepared = prepare_tui_transfer(state);
-    if (!prepared.ok || prepared.title != "kiko receive" || prepared.spec.mode != 1 ||
+    if (!prepared.error.empty() || prepared.title != "kiko receive" || prepared.spec.mode != 1 ||
         prepared.spec.code != "abc234" || prepared.spec.output_dir != "/tmp/kiko-out" ||
         prepared.spec.relay.host != "relay.example" || prepared.spec.relay.port != 9000 ||
         !prepared.spec.relay_pass || *prepared.spec.relay_pass != "secret") {

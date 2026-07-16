@@ -59,7 +59,7 @@ int main() {
   assert(!store.start_recv(RecvConfig{}, error));
   assert(error == "receive code is required");
 
-  NoteConfig note;
+  PeerSessionConfig note;
   note.role = Role::Receiver;
   error.clear();
   assert(!store.start_note(note, error));

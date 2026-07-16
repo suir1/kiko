@@ -17,7 +17,7 @@ const char* network_preset_label(int preset) {
   }
 }
 
-void apply_network_preset(int preset, TuiNetworkOptions& options) {
+void apply_network_preset(int preset, NetworkPreferences& options) {
   options.preset = preset;
   options.lan_discover = true;
   options.only_local = false;
@@ -45,7 +45,7 @@ void apply_network_preset(int preset, TuiNetworkOptions& options) {
   }
 }
 
-void apply_network_options_to_peer(PeerConnectionOptions& config, const TuiNetworkOptions& options) {
+void apply_network_options_to_peer(PeerConnectionOptions& config, const NetworkPreferences& options) {
   config.lan_discover = options.lan_discover;
   config.only_local = options.only_local;
   config.disable_local = options.disable_local;
@@ -58,14 +58,14 @@ void apply_network_options_to_peer(PeerConnectionOptions& config, const TuiNetwo
   if (!options.proxy_url.empty()) config.proxy = parse_proxy_url(options.proxy_url);
 }
 
-void apply_network_options_to_send(SendConfig& config, const TuiNetworkOptions& options) {
+void apply_network_options_to_send(SendConfig& config, const NetworkPreferences& options) {
   apply_network_options_to_peer(config, options);
   config.auto_connections = options.auto_connections;
   config.connections = options.connections;
   config.use_gitignore = options.use_gitignore;
 }
 
-std::optional<std::string> validate_network_options(const TuiNetworkOptions& options) {
+std::optional<std::string> validate_network_options(const NetworkPreferences& options) {
   if (options.only_local && options.disable_local) {
     return "only local and disable local cannot both be enabled";
   }

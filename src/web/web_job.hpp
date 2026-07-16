@@ -56,7 +56,7 @@ class WebJobStore {
   [[nodiscard]] bool start_send(SendConfig config, std::string& error);
   [[nodiscard]] bool start_recv(RecvConfig config, std::string& error);
   [[nodiscard]] bool start_doctor(DoctorOptions options, std::string& error);
-  [[nodiscard]] bool start_note(NoteConfig config, std::string& error);
+  [[nodiscard]] bool start_note(PeerSessionConfig config, std::string& error);
   [[nodiscard]] bool update_note(std::string text, std::string& error);
   [[nodiscard]] bool clear_note(std::string& error);
   [[nodiscard]] bool create_note_pad(std::string& error);

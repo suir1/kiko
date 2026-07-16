@@ -139,7 +139,7 @@ std::size_t active_pad_index(const NoteWorkspaceSnapshot& snapshot) {
 
 }  // namespace
 
-int run_tui_note(const NoteConfig& config) {
+int run_tui_note(const PeerSessionConfig& config) {
   if (!stdin_is_tty()) {
     CliReporter reporter;
     return run_note(config, reporter);
