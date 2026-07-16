@@ -22,7 +22,6 @@ struct PeerSessionConfig : PeerConnectionOptions {
 struct PeerSession {
   TcpSocket channel;
   SessionKey key;
-  RouteTiming timing;
   std::string code;
   RouteOutcome outcome;
   Endpoint active_relay;

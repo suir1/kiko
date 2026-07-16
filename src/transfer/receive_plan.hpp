@@ -23,7 +23,6 @@ struct ReceivePlanEntry {
   TransferManifestEntry manifest;
   std::filesystem::path target_path;
   ReceivePlanAction action = ReceivePlanAction::Write;
-  std::uint64_t resume_offset = 0;
 };
 
 struct ReceivePlan {

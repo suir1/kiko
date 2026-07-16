@@ -154,7 +154,7 @@ ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const 
       if (action == ReceivePlanAction::Rename) ++summary.rename_count;
     }
 
-    plan.entries.emplace(entry.path, ReceivePlanEntry{entry, target_path, action, planned_resume});
+    plan.entries.emplace(entry.path, ReceivePlanEntry{entry, target_path, action});
   }
 
   if (computed_total != manifest.total_size) throw KikoError("transfer manifest total size changed during preflight");
