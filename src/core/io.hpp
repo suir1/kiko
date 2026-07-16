@@ -4,6 +4,9 @@
 
 namespace kiko {
 
-asio::io_context& io_context();
+inline asio::io_context& io_context() {
+  static asio::io_context context;
+  return context;
+}
 
 }  // namespace kiko

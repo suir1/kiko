@@ -23,7 +23,6 @@ set(KIKO_CORE_LAYER_SOURCES
   src/core/compression.cpp
   src/core/crypto.cpp
   src/core/imohash.cpp
-  src/core/io.cpp
   src/core/network_interfaces.cpp
   src/core/pake.cpp
   src/core/progress.cpp
@@ -225,7 +224,6 @@ set(KIKO_RELAYD_SOURCES
   src/app/relayd_main.cpp
   src/core/adaptive.cpp
   src/core/common.cpp
-  src/core/io.cpp
   src/core/protocol.cpp
   src/core/proxy.cpp
   src/relay/relay_protocol.cpp
