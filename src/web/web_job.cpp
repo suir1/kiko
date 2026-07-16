@@ -219,13 +219,6 @@ bool WebJobStore::start_note(PeerSessionConfig config, std::string& error) {
     callbacks.workspace_changed = [this](const NoteSession& session, NoteSessionEvent event,
                                          const NoteFrame& frame) {
       const auto snapshot = session.snapshot();
-      if (event == NoteSessionEvent::Acknowledged) {
-        update([&](WebJobSnapshot& state) {
-          state.note = snapshot;
-          state.activity = snapshot.synced ? "notepad synced" : "notepad sent";
-        });
-        return;
-      }
       const bool remote = event == NoteSessionEvent::RemoteApplied;
       update([&](WebJobSnapshot& state) {
         state.note = snapshot;
