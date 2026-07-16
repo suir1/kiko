@@ -41,6 +41,8 @@ struct TuiNoteState {
   bool canceled = false;
 };
 
+enum class TuiNoteEnd { PeerClosed, Failed, Canceled };
+
 class TuiNoteReporter : public ProgressReporter {
  public:
   TuiNoteReporter(TuiNoteState& state, std::function<void()> wake)
@@ -87,21 +89,20 @@ class TuiNoteReporter : public ProgressReporter {
   std::function<void()> wake_;
 };
 
-void set_failed(TuiNoteState& state, const std::string& error) {
+void finish_note(TuiNoteState& state, TuiNoteEnd end, const std::string& error = {}) {
   std::lock_guard<std::mutex> lock(state.mutex);
-  if (state.failed) return;
-  state.failed = true;
+  if (state.failed || (end != TuiNoteEnd::Failed && state.canceled)) return;
   state.finished = true;
-  state.error = error;
-  state.status = "error";
-}
-
-void set_canceled(TuiNoteState& state) {
-  std::lock_guard<std::mutex> lock(state.mutex);
-  if (state.failed) return;
-  state.canceled = true;
-  state.finished = true;
-  state.status = "canceled";
+  if (end == TuiNoteEnd::Failed) {
+    state.failed = true;
+    state.error = error;
+    state.status = "error";
+  } else if (end == TuiNoteEnd::Canceled) {
+    state.canceled = true;
+    state.status = "canceled";
+  } else {
+    state.status = "peer closed";
+  }
 }
 
 void set_status(TuiNoteState& state, std::string status) {
@@ -247,19 +248,15 @@ int run_tui_note(const PeerSessionConfig& config) {
     try {
       const auto result = session->run();
       if (result == NoteSessionEnd::Stopped || cancellation->requested()) {
-        set_canceled(state);
+        finish_note(state, TuiNoteEnd::Canceled);
       } else {
-        std::lock_guard<std::mutex> lock(state.mutex);
-        if (!state.failed && !state.canceled) {
-          state.finished = true;
-          state.status = "peer closed";
-        }
+        finish_note(state, TuiNoteEnd::PeerClosed);
       }
     } catch (const std::exception& error) {
       if (cancellation->requested()) {
-        set_canceled(state);
+        finish_note(state, TuiNoteEnd::Canceled);
       } else {
-        set_failed(state, error.what());
+        finish_note(state, TuiNoteEnd::Failed, error.what());
       }
     }
     wake();
