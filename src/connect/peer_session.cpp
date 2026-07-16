@@ -24,8 +24,9 @@ PeerSession open_peer_session(const PeerSessionConfig& config, ProgressReporter&
   auto established = route.establish(std::move(plan));
   if (established.channels.empty()) throw KikoError("peer route did not establish a channel");
   auto code = route.code();
-  return PeerSession{EncryptedSession{std::move(established.channels.front()), std::move(established.key),
-                                      established.timing},
+  return PeerSession{std::move(established.channels.front()),
+                     std::move(established.key),
+                     established.timing,
                      std::move(code),
                      std::move(established.outcome),
                      std::move(established.active_relay),

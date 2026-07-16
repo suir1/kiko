@@ -11,7 +11,7 @@ boundaries instead of reintroducing cross-layer feature files.
 - `core`: protocol framing, sockets, structured network-interface inventory, crypto, compression, PAKE, QR output,
   progress events, and shared progress state.
 - `connect`: shared peer connection options, peer/session setup, relay/direct route selection, LAN discovery,
-  LAN upgrade, UDP punch, profile memory, STUN/NAT route planning, encrypted session helpers, and the shared
+  LAN upgrade, UDP punch, profile memory, STUN/NAT route planning, encrypted handshakes, and the shared
   peer route lifecycle.
 - `relay`: rendezvous relay server, relay control path, relay room state, and relay route state.
 - `transfer`: send/recv orchestration, shared per-file lifecycle, stream and mux payload adapters,
@@ -130,7 +130,7 @@ unless that feature is deliberately restarted with a separate design.
 - `src/web/web_job.*` owns Web task lifecycle and maps `NoteSession` snapshots into job snapshots.
 - `src/connect/peer_session.*` is the reusable encrypted peer-session helper for non-file features.
 - `src/connect/peer_route_session.*` owns pairing-code setup, listener/embedded-relay lifetime, LAN discovery,
-  outbound selection, STUN, rendezvous, NAT facts, route selection, encryption, mux channel establishment,
+  outbound selection, STUN, rendezvous, NAT facts, route selection, encrypted handshakes, mux channel establishment,
   cancellation tracking, and route-profile recording shared by file transfer and Notepad.
 - `src/relay/relay_protocol.*` owns the typed relay hello and peer-info wire contracts, including defaults,
   port validation, connection-count limits, extension-field preservation, and canonical field encoding.

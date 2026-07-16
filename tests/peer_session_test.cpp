@@ -82,19 +82,19 @@ int main() {
     assert(receiver.outcome.data_path == "relay");
     assert(sender.active_relay.to_string() == endpoint.to_string());
     assert(receiver.active_relay.to_string() == endpoint.to_string());
-    assert(sender.encrypted.key == receiver.encrypted.key);
+    assert(sender.key == receiver.key);
 
-    StreamCipher sender_cipher(sender.encrypted.key, true);
-    StreamCipher receiver_cipher(receiver.encrypted.key, false);
+    StreamCipher sender_cipher(sender.key, true);
+    StreamCipher receiver_cipher(receiver.key, false);
     const std::string text = "peer-session-ok";
-    send_frame(sender.encrypted.channel, sender_cipher.encrypt(Bytes(text.begin(), text.end())));
-    const auto encrypted = recv_frame(receiver.encrypted.channel);
+    send_frame(sender.channel, sender_cipher.encrypt(Bytes(text.begin(), text.end())));
+    const auto encrypted = recv_frame(receiver.channel);
     assert(encrypted);
     const auto plaintext = receiver_cipher.decrypt(*encrypted);
     assert(std::string(plaintext.begin(), plaintext.end()) == text);
 
-    sender.encrypted.channel.close();
-    receiver.encrypted.channel.close();
+    sender.channel.close();
+    receiver.channel.close();
     relay.stop();
   }
 
@@ -119,10 +119,10 @@ int main() {
     auto receiver = receiver_future.get();
     assert(sender.outcome.data_path == "direct");
     assert(receiver.outcome.data_path == "direct");
-    assert(sender.encrypted.key == receiver.encrypted.key);
+    assert(sender.key == receiver.key);
 
-    sender.encrypted.channel.close();
-    receiver.encrypted.channel.close();
+    sender.channel.close();
+    receiver.channel.close();
     relay.stop();
   }
 
@@ -149,8 +149,8 @@ int main() {
     assert(sender.code == generated_code);
     assert(receiver.code == generated_code);
 
-    sender.encrypted.channel.close();
-    receiver.encrypted.channel.close();
+    sender.channel.close();
+    receiver.channel.close();
     relay.stop();
   }
 

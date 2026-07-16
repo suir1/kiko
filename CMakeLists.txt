@@ -43,7 +43,6 @@ set(KIKO_CONNECT_LAYER_SOURCES
   src/connect/connectivity.cpp
   src/connect/direct_session.cpp
   src/connect/discovery.cpp
-  src/connect/encrypted_session.cpp
   src/connect/lan_upgrade.cpp
   src/connect/peer_route_session.cpp
   src/connect/peer_session.cpp

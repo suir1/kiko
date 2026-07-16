@@ -2,7 +2,6 @@
 
 #include "connect/direct_session.hpp"
 #include "connect/discovery.hpp"
-#include "connect/encrypted_session.hpp"
 #include "connect/lan_upgrade.hpp"
 #include "connect/profile.hpp"
 #include "connect/rendezvous_session.hpp"
@@ -369,32 +368,39 @@ EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int conne
     throw KikoError("route selection did not produce a usable channel");
   }
 
-  auto encrypted = secure_encrypted_session(std::move(primary), impl_->config.role, impl_->code, route_name,
-                                            selected.timing, impl_->reporter,
-                                            impl_->config.connection.cancellation.get());
+  track_socket(impl_->config.connection, primary);
+  impl_->reporter.route_phase(RoutePhase::Securing,
+                              RoutePhaseDetail{"securing " + route_name + " channel", route_name,
+                                               route_name == "relay"});
+  const auto securing_start = std::chrono::steady_clock::now();
+  auto key = perform_handshake(primary, impl_->config.role, impl_->code);
+  auto timing = selected.timing;
+  timing.securing_ms = elapsed_ms_since(securing_start);
+  impl_->reporter.route_timing(timing);
+  impl_->reporter.handshake_ok();
 
   EstablishedPeerRoute established;
-  established.key = std::move(encrypted.key);
+  established.key = std::move(key);
   established.route_plan = route_plan;
   established.path = selected.path;
   established.outcome = selected.outcome;
   established.active_relay = impl_->active_relay;
-  established.timing = encrypted.timing;
+  established.timing = timing;
   established.punch_stats = selected.punch_stats;
   established.explain_direct_failure = selected.explain_direct_failure;
   established.relay_keepalive = impl_->embedded;
 
   if (connections == 1) {
-    established.channels.push_back(std::move(encrypted.channel));
+    established.channels.push_back(std::move(primary));
   } else if (selected.path == RoutePath::Relay) {
     impl_->reporter.status("opening " + std::to_string(connections) + " parallel relay connections");
     established.channels =
-        open_relay_mux_channels(std::move(encrypted.channel), impl_->config.role, impl_->active_relay,
+        open_relay_mux_channels(std::move(primary), impl_->config.role, impl_->active_relay,
                                 room_token(impl_->code), connections, impl_->outbound.connect_options,
                                 impl_->config.connection.relay_pass, impl_->config.connection);
     established.mux_enabled = true;
   } else {
-    auto mux = negotiate_direct_mux_channels(std::move(encrypted.channel), impl_->config.role, impl_->listener,
+    auto mux = negotiate_direct_mux_channels(std::move(primary), impl_->config.role, impl_->listener,
                                              *impl_->peer_info, connections, room_token(impl_->code),
                                              impl_->outbound.connect_options, mux_setup_timeout,
                                              cancellation_flag(impl_->config.connection.cancellation));

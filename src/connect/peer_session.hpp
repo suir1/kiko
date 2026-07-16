@@ -1,8 +1,10 @@
 #pragma once
 
-#include "connect/encrypted_session.hpp"
 #include "connect/peer_options.hpp"
+#include "core/adaptive.hpp"
+#include "core/crypto.hpp"
 #include "core/progress.hpp"
+#include "core/socket.hpp"
 
 #include <memory>
 #include <string>
@@ -18,7 +20,9 @@ struct PeerSessionConfig : PeerConnectionOptions {
 };
 
 struct PeerSession {
-  EncryptedSession encrypted;
+  TcpSocket channel;
+  SessionKey key;
+  RouteTiming timing;
   std::string code;
   RouteOutcome outcome;
   Endpoint active_relay;

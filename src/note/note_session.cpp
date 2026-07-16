@@ -31,8 +31,8 @@ NoteSessionEnd NoteSession::run() {
   sender_ = std::thread([this] { sender_loop(); });
   try {
     auto peer = open_peer_session(config_, reporter_);
-    auto channel = std::make_unique<TcpSocket>(std::move(peer.encrypted.channel));
-    auto cipher = std::make_unique<StreamCipher>(peer.encrypted.key, config_.role == Role::Sender);
+    auto channel = std::make_unique<TcpSocket>(std::move(peer.channel));
+    auto cipher = std::make_unique<StreamCipher>(peer.key, config_.role == Role::Sender);
 
     send_note_frame(*channel, *cipher, make_note_hello());
     reporter_.status("notepad hello sent");
