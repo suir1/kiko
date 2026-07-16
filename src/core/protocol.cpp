@@ -165,15 +165,4 @@ asio::awaitable<std::optional<Bytes>> co_recv_frame(TcpSocket& socket) {
   co_return payload;
 }
 
-asio::awaitable<void> co_send_message(TcpSocket& socket, const Message& message) {
-  auto text = encode_message(message);
-  co_await co_send_frame(socket, Bytes(text.begin(), text.end()));
-}
-
-asio::awaitable<std::optional<Message>> co_recv_message(TcpSocket& socket) {
-  auto frame = co_await co_recv_frame(socket);
-  if (!frame) co_return std::nullopt;
-  co_return decode_message(std::string(frame->begin(), frame->end()));
-}
-
 }  // namespace kiko

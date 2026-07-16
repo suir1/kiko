@@ -1,11 +1,8 @@
 #include "core/common.hpp"
 
-#include "core/wordlist.hpp"
-
 #include <asio/ip/address.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstring>
 #include <iomanip>
@@ -15,13 +12,6 @@
 
 namespace kiko {
 namespace {
-
-int hex_value(char c) {
-  if (c >= '0' && c <= '9') return c - '0';
-  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-  throw KikoError("invalid hex character");
-}
 
 std::uint16_t checked_endpoint_port(std::uint64_t port, const std::string& value, bool allow_zero) {
   const std::uint64_t min_port = allow_zero ? 0 : 1;
@@ -206,21 +196,6 @@ std::string random_code(std::size_t bytes) {
   return out;
 }
 
-std::string random_mnemonic_code(std::size_t words) {
-  std::random_device rd;
-  std::mt19937_64 rng(rd());
-  std::uniform_int_distribution<int> room_dist(1000, 9999);
-  std::uniform_int_distribution<std::size_t> word_dist(0, kWordList.size() - 1);
-
-  std::string out = std::to_string(room_dist(rng));
-  if (words == 0) words = 1;
-  for (std::size_t i = 0; i < words; ++i) {
-    out.push_back('-');
-    out.append(kWordList[word_dist(rng)]);
-  }
-  return out;
-}
-
 namespace {
 
 bool pairing_alnum(char c) {
@@ -321,16 +296,6 @@ std::string hex_encode(const Bytes& bytes) {
   oss << std::hex << std::setfill('0');
   for (auto b : bytes) oss << std::setw(2) << static_cast<int>(b);
   return oss.str();
-}
-
-Bytes hex_decode(const std::string& hex) {
-  if (hex.size() % 2 != 0) throw KikoError("hex string has odd length");
-  Bytes out;
-  out.reserve(hex.size() / 2);
-  for (std::size_t i = 0; i < hex.size(); i += 2) {
-    out.push_back(static_cast<std::uint8_t>((hex_value(hex[i]) << 4) | hex_value(hex[i + 1])));
-  }
-  return out;
 }
 
 std::string trim(const std::string& value) {

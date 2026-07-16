@@ -53,9 +53,6 @@ enum class IpAddressScope { Unknown, Loopback, LinkLocal, Private, UniqueLocal, 
 // Short pairing code: `bytes * 2` chars from an unambiguous alphabet (default 6).
 std::string random_code(std::size_t bytes = 3);
 
-// Optional croc-style mnemonic code for --code: numeric prefix + words, e.g.
-// "4827-stone-iris-lake-ruby" (prefix = rendezvous label; words = PAKE secret).
-std::string random_mnemonic_code(std::size_t words = 4);
 // Normalizes user-entered pairing codes for copy/paste and case-insensitive entry.
 [[nodiscard]] std::string normalize_pairing_code(const std::string& code);
 // Returns an error message when the pairing code format is invalid.
@@ -64,7 +61,6 @@ std::optional<std::uint64_t> parse_u64_strict(const std::string& value);
 std::vector<std::string> split_csv(const std::string& value);
 std::string join_csv(const std::vector<std::string>& values);
 std::string hex_encode(const Bytes& bytes);
-Bytes hex_decode(const std::string& hex);
 std::string trim(const std::string& value);
 std::uint64_t now_ms();
 

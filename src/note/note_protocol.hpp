@@ -53,7 +53,6 @@ struct NoteDocument {
 [[nodiscard]] bool apply_note_update(NoteDocument& document, const NoteFrame& frame);
 
 void send_note_frame(TcpSocket& socket, StreamCipher& cipher, const NoteFrame& frame);
-[[nodiscard]] std::optional<NoteFrame> recv_note_frame(TcpSocket& socket, StreamCipher& cipher);
 [[nodiscard]] std::optional<NoteFrame> recv_note_frame_timeout(TcpSocket& socket, StreamCipher& cipher,
                                                                std::chrono::milliseconds timeout,
                                                                const std::atomic_bool* cancel = nullptr);

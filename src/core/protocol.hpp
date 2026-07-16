@@ -44,7 +44,5 @@ void send_message(TcpSocket& socket, const Message& message);
 
 asio::awaitable<void> co_send_frame(TcpSocket& socket, const Bytes& payload);
 [[nodiscard]] asio::awaitable<std::optional<Bytes>> co_recv_frame(TcpSocket& socket);
-asio::awaitable<void> co_send_message(TcpSocket& socket, const Message& message);
-[[nodiscard]] asio::awaitable<std::optional<Message>> co_recv_message(TcpSocket& socket);
 
 }  // namespace kiko
