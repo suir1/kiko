@@ -73,10 +73,6 @@ NoteFrame make_note_hello() {
   return frame;
 }
 
-NoteFrame make_note_update(std::uint64_t revision, std::string text) {
-  return make_note_update("main", revision, std::move(text));
-}
-
 NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::string text, std::string title) {
   if (text.size() > kNoteMaxBytes) throw KikoError("note text exceeds 1 MiB limit");
   NoteFrame frame;
@@ -89,18 +85,10 @@ NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::stri
   return frame;
 }
 
-NoteFrame make_note_clear(std::uint64_t revision) {
-  return make_note_clear("main", revision);
-}
-
 NoteFrame make_note_clear(std::string pad_id, std::uint64_t revision, std::string title) {
   auto frame = make_note_update(std::move(pad_id), revision, {}, std::move(title));
   frame.type = NoteFrameType::Clear;
   return frame;
-}
-
-NoteFrame make_note_ack(std::uint64_t revision) {
-  return make_note_ack("main", revision);
 }
 
 NoteFrame make_note_ack(std::string pad_id, std::uint64_t revision) {

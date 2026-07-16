@@ -4,8 +4,7 @@
 
 namespace kiko {
 
-struct NoteConfig : PeerSessionConfig {
-};
+using NoteConfig = PeerSessionConfig;
 
 int run_note(const NoteConfig& config, ProgressReporter& reporter);
 

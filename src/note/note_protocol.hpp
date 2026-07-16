@@ -40,12 +40,9 @@ struct NoteDocument {
 };
 
 [[nodiscard]] NoteFrame make_note_hello();
-[[nodiscard]] NoteFrame make_note_update(std::uint64_t revision, std::string text);
 [[nodiscard]] NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::string text,
                                          std::string title = {});
-[[nodiscard]] NoteFrame make_note_clear(std::uint64_t revision);
 [[nodiscard]] NoteFrame make_note_clear(std::string pad_id, std::uint64_t revision, std::string title = {});
-[[nodiscard]] NoteFrame make_note_ack(std::uint64_t revision);
 [[nodiscard]] NoteFrame make_note_ack(std::string pad_id, std::uint64_t revision);
 [[nodiscard]] bool apply_note_update(NoteDocument& document, const NoteFrame& frame);
 
