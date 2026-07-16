@@ -249,7 +249,6 @@ int TcpSocket::fd() const {
 }
 
 asio::ip::tcp::socket& TcpSocket::asio_socket() { return *socket_; }
-const asio::ip::tcp::socket& TcpSocket::asio_socket() const { return *socket_; }
 SocketInterruptHandle TcpSocket::interrupt_handle() const { return SocketInterruptHandle(interrupt_state_); }
 
 void TcpSocket::interrupt() const { interrupt_handle().interrupt(); }
@@ -267,23 +266,6 @@ void TcpSocket::close() {
     ec.clear();
   }
   socket_->close(ec);
-}
-
-void TcpSocket::set_no_delay(bool enabled) {
-  asio::error_code ec;
-  socket_->set_option(asio::ip::tcp::no_delay(enabled), ec);
-  if (ec) throw KikoError("set TCP_NODELAY failed: " + ec.message());
-}
-
-void TcpSocket::set_reuse_addr(bool enabled) {
-  asio::error_code ec;
-  socket_->set_option(asio::ip::tcp::acceptor::reuse_address(enabled), ec);
-  if (ec) throw KikoError("set SO_REUSEADDR failed: " + ec.message());
-}
-
-void TcpSocket::set_ipv6_only(bool enabled) {
-  asio::error_code ec;
-  socket_->set_option(asio::ip::v6_only(enabled), ec);
 }
 
 void TcpSocket::set_blocking(bool blocking) {
@@ -431,8 +413,6 @@ Endpoint TcpListener::local_endpoint() const {
   if (ec) throw KikoError("local_endpoint failed: " + ec.message());
   return from_asio_endpoint(ep);
 }
-
-bool TcpListener::valid() const { return acceptor_ && acceptor_->is_open(); }
 
 TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeout,
                       const std::optional<ProxyConfig>& proxy) {

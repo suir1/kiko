@@ -50,14 +50,10 @@ class TcpSocket {
   [[nodiscard]] bool valid() const;
   [[nodiscard]] int fd() const;
   [[nodiscard]] asio::ip::tcp::socket& asio_socket();
-  [[nodiscard]] const asio::ip::tcp::socket& asio_socket() const;
   [[nodiscard]] SocketInterruptHandle interrupt_handle() const;
 
   void interrupt() const;
   void close();
-  void set_no_delay(bool enabled);
-  void set_reuse_addr(bool enabled);
-  void set_ipv6_only(bool enabled);
   void set_blocking(bool blocking);
   void send_all(const void* data, std::size_t size);
   [[nodiscard]] bool recv_exact(void* data, std::size_t size);
@@ -84,8 +80,6 @@ class TcpListener {
   [[nodiscard]] static TcpListener bind(const Endpoint& endpoint, int backlog = 64);
   [[nodiscard]] TcpSocket accept(std::chrono::milliseconds timeout);
   [[nodiscard]] Endpoint local_endpoint() const;
-  [[nodiscard]] bool valid() const;
-  [[nodiscard]] std::shared_ptr<asio::ip::tcp::acceptor> acceptor() const { return acceptor_; }
 
  private:
   std::shared_ptr<asio::ip::tcp::acceptor> acceptor_;
