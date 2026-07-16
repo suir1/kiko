@@ -24,12 +24,8 @@ struct ActiveRelayCandidate {
 
 std::string relay_kind_for_entry(const RelayRaceEntry& entry, const Endpoint& external_relay) {
   if (entry.endpoint.host == external_relay.host && entry.endpoint.port == external_relay.port) return "external";
-  if (entry.endpoint.host == "127.0.0.1" || entry.endpoint.host == "::1") return "embedded";
+  if (is_loopback_host(entry.endpoint.host)) return "embedded";
   return "lan";
-}
-
-bool is_loopback_host(const std::string& host) {
-  return host == "127.0.0.1" || host == "::1" || host == "localhost";
 }
 
 bool sleep_with_cancel(std::chrono::milliseconds delay, const std::atomic_bool* cancel) {

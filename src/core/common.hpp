@@ -42,6 +42,7 @@ enum class IpAddressScope { Unknown, Loopback, LinkLocal, Private, UniqueLocal, 
 [[nodiscard]] const char* ip_address_family_name(IpAddressFamily family);
 [[nodiscard]] const char* ip_address_scope_name(IpAddressScope scope);
 [[nodiscard]] bool is_ipv6_address(std::string_view host);
+[[nodiscard]] bool is_loopback_host(std::string_view host);
 [[nodiscard]] bool is_global_ipv6_address(std::string_view host);
 [[nodiscard]] std::size_t count_global_ipv6_addresses(const std::vector<std::string>& hosts);
 

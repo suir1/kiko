@@ -570,8 +570,7 @@ class WebServer {
 }  // namespace
 
 bool web_listen_is_loopback(const Endpoint& endpoint) {
-  if (endpoint.host == "localhost") return true;
-  return ip_address_scope(endpoint.host) == IpAddressScope::Loopback;
+  return is_loopback_host(endpoint.host);
 }
 
 std::string generate_web_token() {

@@ -172,6 +172,10 @@ const char* ip_address_scope_name(IpAddressScope scope) {
 
 bool is_ipv6_address(std::string_view host) { return ip_address_family(host) == IpAddressFamily::IPv6; }
 
+bool is_loopback_host(std::string_view host) {
+  return host == "localhost" || ip_address_scope(host) == IpAddressScope::Loopback;
+}
+
 bool is_global_ipv6_address(std::string_view host) {
   return ip_address_family(host) == IpAddressFamily::IPv6 && ip_address_scope(host) == IpAddressScope::Global;
 }

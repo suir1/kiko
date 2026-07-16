@@ -39,7 +39,7 @@ bool history_prefers_physical(const std::optional<OutboundHistory>& history) {
 }  // namespace
 
 bool relay_target_is_local(const Endpoint& relay) {
-  return relay.host == "127.0.0.1" || relay.host == "::1" || relay.host == "localhost";
+  return is_loopback_host(relay.host);
 }
 
 OutboundSelection select_outbound_for_relay(const Endpoint& relay, const std::optional<ProxyConfig>& proxy,

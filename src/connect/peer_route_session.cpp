@@ -79,10 +79,6 @@ OutboundHistory outbound_history_from_selection(const OutboundSelection& selecti
   return history;
 }
 
-bool is_loopback_host(const std::string& host) {
-  return host == "127.0.0.1" || host == "::1" || host == "localhost";
-}
-
 std::vector<TcpSocket> open_relay_mux_channels(TcpSocket primary, Role role, const Endpoint& relay,
                                                const std::string& room, int connections,
                                                const ConnectOptions& connect_options,
