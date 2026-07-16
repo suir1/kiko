@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <sstream>
 #include <string>
 
 namespace kiko {
@@ -18,21 +17,6 @@ std::string to_lower(std::string value) {
 
 bool contains_ci(const std::string& haystack, const char* needle) {
   return to_lower(haystack).find(needle) != std::string::npos;
-}
-
-std::string shell_quote(const std::string& value) {
-  if (value.find_first_of(" \t'\"\\") == std::string::npos) return value;
-  std::string out = "'";
-  for (char c : value) {
-    if (c == '\'') out += "'\\''";
-    else out.push_back(c);
-  }
-  out.push_back('\'');
-  return out;
-}
-
-void append_flag(std::ostringstream& oss, const char* flag, bool enabled) {
-  if (enabled) oss << ' ' << flag;
 }
 
 }  // namespace
@@ -93,36 +77,6 @@ void apply_failure_recovery(TuiMenuState& menu, const FailureRecoveryHint& hint)
   apply_network_preset(hint.preset, menu.network);
   if (hint.avoid_vpn) menu.network.avoid_vpn = true;
   menu.connections_text = std::to_string(menu.network.connections);
-}
-
-std::string build_cli_command_from_menu(const TuiMenuState& menu) {
-  std::ostringstream oss;
-  const auto& net = menu.network;
-
-  if (menu.mode == 0) {
-    oss << "kiko send " << shell_quote(menu.path);
-  } else {
-    oss << "kiko recv " << shell_quote(menu.code) << " --out " << shell_quote(menu.output_dir);
-  }
-
-  oss << " --relay " << shell_quote(menu.relay);
-  if (!menu.relay_pass.empty()) oss << " --relay-pass " << shell_quote(menu.relay_pass);
-  if (!menu.code.empty() && menu.mode == 0) oss << " --code " << shell_quote(menu.code);
-
-  append_flag(oss, "--no-direct", net.no_direct);
-  append_flag(oss, "--no-lan", !net.lan_discover);
-  append_flag(oss, "--local", net.only_local);
-  append_flag(oss, "--no-local", net.disable_local);
-  append_flag(oss, "--udp-probe", net.udp_probe);
-  append_flag(oss, "--avoid-vpn", net.avoid_vpn);
-  append_flag(oss, "--auto-connections", net.auto_connections);
-  if (menu.mode == 0 && !net.use_gitignore) oss << " --no-gitignore";
-  if (menu.mode == 0 && !net.auto_connections) oss << " --connections " << net.connections;
-  if (!net.manual_ip.empty()) oss << " --ip " << shell_quote(net.manual_ip);
-  if (!net.bind_interface.empty()) oss << " --bind-interface " << shell_quote(net.bind_interface);
-  if (!net.proxy_url.empty()) oss << " --proxy " << shell_quote(net.proxy_url);
-
-  return oss.str();
 }
 
 }  // namespace kiko

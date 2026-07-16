@@ -35,14 +35,6 @@ bool is_vpn_interface_name(std::string_view name) {
          name.rfind("ppp", 0) == 0 || name.rfind("ipsec", 0) == 0;
 }
 
-std::vector<std::string> NetworkInterfaceInventory::non_loopback_addresses() const {
-  std::vector<std::string> out;
-  for (const auto& iface : interfaces) {
-    if (!iface.loopback) push_unique(out, iface.address);
-  }
-  return out;
-}
-
 std::vector<std::string> NetworkInterfaceInventory::lan_candidate_addresses() const {
   std::vector<std::string> out;
   for (const auto& iface : interfaces) {

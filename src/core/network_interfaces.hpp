@@ -18,7 +18,6 @@ struct NetworkInterfaceInventory {
   std::vector<InterfaceAddress> interfaces;
   bool vpn_interface_present = false;
 
-  [[nodiscard]] std::vector<std::string> non_loopback_addresses() const;
   [[nodiscard]] std::vector<std::string> lan_candidate_addresses() const;
   [[nodiscard]] bool vpn_detected() const;
   [[nodiscard]] std::optional<std::string> preferred_physical_interface() const;

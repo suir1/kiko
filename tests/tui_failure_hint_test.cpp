@@ -45,19 +45,6 @@ int main() {
     }
   }
 
-  menu.mode = 1;
-  menu.code = "abc123";
-  menu.relay = "127.0.0.1:9000";
-  menu.output_dir = "/tmp/out";
-  apply_network_preset(2, menu.network);
-  menu.network.avoid_vpn = true;
-  const auto cmd = build_cli_command_from_menu(menu);
-  if (cmd.find("recv") == std::string::npos || cmd.find("--no-direct") == std::string::npos ||
-      cmd.find("--no-lan") == std::string::npos || cmd.find("--avoid-vpn") == std::string::npos) {
-    std::cerr << "FAIL: CLI command missing expected flags: " << cmd << "\n";
-    return 1;
-  }
-
   std::cout << "tui_failure_hint_test ok\n";
   return 0;
 }

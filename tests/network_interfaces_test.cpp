@@ -16,8 +16,6 @@ int main() {
        {"docker0", "172.17.0.1", false, false},
        {"eth0", "10.0.0.5", false, false}}};
 
-  assert((inventory.non_loopback_addresses() ==
-          std::vector<std::string>{"10.8.0.2", "192.168.1.10", "2001:db8::10", "172.17.0.1", "10.0.0.5"}));
   assert((inventory.lan_candidate_addresses() ==
           std::vector<std::string>{"192.168.1.10", "2001:db8::10", "172.17.0.1", "10.0.0.5"}));
   assert(inventory.vpn_detected());
