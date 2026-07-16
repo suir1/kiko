@@ -26,7 +26,7 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
 
   auto modes = std::make_shared<std::vector<std::string>>(std::vector<std::string>{"Send", "Receive", "Notepad"});
   auto summary_path = std::make_shared<std::string>();
-  auto summary_cache = std::make_shared<PathSummary>();
+  auto summary_cache = std::make_shared<std::string>();
   auto wake = callbacks.wake;
   auto mode_toggle = Toggle(modes.get(), &menu.mode);
 
@@ -130,8 +130,8 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
         *summary_path = menu.path;
         *summary_cache = summarize_path(menu.path);
       }
-      if (!summary_cache->text.empty()) {
-        rows.push_back(hbox({text("       "), text(summary_cache->text) | dim}));
+      if (!summary_cache->empty()) {
+        rows.push_back(hbox({text("       "), text(*summary_cache) | dim}));
       }
       rows.push_back(hbox({text("code:  "), code_input->Render() | flex, text(" (optional)") | dim}));
     } else if (menu.mode == 1) {

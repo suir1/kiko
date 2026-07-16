@@ -22,10 +22,6 @@ struct TuiMenuState {
   std::string connections_text;
 };
 
-struct PathSummary {
-  std::string text;
-};
-
 struct TuiPreparedTransfer {
   std::string error;
   std::string title;
@@ -45,7 +41,7 @@ void save_tui_menu_state(const TuiMenuState& state);
 
 [[nodiscard]] std::optional<std::string> relay_pass_from_env();
 [[nodiscard]] std::optional<std::string> resolve_relay_pass(const std::string& input);
-[[nodiscard]] PathSummary summarize_path(const std::string& path_text);
+[[nodiscard]] std::string summarize_path(const std::string& path_text);
 [[nodiscard]] std::string relay_kind_label(const std::string& relay_text, const Endpoint& default_relay);
 
 }  // namespace kiko
