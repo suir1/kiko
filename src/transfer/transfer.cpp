@@ -90,7 +90,7 @@ int run_with_auto_reconnect(Config config, bool generate_code, ProgressReporter&
       return run_once(config, reporter);
     } catch (const std::exception& error) {
       throw_if_cancelled(config.cancellation);
-      if (attempt >= max_attempts || !is_retryable_transfer_error(error)) throw;
+      if (attempt >= max_attempts || !is_retryable_transfer_error_message(error.what())) throw;
       reporter.transfer_retry(attempt + 1, max_attempts, error.what());
       reporter.transfer_retry_delay(attempt + 1, max_attempts, config.reconnect_delay);
       auto remaining = config.reconnect_delay;

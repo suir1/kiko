@@ -1,7 +1,5 @@
-#include "core/common.hpp"
 #include "transfer/transfer_retry.hpp"
 
-#include <exception>
 #include <iostream>
 #include <string_view>
 #include <vector>
@@ -76,13 +74,6 @@ int main() {
   }
   if (total_transfer_attempts(true, 0) != 1 || total_transfer_attempts(true, 3) != 3) {
     std::cerr << "FAIL: reconnect attempt normalization mismatch\n";
-    return 1;
-  }
-
-  KikoError reset("connection reset by peer");
-  KikoError hash("integrity check failed for payload.bin");
-  if (!is_retryable_transfer_error(reset) || is_retryable_transfer_error(hash)) {
-    std::cerr << "FAIL: exception overload mismatch\n";
     return 1;
   }
 

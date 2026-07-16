@@ -96,10 +96,6 @@ bool is_retryable_transfer_error_message(std::string_view message) {
                       });
 }
 
-bool is_retryable_transfer_error(const std::exception& error) {
-  return is_retryable_transfer_error_message(error.what());
-}
-
 int total_transfer_attempts(bool auto_reconnect, int reconnect_attempts) {
   if (!auto_reconnect) return 1;
   return std::max(1, reconnect_attempts);
