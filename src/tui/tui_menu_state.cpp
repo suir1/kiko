@@ -158,8 +158,4 @@ std::string summarize_path(const std::string& path_text) {
   return std::to_string(file_count) + " file(s), " + human_bytes(total_bytes);
 }
 
-std::string relay_kind_label(const std::string& relay_text, const Endpoint& default_relay) {
-  return relay_text == default_relay.to_string() ? "公网默认" : "自建";
-}
-
 }  // namespace kiko

@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace kiko {
 namespace {
@@ -20,8 +21,8 @@ void apply_menu_preset(TuiMenuState& menu, int preset, std::string& menu_error, 
 
 }  // namespace
 
-TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay, std::string& menu_error,
-                               TuiMenuCallbacks callbacks) {
+ftxui::Component make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay, std::string& menu_error,
+                                    TuiMenuCallbacks callbacks) {
   using namespace ftxui;
 
   auto modes = std::make_shared<std::vector<std::string>>(std::vector<std::string>{"Send", "Receive", "Notepad"});
@@ -118,11 +119,12 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
                                 path_input, browse_button, code_input, cb_note_custom_host, out_input, preset_wan,
                                 preset_wifi, preset_corp, preset_debug, advanced_section, doctor_button, start_button] {
     Elements rows;
+    const std::string relay_kind = menu.relay == default_relay.to_string() ? "公网默认" : "自建";
     rows.push_back(text("kiko") | bold | hcenter);
     rows.push_back(separator());
     rows.push_back(hbox({text("mode:  "), mode_toggle->Render()}));
     rows.push_back(hbox({text("relay: "), relay_input->Render() | flex,
-                         text(" (" + relay_kind_label(menu.relay, default_relay) + ")") | dim}));
+                         text(" (" + relay_kind + ")") | dim}));
     rows.push_back(hbox({text("pass:  "), relay_pass_input->Render() | flex}));
     if (menu.mode == 0) {
       rows.push_back(hbox({text("path:  "), path_input->Render() | flex, browse_button->Render()}));
@@ -157,7 +159,7 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
     return vbox(std::move(rows)) | border;
   });
 
-  return {root, modes};
+  return root;
 }
 
 }  // namespace kiko

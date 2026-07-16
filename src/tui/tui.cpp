@@ -296,7 +296,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
     return vbox(std::move(rows)) | border;
   });
 
-  auto tabs = Container::Tab({menu_view.root, transfer_renderer}, &screen_tab);
+  auto tabs = Container::Tab({menu_view, transfer_renderer}, &screen_tab);
 
   auto with_events = CatchEvent(tabs, [&](Event event) {
     const bool quit_key = event == Event::Character('q');
