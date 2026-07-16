@@ -207,17 +207,24 @@ json job_to_json(const WebJobSnapshot& snapshot) {
   out["route_timing"] = snapshot.route_timing;
   out["doctor_json"] = snapshot.doctor_json;
   out["doctor_summary"] = snapshot.doctor_summary;
-  out["note_text"] = snapshot.note_text;
-  out["note_active_pad"] = snapshot.note_active_pad;
+  out["note_text"] = "";
+  out["note_active_pad"] = snapshot.note.active_pad;
   out["note_pads"] = json::array();
-  for (const auto& pad : snapshot.note_pads) {
-    out["note_pads"].push_back({{"id", pad.id}, {"title", pad.title}, {"revision", pad.revision}});
+  out["note_revision"] = 0;
+  for (const auto& document : snapshot.note.documents) {
+    out["note_pads"].push_back(
+        {{"id", document.pad_id},
+         {"title", document.title.empty() ? document.pad_id : document.title},
+         {"revision", document.revision}});
+    if (document.pad_id == snapshot.note.active_pad) {
+      out["note_text"] = document.text;
+      out["note_revision"] = document.revision;
+    }
   }
-  out["note_revision"] = snapshot.note_revision;
-  out["note_local_revision"] = snapshot.note_local_revision;
-  out["note_acked_revision"] = snapshot.note_acked_revision;
+  out["note_local_revision"] = snapshot.note.latest_local_revision;
+  out["note_acked_revision"] = snapshot.note.last_acked_revision;
   out["note_connected"] = snapshot.note_connected;
-  out["note_synced"] = snapshot.note_synced;
+  out["note_synced"] = snapshot.note.synced;
   out["elapsed_ms"] = elapsed;
   out["logs"] = snapshot.logs;
   if (snapshot.overall_done > 0 && elapsed > 0) {

@@ -1,26 +1,19 @@
 #pragma once
 
+#include "connect/peer_session.hpp"
 #include "core/progress_state.hpp"
 #include "diagnostics/doctor.hpp"
-#include "note/notepad.hpp"
+#include "note/note_workspace.hpp"
 #include "transfer/transfer.hpp"
 
 #include <chrono>
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
-#include <vector>
 
 namespace kiko {
 
 class NoteSession;
-
-struct WebNotePadSnapshot {
-  std::string id;
-  std::string title;
-  std::uint64_t revision = 0;
-};
 
 struct WebJobSnapshot : TransferProgressState {
   WebJobSnapshot() : TransferProgressState(120) {
@@ -33,14 +26,8 @@ struct WebJobSnapshot : TransferProgressState {
   bool running = false;
   std::string doctor_json;
   std::string doctor_summary;
-  std::string note_text;
-  std::string note_active_pad = "main";
-  std::vector<WebNotePadSnapshot> note_pads;
-  std::uint64_t note_revision = 0;
-  std::uint64_t note_local_revision = 0;
-  std::uint64_t note_acked_revision = 0;
+  NoteWorkspaceSnapshot note;
   bool note_connected = false;
-  bool note_synced = false;
 };
 
 class WebReporter;

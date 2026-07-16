@@ -15,24 +15,6 @@ struct WebNoteRuntime {
   std::shared_ptr<NoteSession> session;
 };
 
-void apply_note_snapshot(WebJobSnapshot& state, const NoteWorkspaceSnapshot& snapshot) {
-  state.note_active_pad = snapshot.active_pad;
-  state.note_pads.clear();
-  state.note_pads.reserve(snapshot.documents.size());
-  for (const auto& document : snapshot.documents) {
-    state.note_pads.push_back(
-        WebNotePadSnapshot{document.pad_id, document.title.empty() ? document.pad_id : document.title,
-                           document.revision});
-    if (document.pad_id == snapshot.active_pad) {
-      state.note_text = document.text;
-      state.note_revision = document.revision;
-    }
-  }
-  state.note_local_revision = snapshot.latest_local_revision;
-  state.note_acked_revision = snapshot.last_acked_revision;
-  state.note_synced = snapshot.synced;
-}
-
 }  // namespace
 
 struct WebJobStore::Impl {
@@ -239,14 +221,14 @@ bool WebJobStore::start_note(PeerSessionConfig config, std::string& error) {
       const auto snapshot = session.snapshot();
       if (event == NoteSessionEvent::Acknowledged) {
         update([&](WebJobSnapshot& state) {
-          apply_note_snapshot(state, snapshot);
+          state.note = snapshot;
           state.activity = snapshot.synced ? "notepad synced" : "notepad sent";
         });
         return;
       }
       const bool remote = event == NoteSessionEvent::RemoteApplied;
       update([&](WebJobSnapshot& state) {
-        apply_note_snapshot(state, snapshot);
+        state.note = snapshot;
         if (remote) {
           state.activity =
               snapshot.active_pad == frame.pad_id ? "remote note update" : "remote note updated " + frame.pad_id;
@@ -263,7 +245,7 @@ bool WebJobStore::start_note(PeerSessionConfig config, std::string& error) {
       impl_->note_runtime = runtime;
       impl_->state.activity = config.role == Role::Sender ? "hosting notepad" : "joining notepad";
       impl_->state.code = config.code;
-      apply_note_snapshot(impl_->state, runtime->session->snapshot());
+      impl_->state.note = runtime->session->snapshot();
     }
 
     Access::launch_worker(
@@ -333,7 +315,7 @@ bool WebJobStore::mutate_note(const std::function<bool(NoteSession&)>& mutation,
   const auto snapshot = runtime->session->snapshot();
   const auto next_activity = activity(*runtime->session);
   update([&](WebJobSnapshot& state) {
-    apply_note_snapshot(state, snapshot);
+    state.note = snapshot;
     state.activity = next_activity;
   });
   return true;
