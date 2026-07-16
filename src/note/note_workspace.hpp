@@ -37,6 +37,7 @@ class NoteWorkspace {
   [[nodiscard]] NoteWorkspaceSnapshot snapshot() const;
 
  private:
+  [[nodiscard]] NoteFrame apply_local_locked(NoteDocument& document, NoteFrame frame);
   NoteDocument& ensure_pad_locked(const std::string& pad_id, const std::string& title = {});
   [[nodiscard]] bool synced_locked() const;
 

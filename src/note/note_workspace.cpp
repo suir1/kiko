@@ -23,26 +23,20 @@ bool pad_before(const NoteDocument& a, const NoteDocument& b) {
 }  // namespace
 
 NoteWorkspace::NoteWorkspace() {
-  std::lock_guard<std::mutex> lock(mutex_);
   (void)ensure_pad_locked("main", "Note 1");
 }
 
 NoteFrame NoteWorkspace::update_active(std::string text) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto& document = ensure_pad_locked(active_pad_);
-  auto frame = make_note_update(document.pad_id, document.revision + 1, std::move(text), document.title);
-  (void)apply_note_update(document, frame);
-  local_revisions_[document.pad_id] = frame.revision;
-  return frame;
+  return apply_local_locked(
+      document, make_note_update(document.pad_id, document.revision + 1, std::move(text), document.title));
 }
 
 NoteFrame NoteWorkspace::clear_active() {
   std::lock_guard<std::mutex> lock(mutex_);
   auto& document = ensure_pad_locked(active_pad_);
-  auto frame = make_note_clear(document.pad_id, document.revision + 1, document.title);
-  (void)apply_note_update(document, frame);
-  local_revisions_[document.pad_id] = frame.revision;
-  return frame;
+  return apply_local_locked(document, make_note_clear(document.pad_id, document.revision + 1, document.title));
 }
 
 NoteFrame NoteWorkspace::create_pad() {
@@ -57,10 +51,8 @@ NoteFrame NoteWorkspace::create_pad() {
   const auto title = "Note " + std::to_string(number);
   auto& document = ensure_pad_locked(pad_id, title);
   active_pad_ = pad_id;
-  auto frame = make_note_update(document.pad_id, document.revision + 1, document.text, document.title);
-  (void)apply_note_update(document, frame);
-  local_revisions_[document.pad_id] = frame.revision;
-  return frame;
+  return apply_local_locked(
+      document, make_note_update(document.pad_id, document.revision + 1, document.text, document.title));
 }
 
 bool NoteWorkspace::select_pad(const std::string& pad_id) {
@@ -116,6 +108,12 @@ NoteWorkspaceSnapshot NoteWorkspace::snapshot() const {
   out.has_local_updates = !local_revisions_.empty();
   out.synced = out.has_local_updates && synced_locked();
   return out;
+}
+
+NoteFrame NoteWorkspace::apply_local_locked(NoteDocument& document, NoteFrame frame) {
+  (void)apply_note_update(document, frame);
+  local_revisions_[document.pad_id] = frame.revision;
+  return frame;
 }
 
 NoteDocument& NoteWorkspace::ensure_pad_locked(const std::string& pad_id, const std::string& title) {
