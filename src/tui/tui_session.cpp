@@ -29,18 +29,6 @@ RecvConfig make_recv_config(const TuiTransferSpec& spec, std::shared_ptr<Transfe
   return config;
 }
 
-void mark_transfer_failed(TuiState& state, const std::exception& error) {
-  std::lock_guard<std::mutex> lock(state.mutex);
-  state.finish_failed(error.what());
-  state.doctor_running = false;
-}
-
-void mark_transfer_canceled(TuiState& state) {
-  std::lock_guard<std::mutex> lock(state.mutex);
-  state.finish_canceled();
-  state.doctor_running = false;
-}
-
 }  // namespace
 
 std::thread start_tui_transfer(TuiTransferSpec spec, TuiState& state, std::function<void()> wake,
@@ -58,11 +46,13 @@ std::thread start_tui_transfer(TuiTransferSpec spec, TuiState& state, std::funct
         run_recv(config, reporter);
       }
     } catch (const std::exception& e) {
+      std::lock_guard<std::mutex> lock(state.mutex);
       if (cancellation && cancellation->requested()) {
-        mark_transfer_canceled(state);
+        state.finish_canceled();
       } else {
-        mark_transfer_failed(state, e);
+        state.finish_failed(e.what());
       }
+      state.doctor_running = false;
     }
 
     wake();
