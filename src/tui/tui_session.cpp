@@ -4,32 +4,6 @@
 #include "tui_advanced.hpp"
 
 namespace kiko {
-namespace {
-
-SendConfig make_send_config(const TuiTransferSpec& spec, std::shared_ptr<TransferCancellation> cancellation) {
-  SendConfig config;
-  config.file = spec.path;
-  config.relay = spec.relay;
-  config.code = spec.code;
-  config.relay_pass = spec.relay_pass;
-  config.show_qrcode = true;
-  config.cancellation = std::move(cancellation);
-  apply_network_options_to_send(config, spec.network);
-  return config;
-}
-
-RecvConfig make_recv_config(const TuiTransferSpec& spec, std::shared_ptr<TransferCancellation> cancellation) {
-  RecvConfig config;
-  config.code = spec.code;
-  config.relay = spec.relay;
-  config.output_dir = spec.output_dir;
-  config.relay_pass = spec.relay_pass;
-  config.cancellation = std::move(cancellation);
-  apply_network_options_to_peer(config, spec.network);
-  return config;
-}
-
-}  // namespace
 
 std::thread start_tui_transfer(TuiTransferSpec spec, TuiState& state, std::function<void()> wake,
                                std::shared_ptr<TransferCancellation> cancellation) {
@@ -39,10 +13,23 @@ std::thread start_tui_transfer(TuiTransferSpec spec, TuiState& state, std::funct
 
     try {
       if (spec.mode == 0) {
-        SendConfig config = make_send_config(spec, cancellation);
+        SendConfig config;
+        config.file = spec.path;
+        config.relay = spec.relay;
+        config.code = spec.code;
+        config.relay_pass = spec.relay_pass;
+        config.show_qrcode = true;
+        config.cancellation = cancellation;
+        apply_network_options_to_send(config, spec.network);
         run_send(config, reporter);
       } else {
-        RecvConfig config = make_recv_config(spec, cancellation);
+        RecvConfig config;
+        config.code = spec.code;
+        config.relay = spec.relay;
+        config.output_dir = spec.output_dir;
+        config.relay_pass = spec.relay_pass;
+        config.cancellation = cancellation;
+        apply_network_options_to_peer(config, spec.network);
         run_recv(config, reporter);
       }
     } catch (const std::exception& e) {
