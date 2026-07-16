@@ -379,7 +379,6 @@ EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int conne
   established.route_plan = route_plan;
   established.path = selected.path;
   established.outcome = selected.outcome;
-  established.active_relay = impl_->active_relay;
   established.punch_stats = selected.punch_stats;
   established.explain_direct_failure = selected.explain_direct_failure;
   established.relay_keepalive = impl_->embedded;

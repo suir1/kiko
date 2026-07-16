@@ -24,7 +24,6 @@ struct PeerSession {
   SessionKey key;
   std::string code;
   RouteOutcome outcome;
-  Endpoint active_relay;
   std::shared_ptr<BackgroundRelay> relay_keepalive;
 };
 

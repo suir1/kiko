@@ -28,7 +28,6 @@ PeerSession open_peer_session(const PeerSessionConfig& config, ProgressReporter&
                      std::move(established.key),
                      std::move(code),
                      std::move(established.outcome),
-                     std::move(established.active_relay),
                      std::move(established.relay_keepalive)};
 }
 

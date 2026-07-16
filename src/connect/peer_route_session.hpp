@@ -35,7 +35,6 @@ struct EstablishedPeerRoute {
   RoutePlan route_plan;
   RoutePath path = RoutePath::Relay;
   RouteOutcome outcome;
-  Endpoint active_relay;
   PunchStats punch_stats;
   bool explain_direct_failure = false;
   bool mux_enabled = false;

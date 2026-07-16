@@ -80,8 +80,6 @@ int main() {
     assert(receiver.code == "r561");
     assert(sender.outcome.data_path == "relay");
     assert(receiver.outcome.data_path == "relay");
-    assert(sender.active_relay.to_string() == endpoint.to_string());
-    assert(receiver.active_relay.to_string() == endpoint.to_string());
     assert(sender.key == receiver.key);
 
     StreamCipher sender_cipher(sender.key, true);
