@@ -549,14 +549,15 @@ class WebServer {
     out["last_send_path"] = options_.user_config.last_send_path;
     out["last_recv_out_dir"] = options_.user_config.last_recv_out_dir.empty() ? "." : options_.user_config.last_recv_out_dir;
     out["shortcuts"] = browser_shortcuts(options_.user_config);
-    out["network"] = {{"lan_discover", options_.user_config.lan_discover},
-                      {"no_direct", options_.user_config.no_direct},
-                      {"udp_probe", options_.user_config.udp_probe},
-                      {"avoid_vpn", options_.user_config.avoid_vpn},
-                      {"auto_connections", options_.user_config.auto_connections},
-                      {"connections", options_.user_config.connections},
-                      {"proxy_url", options_.user_config.proxy_url},
-                      {"bind_interface", options_.user_config.bind_interface}};
+    const auto& network = options_.user_config.network;
+    out["network"] = {{"lan_discover", network.lan_discover},
+                      {"no_direct", network.no_direct},
+                      {"udp_probe", network.udp_probe},
+                      {"avoid_vpn", network.avoid_vpn},
+                      {"auto_connections", network.auto_connections},
+                      {"connections", network.connections},
+                      {"proxy_url", network.proxy_url},
+                      {"bind_interface", network.bind_interface}};
     return out;
   }
 

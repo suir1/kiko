@@ -1,6 +1,5 @@
 #include "connect/peer_route_session.hpp"
 
-#include "connect/connectivity_session.hpp"
 #include "connect/direct_session.hpp"
 #include "connect/discovery.hpp"
 #include "connect/encrypted_session.hpp"
@@ -273,31 +272,28 @@ void PeerRouteSession::rendezvous(RelayHello hello) {
     hello.stun_nat = stun_nat_class_name(impl_->stun_result->nat_class);
   }
 
-  ConnectivityRendezvous rendezvous;
-  rendezvous.entries = impl_->race_entries;
-  rendezvous.hello = std::move(hello);
-  rendezvous.connect_options = impl_->outbound.connect_options;
-  rendezvous.relay_pass = connection.relay_pass;
-  rendezvous.deadline = connection.pair_timeout;
-  rendezvous.failure_message = impl_->config.failure_message.empty()
+  const auto* cancel = cancellation_flag(connection.cancellation);
+  const auto failure_message = impl_->config.failure_message.empty()
                                    ? "failed to connect relay or rendezvous peer"
                                    : impl_->config.failure_message;
-  rendezvous.cancel = cancellation_flag(connection.cancellation);
 
   std::string waiting_for = "peer";
   if (impl_->config.app.empty()) waiting_for = impl_->config.role == Role::Sender ? "receiver" : "sender";
   impl_->reporter.route_phase(RoutePhase::Rendezvous,
                               RoutePhaseDetail{"waiting for " + waiting_for + " via relay", {}, false});
   const auto start = std::chrono::steady_clock::now();
-  auto peer_result = wait_for_connectivity_peer(rendezvous);
+  auto peer_result = race_until_peer(impl_->race_entries, hello, connection.pair_timeout,
+                                     impl_->outbound.connect_options, connection.relay_pass, cancel);
+  if (!peer_result) throw KikoError(failure_message);
+  auto peer = std::move(*peer_result);
   throw_if_cancelled(connection.cancellation, "session canceled");
   impl_->route_timing.rendezvous_ms = elapsed_ms_since(start);
   impl_->stop_lan_now();
 
-  impl_->relay = std::move(peer_result.socket);
+  impl_->relay = std::move(peer.socket);
   track_socket(connection, impl_->relay);
-  impl_->peer_info = decode_relay_peer_info(peer_result.peer);
-  impl_->active_relay = peer_result.relay;
+  impl_->peer_info = decode_relay_peer_info(peer.peer);
+  impl_->active_relay = peer.relay;
   impl_->reporter.status("rendezvous relay: " + impl_->active_relay.to_string());
 
   impl_->base_snapshot.self_nat = classify_nat(impl_->local_addrs, impl_->peer_info->self_public).type;
@@ -327,35 +323,30 @@ ConnectivitySnapshot PeerRouteSession::connectivity_snapshot(std::uint64_t total
   return impl_->snapshot(total_bytes);
 }
 
-RoutePlan PeerRouteSession::apply_peer_policy(RoutePlan plan) const {
-  apply_peer_direct_policy(plan, peer().peer_no_direct);
-  return plan;
-}
-
 EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int connections,
                                                  std::chrono::milliseconds mux_setup_timeout) {
   if (!impl_->peer_info) throw KikoError("peer rendezvous has not completed");
   if (impl_->established) throw KikoError("peer route already established");
   if (connections < 1) connections = 1;
-  route_plan = apply_peer_policy(std::move(route_plan));
+  apply_peer_direct_policy(route_plan, impl_->peer_info->peer_no_direct);
+  impl_->reporter.status("route plan: " + describe_route_plan(route_plan, true));
 
   AdaptivePuncher puncher;
-  ConnectivitySession connectivity_session{
-      impl_->config.role,
-      impl_->listener,
-      *impl_->peer_info,
-      impl_->lan_extra,
-      NatProfile{impl_->base_snapshot.self_nat},
-      NatProfile{impl_->base_snapshot.peer_nat},
-      route_plan,
-      room_token(impl_->code),
-      impl_->outbound.connect_options,
-      kRouteConfirmationTimeout,
-      impl_->route_timing,
-      cancellation_flag(impl_->config.connection.cancellation),
+  const auto* cancel = cancellation_flag(impl_->config.connection.cancellation);
+  auto direct_attempt = [&](const std::atomic_bool* direct_cancel) {
+    return attempt_direct(impl_->config.role, impl_->listener, *impl_->peer_info, impl_->lan_extra, puncher,
+                          NatProfile{impl_->base_snapshot.self_nat}, NatProfile{impl_->base_snapshot.peer_nat},
+                          route_plan, room_token(impl_->code), impl_->outbound.connect_options, &impl_->reporter,
+                          direct_cancel);
   };
-  auto selected =
-      select_connectivity_route(std::move(impl_->relay), connectivity_session, puncher, impl_->reporter);
+  RouteSelection selected;
+  if (impl_->peer_info->route_commit_v2) {
+    selected = race_transfer_route(std::move(impl_->relay), direct_attempt, puncher, route_plan, impl_->reporter,
+                                   kRouteConfirmationTimeout, impl_->route_timing, cancel);
+  } else {
+    selected = select_transfer_route(std::move(impl_->relay), direct_attempt(cancel), puncher, route_plan,
+                                     impl_->reporter, kRouteConfirmationTimeout, impl_->route_timing, cancel);
+  }
   throw_if_cancelled(impl_->config.connection.cancellation, "session canceled");
   emit_punch_report(puncher, impl_->reporter);
 
@@ -384,6 +375,7 @@ EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int conne
 
   EstablishedPeerRoute established;
   established.key = std::move(encrypted.key);
+  established.route_plan = route_plan;
   established.path = selected.path;
   established.outcome = selected.outcome;
   established.active_relay = impl_->active_relay;

@@ -66,6 +66,7 @@ int main() {
     ProgressReporter receiver_reporter;
     auto sender_config = make_config(Role::Sender, endpoint, "r561");
     auto receiver_config = make_config(Role::Receiver, endpoint, "r561");
+    receiver_config.no_direct = false;
 
     auto sender_future =
         std::async(std::launch::async, [&] { return open_peer_session(sender_config, sender_reporter); });

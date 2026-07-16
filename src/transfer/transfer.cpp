@@ -114,12 +114,10 @@ void receive_established_route(EstablishedPeerRoute& established, const std::fil
 EstablishedPeerRoute establish_transfer_route(PeerRouteSession& route, RoutePlan plan, int connections,
                                                ConnectivitySnapshot& snapshot, bool ai_route,
                                                ProgressReporter& reporter) {
-  plan = route.apply_peer_policy(std::move(plan));
-  reporter.status("route plan: " + describe_route_plan(plan, true));
   auto established = route.establish(plan, connections);
   if (established.path == RoutePath::Relay && established.explain_direct_failure) {
     snapshot.punch = established.punch_stats;
-    explain_direct_failure(snapshot, plan, ai_route, reporter);
+    explain_direct_failure(snapshot, established.route_plan, ai_route, reporter);
   }
   return established;
 }

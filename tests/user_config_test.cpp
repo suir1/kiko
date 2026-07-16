@@ -3,6 +3,8 @@
 #include "core/config.hpp"
 #include "platform/platform.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -25,6 +27,14 @@ void unset_env(const char* key) {
 #else
   unsetenv(key);
 #endif
+}
+
+bool same_network(const kiko::NetworkPreferences& a, const kiko::NetworkPreferences& b) {
+  return a.preset == b.preset && a.advanced_open == b.advanced_open && a.lan_discover == b.lan_discover &&
+         a.only_local == b.only_local && a.disable_local == b.disable_local && a.no_direct == b.no_direct &&
+         a.udp_probe == b.udp_probe && a.auto_connections == b.auto_connections &&
+         a.connections == b.connections && a.use_gitignore == b.use_gitignore && a.avoid_vpn == b.avoid_vpn &&
+         a.manual_ip == b.manual_ip && a.bind_interface == b.bind_interface && a.proxy_url == b.proxy_url;
 }
 
 }  // namespace
@@ -54,13 +64,26 @@ int main() {
   saved.last_send_path = "/tmp/kiko";
   saved.last_recv_out_dir = "/tmp/out";
   saved.last_mode = 1;
+  saved.network = {3, true, false, true, false, true, true, true, 8, false, true,
+                   "192.0.2.10", "en0", "socks5://127.0.0.1:1080"};
   save_user_config(saved);
 
   const auto loaded = load_user_config();
   if (loaded.relay != saved.relay || loaded.relay_pass != saved.relay_pass ||
       loaded.last_send_path != saved.last_send_path || loaded.last_recv_out_dir != saved.last_recv_out_dir ||
-      loaded.last_mode != saved.last_mode) {
+      loaded.last_mode != saved.last_mode || !same_network(loaded.network, saved.network)) {
     std::cerr << "FAIL: config round-trip mismatch\n";
+    return 1;
+  }
+
+  nlohmann::json persisted;
+  {
+    std::ifstream in(config_path);
+    in >> persisted;
+  }
+  if (!persisted.contains("network_preset") || !persisted.contains("no_direct") ||
+      !persisted.contains("connections") || persisted.contains("network")) {
+    std::cerr << "FAIL: network preferences changed the persisted JSON layout\n";
     return 1;
   }
 
@@ -87,10 +110,11 @@ int main() {
   fs::remove(config_path);
   {
     std::ofstream out(legacy_path);
-    out << R"({"relay":"legacy:9000","last_mode":0})";
+    out << R"({"relay":"legacy:9000","last_mode":0,"no_direct":true,"connections":6})";
   }
   const auto migrated = load_user_config();
-  if (migrated.relay != "legacy:9000" || !fs::exists(config_path)) {
+  if (migrated.relay != "legacy:9000" || !migrated.network.no_direct || migrated.network.connections != 6 ||
+      !fs::exists(config_path)) {
     std::cerr << "FAIL: legacy tui.json migration\n";
     return 1;
   }

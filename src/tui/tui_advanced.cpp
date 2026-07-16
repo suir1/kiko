@@ -45,40 +45,6 @@ void apply_network_preset(int preset, TuiNetworkOptions& options) {
   }
 }
 
-void load_network_options(const UserConfig& config, TuiNetworkOptions& options) {
-  options.preset = config.network_preset;
-  options.advanced_open = config.advanced_open;
-  options.lan_discover = config.lan_discover;
-  options.only_local = config.only_local;
-  options.disable_local = config.disable_local;
-  options.no_direct = config.no_direct;
-  options.udp_probe = config.udp_probe;
-  options.auto_connections = config.auto_connections;
-  options.connections = config.connections > 0 ? config.connections : 4;
-  options.use_gitignore = config.use_gitignore;
-  options.avoid_vpn = config.avoid_vpn;
-  options.manual_ip = config.manual_ip;
-  options.bind_interface = config.bind_interface;
-  options.proxy_url = config.proxy_url;
-}
-
-void save_network_options(UserConfig& config, const TuiNetworkOptions& options) {
-  config.network_preset = options.preset;
-  config.advanced_open = options.advanced_open;
-  config.lan_discover = options.lan_discover;
-  config.only_local = options.only_local;
-  config.disable_local = options.disable_local;
-  config.no_direct = options.no_direct;
-  config.udp_probe = options.udp_probe;
-  config.auto_connections = options.auto_connections;
-  config.connections = options.connections;
-  config.use_gitignore = options.use_gitignore;
-  config.avoid_vpn = options.avoid_vpn;
-  config.manual_ip = options.manual_ip;
-  config.bind_interface = options.bind_interface;
-  config.proxy_url = options.proxy_url;
-}
-
 void apply_network_options_to_peer(PeerConnectionOptions& config, const TuiNetworkOptions& options) {
   config.lan_discover = options.lan_discover;
   config.only_local = options.only_local;

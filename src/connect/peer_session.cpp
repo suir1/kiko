@@ -20,8 +20,6 @@ PeerSession open_peer_session(const PeerSessionConfig& config, ProgressReporter&
   route.rendezvous();
 
   auto plan = build_route_plan(config.no_direct, route.connectivity_snapshot(0), route.stun_probe(), 1);
-  plan = route.apply_peer_policy(std::move(plan));
-  reporter.status("route plan: " + describe_route_plan(plan));
 
   auto established = route.establish(std::move(plan));
   if (established.channels.empty()) throw KikoError("peer route did not establish a channel");

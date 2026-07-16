@@ -6,15 +6,8 @@
 
 namespace kiko {
 
-// Shared CLI/TUI preferences at ~/.config/kiko/config.json (override: KIKO_CONFIG_PATH).
-struct UserConfig {
-  std::string relay;
-  std::string relay_pass;
-  std::string last_send_path;
-  std::string last_recv_out_dir;
-  int last_mode = 0;
-
-  int network_preset = 0;
+struct NetworkPreferences {
+  int preset = 0;
   bool advanced_open = false;
   bool lan_discover = true;
   bool only_local = false;
@@ -28,6 +21,16 @@ struct UserConfig {
   std::string manual_ip;
   std::string bind_interface;
   std::string proxy_url;
+};
+
+// Shared CLI/TUI preferences at ~/.config/kiko/config.json (override: KIKO_CONFIG_PATH).
+struct UserConfig {
+  std::string relay;
+  std::string relay_pass;
+  std::string last_send_path;
+  std::string last_recv_out_dir;
+  int last_mode = 0;
+  NetworkPreferences network;
 };
 
 [[nodiscard]] std::filesystem::path user_config_path();

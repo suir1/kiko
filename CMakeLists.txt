@@ -41,7 +41,6 @@ set(KIKO_PLATFORM_LAYER_SOURCES
 
 set(KIKO_CONNECT_LAYER_SOURCES
   src/connect/connectivity.cpp
-  src/connect/connectivity_session.cpp
   src/connect/direct_session.cpp
   src/connect/discovery.cpp
   src/connect/encrypted_session.cpp

@@ -32,6 +32,7 @@ struct PeerRouteSessionConfig {
 struct EstablishedPeerRoute {
   std::vector<TcpSocket> channels;
   SessionKey key;
+  RoutePlan route_plan;
   RoutePath path = RoutePath::Relay;
   RouteOutcome outcome;
   Endpoint active_relay;
@@ -60,7 +61,6 @@ class PeerRouteSession {
   void rendezvous(RelayHello hello = {});
   [[nodiscard]] const RelayPeerInfo& peer() const;
   [[nodiscard]] ConnectivitySnapshot connectivity_snapshot(std::uint64_t total_bytes) const;
-  [[nodiscard]] RoutePlan apply_peer_policy(RoutePlan plan) const;
 
   [[nodiscard]] EstablishedPeerRoute establish(RoutePlan route_plan, int connections = 1,
                                                std::chrono::milliseconds mux_setup_timeout =

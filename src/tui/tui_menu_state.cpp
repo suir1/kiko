@@ -19,7 +19,8 @@ TuiMenuState load_tui_menu_state(const Endpoint& default_relay) {
   if (!saved.last_recv_out_dir.empty()) state.output_dir = saved.last_recv_out_dir;
   if (saved.last_mode == 0 || saved.last_mode == 1) state.mode = saved.last_mode;
 
-  load_network_options(saved, state.network);
+  state.network = saved.network;
+  if (state.network.connections < 1) state.network.connections = 4;
   state.connections_text = std::to_string(state.network.connections);
   return state;
 }
@@ -34,7 +35,7 @@ void save_tui_menu_state(const TuiMenuState& state) {
   prefs.last_send_path = copy.path;
   prefs.last_recv_out_dir = copy.output_dir;
   if (copy.mode == 0 || copy.mode == 1) prefs.last_mode = copy.mode;
-  save_network_options(prefs, copy.network);
+  prefs.network = copy.network;
   save_user_config(prefs);
 }
 
