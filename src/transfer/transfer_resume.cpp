@@ -9,6 +9,29 @@
 #include <optional>
 
 namespace kiko::detail {
+namespace {
+
+std::uint64_t hash_prefix_bytes(std::istream& input, std::uint64_t length, Bytes& buffer, Sha256Hasher& hasher,
+                                std::string* prefix_sha256) {
+  std::optional<Sha256Hasher> prefix_hasher;
+  if (prefix_sha256 != nullptr) prefix_hasher.emplace();
+
+  std::uint64_t total = 0;
+  while (total < length) {
+    const auto want = std::min<std::uint64_t>(buffer.size(), length - total);
+    input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(want));
+    const auto got = input.gcount();
+    if (got <= 0) break;
+    const std::span<const std::uint8_t> chunk(buffer.data(), static_cast<std::size_t>(got));
+    hasher.update(chunk);
+    if (prefix_hasher) prefix_hasher->update(chunk);
+    total += static_cast<std::uint64_t>(got);
+  }
+  if (total == length && prefix_hasher) *prefix_sha256 = hex_encode(prefix_hasher->finish());
+  return total;
+}
+
+}  // namespace
 
 void send_resume(TcpSocket& socket, StreamCipher& cipher, std::uint64_t offset, const std::string& prefix_sha256,
                  bool complete_skip) {
@@ -47,20 +70,8 @@ std::uint64_t recv_resume_ack(TcpSocket& socket, StreamCipher& cipher, std::uint
 
 std::uint64_t hash_stream_prefix(std::istream& input, Bytes& buffer, Sha256Hasher& hasher, std::uint64_t offset,
                                  const std::string& relative, std::string* prefix_sha256) {
-  std::optional<Sha256Hasher> prefix_hasher;
-  if (prefix_sha256 != nullptr) prefix_hasher.emplace();
-  std::uint64_t total = 0;
-  while (total < offset) {
-    auto want = std::min<std::uint64_t>(buffer.size(), offset - total);
-    input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(want));
-    auto got = input.gcount();
-    if (got <= 0) throw KikoError("source shorter than resume offset: " + relative);
-    std::span<const std::uint8_t> chunk(buffer.data(), static_cast<std::size_t>(got));
-    hasher.update(chunk);
-    if (prefix_hasher) prefix_hasher->update(chunk);
-    total += static_cast<std::uint64_t>(got);
-  }
-  if (prefix_hasher) *prefix_sha256 = hex_encode(prefix_hasher->finish());
+  const auto total = hash_prefix_bytes(input, offset, buffer, hasher, prefix_sha256);
+  if (total != offset) throw KikoError("source shorter than resume offset: " + relative);
   return total;
 }
 
@@ -107,22 +118,7 @@ bool hash_existing_part_prefix(const std::filesystem::path& part_path, std::uint
                                Sha256Hasher& hasher, std::string* prefix_sha256) {
   std::ifstream partial(part_path, std::ios::binary);
   if (!partial) return false;
-
-  std::optional<Sha256Hasher> prefix_hasher;
-  if (prefix_sha256 != nullptr) prefix_hasher.emplace();
-  std::uint64_t hashed = 0;
-  while (partial && hashed < have) {
-    auto want = std::min<std::uint64_t>(buffer.size(), have - hashed);
-    partial.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(want));
-    auto got = partial.gcount();
-    if (got <= 0) break;
-    std::span<const std::uint8_t> chunk(buffer.data(), static_cast<std::size_t>(got));
-    hasher.update(chunk);
-    if (prefix_hasher) prefix_hasher->update(chunk);
-    hashed += static_cast<std::uint64_t>(got);
-  }
-  if (hashed == have && prefix_hasher) *prefix_sha256 = hex_encode(prefix_hasher->finish());
-  return hashed == have;
+  return hash_prefix_bytes(partial, have, buffer, hasher, prefix_sha256) == have;
 }
 
 }  // namespace kiko::detail
