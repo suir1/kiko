@@ -74,19 +74,6 @@ std::filesystem::path unique_conflict_path_reserved(const std::filesystem::path&
   throw KikoError("could not choose a non-conflicting filename for " + path.string());
 }
 
-ReceivePlanSummary to_progress_summary(const ReceivePlan& plan) {
-  ReceivePlanSummary summary;
-  summary.item_count = plan.entries.size();
-  summary.total_bytes = plan.total_size;
-  summary.resume_bytes = plan.resume_bytes;
-  summary.skip_bytes = plan.skip_bytes;
-  summary.skip_count = plan.skip_count;
-  summary.rename_count = plan.rename_count;
-  summary.overwrite_count = plan.overwrite_count;
-  summary.resume_count = plan.resume_count;
-  return summary;
-}
-
 }  // namespace
 
 ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const std::filesystem::path& output_dir,
@@ -96,6 +83,9 @@ ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const 
   std::set<std::string> reserved_files;
   std::uint64_t computed_total = 0;
   ReceivePlan plan;
+  ReceivePlanSummary summary;
+  summary.item_count = manifest.entries.size();
+  summary.total_bytes = manifest.total_size;
 
   for (const auto& entry : manifest.entries) {
     if (entry.path.empty()) throw KikoError("transfer manifest entry missing path");
@@ -138,7 +128,7 @@ ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const 
       if (!ec && std::filesystem::is_directory(status)) {
         throw KikoError("receive plan file target is a directory: " + entry.path);
       }
-      ++plan.overwrite_count;
+      ++summary.overwrite_count;
     }
 
     ensure_existing_parents_are_directories(target_path, entry.path);
@@ -147,22 +137,21 @@ ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const 
     if (action == ReceivePlanAction::Write && entry.kind == "file") {
       planned_resume = resumable_part_size(part_path_for(target_path), entry.size);
       if (planned_resume > 0) {
-        ++plan.resume_count;
-        plan.resume_bytes += planned_resume;
+        ++summary.resume_count;
+        summary.resume_bytes += planned_resume;
       }
     }
 
     if (action == ReceivePlanAction::Skip) {
-      ++plan.skip_count;
-      plan.skip_bytes += entry.kind == "file" ? entry.size : 0;
+      ++summary.skip_count;
+      summary.skip_bytes += entry.kind == "file" ? entry.size : 0;
     } else {
       const auto key = target_key(target_path);
       const bool directory = entry.kind == "dir";
       ensure_no_plan_collision(key, directory, reserved_targets, reserved_files, entry.path);
       reserved_targets.insert(key);
       if (!directory) reserved_files.insert(key);
-      ++plan.write_count;
-      if (action == ReceivePlanAction::Rename) ++plan.rename_count;
+      if (action == ReceivePlanAction::Rename) ++summary.rename_count;
     }
 
     plan.entries.emplace(entry.path, ReceivePlanEntry{entry, target_path, action, planned_resume});
@@ -171,8 +160,7 @@ ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const 
   if (computed_total != manifest.total_size) throw KikoError("transfer manifest total size changed during preflight");
   reporter.status("manifest: " + std::to_string(manifest.entries.size()) + " item(s), " +
                   std::to_string(manifest.total_size) + " bytes");
-  plan.total_size = manifest.total_size;
-  reporter.receive_plan(to_progress_summary(plan));
+  reporter.receive_plan(summary);
   return plan;
 }
 

@@ -28,14 +28,6 @@ struct ReceivePlanEntry {
 
 struct ReceivePlan {
   std::map<std::string, ReceivePlanEntry> entries;
-  std::uint64_t total_size = 0;
-  std::uint64_t resume_bytes = 0;
-  std::uint64_t skip_bytes = 0;
-  std::size_t write_count = 0;
-  std::size_t skip_count = 0;
-  std::size_t rename_count = 0;
-  std::size_t overwrite_count = 0;
-  std::size_t resume_count = 0;
 };
 
 [[nodiscard]] ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest,
