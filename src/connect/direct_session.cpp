@@ -179,11 +179,6 @@ std::vector<TcpSocket> gather_direct_mux_aux_channels(Role role, TcpListener& li
   return aux;
 }
 
-bool direct_mux_status_ok(const Message& status, const std::string& room, int connections) {
-  return status.type == "direct_mux_status" && status.get("room") == room &&
-         status.get_u64("conn_count", 0) == static_cast<std::uint64_t>(connections);
-}
-
 }  // namespace
 
 std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const RelayPeerInfo& peer,
@@ -239,7 +234,8 @@ DirectMuxResult negotiate_direct_mux_channels(TcpSocket primary, Role role, TcpL
     send_message(primary, status);
     const auto status_timeout = setup_timeout + std::chrono::seconds(2);
     auto peer_status = recv_message_timeout(primary, status_timeout, cancel);
-    if (peer_status && direct_mux_status_ok(*peer_status, room, connections)) {
+    if (peer_status && peer_status->type == "direct_mux_status" && peer_status->get("room") == room &&
+        peer_status->get_u64("conn_count", 0) == static_cast<std::uint64_t>(connections)) {
       peer_ready = peer_status->get("ready") == "1";
       peer_error = peer_status->get("error");
     } else {
