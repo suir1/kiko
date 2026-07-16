@@ -3,8 +3,6 @@
 #include "core/common.hpp"
 #include "core/socket.hpp"
 
-#include <asio/awaitable.hpp>
-
 #include <atomic>
 #include <chrono>
 #include <map>
@@ -41,8 +39,5 @@ void send_message(TcpSocket& socket, const Message& message);
 [[nodiscard]] std::optional<Message> recv_message(TcpSocket& socket);
 [[nodiscard]] std::optional<Message> recv_message_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
                                                           const std::atomic_bool* cancel = nullptr);
-
-asio::awaitable<void> co_send_frame(TcpSocket& socket, const Bytes& payload);
-[[nodiscard]] asio::awaitable<std::optional<Bytes>> co_recv_frame(TcpSocket& socket);
 
 }  // namespace kiko

@@ -143,26 +143,4 @@ std::optional<Message> recv_message_timeout(TcpSocket& socket, std::chrono::mill
   return decode_message(*text);
 }
 
-asio::awaitable<void> co_send_frame(TcpSocket& socket, const Bytes& payload) {
-  if (payload.size() > 64ull * 1024ull * 1024ull) throw KikoError("frame too large");
-  co_await socket.async_send_all(kMagic, sizeof(kMagic));
-  std::uint32_t len = htonl(static_cast<std::uint32_t>(payload.size()));
-  co_await socket.async_send_all(&len, sizeof(len));
-  if (!payload.empty()) co_await socket.async_send_all(payload.data(), payload.size());
-}
-
-asio::awaitable<std::optional<Bytes>> co_recv_frame(TcpSocket& socket) {
-  std::uint8_t magic[4]{};
-  if (!co_await socket.async_recv_exact(magic, sizeof(magic))) co_return std::nullopt;
-  verify_magic(magic);
-
-  std::uint32_t be_len = 0;
-  if (!co_await socket.async_recv_exact(&be_len, sizeof(be_len))) co_return std::nullopt;
-  auto len = ntohl(be_len);
-  if (len > 64ull * 1024ull * 1024ull) throw KikoError("received frame too large");
-  Bytes payload(len);
-  if (len > 0 && !co_await socket.async_recv_exact(payload.data(), payload.size())) co_return std::nullopt;
-  co_return payload;
-}
-
 }  // namespace kiko

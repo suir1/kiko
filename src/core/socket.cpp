@@ -7,8 +7,6 @@
 #include <asio/connect.hpp>
 #include <asio/ip/v6_only.hpp>
 #include <asio/read.hpp>
-#include <asio/steady_timer.hpp>
-#include <asio/use_awaitable.hpp>
 #include <asio/write.hpp>
 
 #include <algorithm>
@@ -349,21 +347,6 @@ bool TcpSocket::recv_exact_timeout(void* data, std::size_t size, std::chrono::mi
     throw KikoError("recv failed: " + net_error_string(error));
   }
   return true;
-}
-
-asio::awaitable<void> TcpSocket::async_send_all(const void* data, std::size_t size) {
-  co_await asio::async_write(*socket_, asio::buffer(data, size), asio::use_awaitable);
-}
-
-asio::awaitable<bool> TcpSocket::async_recv_exact(void* data, std::size_t size) {
-  std::size_t received = 0;
-  auto* ptr = static_cast<std::uint8_t*>(data);
-  while (received < size) {
-    std::size_t n = co_await socket_->async_read_some(asio::buffer(ptr + received, size - received), asio::use_awaitable);
-    if (n == 0) co_return false;
-    received += n;
-  }
-  co_return true;
 }
 
 Endpoint TcpSocket::local_endpoint() const {

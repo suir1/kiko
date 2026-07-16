@@ -355,7 +355,7 @@ git push origin v0.2.1-alpha
 | Layer | Choice |
 |-------|--------|
 | Crypto | libsodium (Ristretto255 PAKE, XChaCha20-Poly1305, SHA-256/HKDF) |
-| Network | Standalone Asio + C++20 coroutines (relay) / sync I/O (transfer) |
+| Network | Standalone Asio + synchronous socket I/O |
 | Compression | zstd |
 | CLI | CLI11 + nlohmann-json control messages |
 | UI | FTXUI (`tui` / `--tui`) and embedded loopback Web UI (`web`) |

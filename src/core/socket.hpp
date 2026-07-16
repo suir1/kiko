@@ -3,7 +3,6 @@
 #include "core/common.hpp"
 #include "core/proxy.hpp"
 
-#include <asio/awaitable.hpp>
 #include <asio/ip/tcp.hpp>
 
 #include <atomic>
@@ -64,9 +63,6 @@ class TcpSocket {
   [[nodiscard]] bool recv_exact(void* data, std::size_t size);
   [[nodiscard]] bool recv_exact_timeout(void* data, std::size_t size, std::chrono::milliseconds timeout,
                                         const std::atomic_bool* cancel = nullptr);
-
-  asio::awaitable<void> async_send_all(const void* data, std::size_t size);
-  [[nodiscard]] asio::awaitable<bool> async_recv_exact(void* data, std::size_t size);
 
   [[nodiscard]] Endpoint local_endpoint() const;
   [[nodiscard]] Endpoint peer_endpoint() const;
