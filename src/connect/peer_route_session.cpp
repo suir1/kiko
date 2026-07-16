@@ -25,11 +25,6 @@ namespace {
 
 constexpr auto kRouteConfirmationTimeout = std::chrono::seconds(20);
 
-int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
-  const auto elapsed = std::chrono::steady_clock::now() - start;
-  return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
-}
-
 void track_socket(const PeerConnectionOptions& options, TcpSocket& socket) {
   if (options.cancellation) options.cancellation->track(socket);
 }

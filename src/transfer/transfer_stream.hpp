@@ -51,7 +51,6 @@ void send_tagged_text(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, co
 
 using TransferClock = std::chrono::steady_clock;
 
-[[nodiscard]] std::int64_t transfer_elapsed_ms_since(TransferClock::time_point start);
 void add_transfer_elapsed(std::int64_t& bucket, TransferClock::time_point start);
 void send_tagged_timed(TcpSocket& socket, StreamCipher& cipher, StreamTag tag,
                        std::span<const std::uint8_t> payload, TransferTiming& timing);

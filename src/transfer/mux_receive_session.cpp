@@ -77,7 +77,7 @@ void MuxReceiveSession::reader(std::size_t channel_index) {
       if (use_zstd_) {
         const auto decompress_start = TransferClock::now();
         plain = zstd_decompress_block(compressed, raw_len);
-        decompress_ms = transfer_elapsed_ms_since(decompress_start);
+        decompress_ms = elapsed_ms_since(decompress_start);
       } else {
         if (compressed.size() != raw_len) throw KikoError("uncompressed chunk size mismatch");
         plain.assign(compressed.begin(), compressed.end());
@@ -92,7 +92,7 @@ void MuxReceiveSession::reader(std::size_t channel_index) {
         const auto write_start = TransferClock::now();
         output_.seekp(static_cast<std::streamoff>(offset));
         output_.write(reinterpret_cast<const char*>(plain.data()), static_cast<std::streamsize>(plain.size()));
-        write_ms = transfer_elapsed_ms_since(write_start);
+        write_ms = elapsed_ms_since(write_start);
         if (!output_) throw KikoError("write failed during mux receive");
         contiguous_delta = record_written_range_locked(offset, static_cast<std::uint64_t>(plain.size()));
       }

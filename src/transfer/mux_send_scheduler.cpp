@@ -37,7 +37,7 @@ void MuxSendScheduler::enqueue(Bytes payload, std::uint64_t raw_size) {
       channel_index = choose_ready_channel_locked(payload_size);
       return error_ || channel_index.has_value();
     });
-    if (!error_) record_backpressure_wait(transfer_elapsed_ms_since(wait_start));
+    if (!error_) record_backpressure_wait(elapsed_ms_since(wait_start));
   }
   if (error_) std::rethrow_exception(error_);
 
@@ -170,7 +170,7 @@ void MuxSendScheduler::worker(std::size_t channel_index) {
     try {
       const auto send_start = TransferClock::now();
       send_tagged(channels_[channel_index], ciphers_[channel_index], StreamTag::Data, item.payload);
-      elapsed_ms = transfer_elapsed_ms_since(send_start);
+      elapsed_ms = elapsed_ms_since(send_start);
       record_send_timing(elapsed_ms);
       {
         std::lock_guard<std::mutex> lock(report_mutex_);
@@ -193,7 +193,7 @@ void MuxSendScheduler::worker(std::size_t channel_index) {
   try {
     const auto send_start = TransferClock::now();
     send_tagged(channels_[channel_index], ciphers_[channel_index], StreamTag::ChunkEnd, std::span<const std::uint8_t>());
-    record_send_timing(transfer_elapsed_ms_since(send_start));
+    record_send_timing(elapsed_ms_since(send_start));
   } catch (...) {
     set_error(std::current_exception());
   }

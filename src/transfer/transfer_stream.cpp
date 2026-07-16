@@ -55,20 +55,15 @@ std::optional<TaggedFrame> recv_tagged(TcpSocket& socket, StreamCipher& cipher) 
   return frame;
 }
 
-std::int64_t transfer_elapsed_ms_since(TransferClock::time_point start) {
-  const auto elapsed = TransferClock::now() - start;
-  return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-}
-
 void add_transfer_elapsed(std::int64_t& bucket, TransferClock::time_point start) {
-  bucket += transfer_elapsed_ms_since(start);
+  bucket += elapsed_ms_since(start);
 }
 
 void send_tagged_timed(TcpSocket& socket, StreamCipher& cipher, StreamTag tag,
                        std::span<const std::uint8_t> payload, TransferTiming& timing) {
   const auto start = TransferClock::now();
   send_tagged(socket, cipher, tag, payload);
-  const auto elapsed = transfer_elapsed_ms_since(start);
+  const auto elapsed = elapsed_ms_since(start);
   timing.send_frame_ms += elapsed;
   timing.max_send_frame_ms = std::max(timing.max_send_frame_ms, static_cast<int>(elapsed));
   ++timing.frame_count;

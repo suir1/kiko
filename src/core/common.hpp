@@ -14,6 +14,10 @@ namespace kiko {
 using Bytes = std::vector<std::uint8_t>;
 inline constexpr std::chrono::seconds kDefaultPairTimeout{300};
 
+[[nodiscard]] inline std::int64_t elapsed_ms_since(std::chrono::steady_clock::time_point start) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+}
+
 class KikoError : public std::runtime_error {
  public:
   explicit KikoError(const std::string& message) : std::runtime_error(message) {}

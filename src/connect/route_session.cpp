@@ -25,11 +25,6 @@ void report_route_phase(ProgressReporter& reporter, RoutePhase phase, std::strin
   reporter.route_phase(phase, RoutePhaseDetail{std::move(message), std::move(reason), relay_fallback_ready});
 }
 
-int elapsed_ms_since(std::chrono::steady_clock::time_point start) {
-  const auto elapsed = std::chrono::steady_clock::now() - start;
-  return static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
-}
-
 std::string count_map_summary(const std::map<std::string, int>& values) {
   std::ostringstream oss;
   bool first = true;
