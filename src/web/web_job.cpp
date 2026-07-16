@@ -43,8 +43,7 @@ WebJobSnapshot WebJobStore::snapshot() const {
 }
 
 void WebJobStore::append_log(const std::string& line) {
-  std::lock_guard<std::mutex> lock(impl_->mutex);
-  impl_->state.append_log(line);
+  update([&](WebJobSnapshot& state) { state.append_log(line); });
 }
 
 void WebJobStore::update(const std::function<void(WebJobSnapshot&)>& fn) {
@@ -134,15 +133,6 @@ struct WebJobStore::Access {
       state.running = false;
       state.finish_canceled();
     });
-  }
-
-  static std::shared_ptr<WebNoteRuntime> current_note_runtime(WebJobStore::Impl& impl, std::string& error) {
-    std::lock_guard<std::mutex> lock(impl.mutex);
-    if (!impl.state.running || impl.state.kind != "note" || !impl.note_runtime) {
-      error = "notepad is not running";
-      return {};
-    }
-    return impl.note_runtime;
   }
 };
 
@@ -299,8 +289,15 @@ bool WebJobStore::select_note_pad(const std::string& pad_id, std::string& error)
 bool WebJobStore::mutate_note(const std::function<bool(NoteSession&)>& mutation,
                               const std::function<std::string(const NoteSession&)>& activity,
                               const std::string& failure, std::string& error) {
-  auto runtime = Access::current_note_runtime(*impl_, error);
-  if (!runtime) return false;
+  std::shared_ptr<WebNoteRuntime> runtime;
+  {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    if (!impl_->state.running || impl_->state.kind != "note" || !impl_->note_runtime) {
+      error = "notepad is not running";
+      return false;
+    }
+    runtime = impl_->note_runtime;
+  }
   if (!mutation(*runtime->session)) {
     error = failure;
     return false;
