@@ -216,8 +216,6 @@ void SocketInterruptHandle::interrupt() const {
   interrupt_native_socket(state->native_handle);
 }
 
-bool SocketInterruptHandle::expired() const { return state_.expired(); }
-
 TcpSocket::TcpSocket()
     : socket_(std::make_shared<asio::ip::tcp::socket>(io_context())),
       interrupt_state_(std::make_shared<SocketInterruptHandle::State>()) {}

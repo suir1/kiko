@@ -19,7 +19,6 @@ class SocketInterruptHandle {
   SocketInterruptHandle() = default;
 
   void interrupt() const;
-  [[nodiscard]] bool expired() const;
 
  private:
   struct State;

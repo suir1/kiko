@@ -8,15 +8,7 @@ void TransferCancellation::request() {
   std::vector<SocketInterruptHandle> sockets;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    sockets.reserve(sockets_.size());
-    for (auto it = sockets_.begin(); it != sockets_.end();) {
-      if (!it->expired()) {
-        sockets.push_back(*it);
-        ++it;
-      } else {
-        it = sockets_.erase(it);
-      }
-    }
+    sockets.swap(sockets_);
   }
 
   for (const auto& socket : sockets) socket.interrupt();
@@ -29,14 +21,12 @@ const std::atomic_bool* TransferCancellation::flag() const { return &requested_;
 void TransferCancellation::track(TcpSocket& socket) {
   if (!socket.valid()) return;
 
-  if (requested()) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (requested_.load()) {
     socket.interrupt();
     return;
   }
-
-  std::lock_guard<std::mutex> lock(mutex_);
   sockets_.push_back(socket.interrupt_handle());
-  if (requested_.load()) socket.interrupt();
 }
 
 const std::atomic_bool* cancellation_flag(const std::shared_ptr<TransferCancellation>& cancellation) {
