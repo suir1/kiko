@@ -271,7 +271,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
   auto menu_view = make_tui_menu_view(menu, default_relay, menu_error,
                                       {browse_send_path, browse_output_dir, network_check, start_action, wake});
 
-  auto transfer_layout = Container::Vertical({transfer_actions.visible_actions});
+  auto transfer_layout = Container::Vertical({transfer_actions});
 
   auto transfer_renderer = Renderer(transfer_layout, [&] {
     Element transfer_view;
@@ -291,7 +291,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
     rows.push_back(std::move(transfer_view));
     if (done) {
       rows.push_back(separator());
-      rows.push_back(transfer_actions.actions->Render());
+      rows.push_back(transfer_actions->Render());
     }
     return vbox(std::move(rows)) | border;
   });

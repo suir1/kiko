@@ -27,11 +27,11 @@ bool transfer_finished_or_failed(TuiState& state) {
 
 }  // namespace
 
-TuiTransferActions make_tui_transfer_actions(TuiState& state, TuiMenuState& menu, std::string& action_notice,
-                                             std::function<void()> repeat_transfer,
-                                             std::function<void()> diagnose_transfer,
-                                             std::function<void()> return_to_menu, std::function<void()> quit,
-                                             std::function<void()> wake) {
+ftxui::Component make_tui_transfer_actions(TuiState& state, TuiMenuState& menu, std::string& action_notice,
+                                           std::function<void()> repeat_transfer,
+                                           std::function<void()> diagnose_transfer,
+                                           std::function<void()> return_to_menu, std::function<void()> quit,
+                                           std::function<void()> wake) {
   using namespace ftxui;
 
   const auto repeat = std::move(repeat_transfer);
@@ -66,8 +66,7 @@ TuiTransferActions make_tui_transfer_actions(TuiState& state, TuiMenuState& menu
       menu_button,
       quit_button,
   });
-  auto visible_actions = Maybe(actions, [&state] { return transfer_finished_or_failed(state); });
-  return {actions, visible_actions};
+  return Maybe(actions, [&state] { return transfer_finished_or_failed(state); });
 }
 
 }  // namespace kiko
