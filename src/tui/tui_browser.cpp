@@ -14,8 +14,8 @@
 namespace kiko {
 namespace {
 
-std::vector<PathBrowserEntry> list_entries(const std::filesystem::path& dir, TuiPickMode mode,
-                                           TuiBrowserSort sort) {
+std::vector<PathBrowserEntry> list_entries(const std::filesystem::path& dir, PathPickMode mode,
+                                           PathBrowserSort sort) {
   try {
     return list_browser_directory(dir, mode, sort);
   } catch (const KikoError&) {
@@ -25,28 +25,11 @@ std::vector<PathBrowserEntry> list_entries(const std::filesystem::path& dir, Tui
 
 }  // namespace
 
-namespace detail {
-
-std::vector<std::string> list_tui_path_picker_labels(const std::filesystem::path& dir, TuiPickMode mode,
-                                                     TuiBrowserSort sort) {
-  std::vector<std::string> labels;
-  const auto entries = list_entries(dir, mode, sort);
-  labels.reserve(entries.size());
-  for (const auto& entry : entries) labels.push_back(entry.label);
-  return labels;
-}
-
-std::vector<std::string> list_tui_path_picker_labels(const std::filesystem::path& dir, TuiPickMode mode) {
-  return list_tui_path_picker_labels(dir, mode, TuiBrowserSort::Name);
-}
-
-}  // namespace detail
-
-std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::path& start, TuiPickMode mode) {
+std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::path& start, PathPickMode mode) {
   using namespace ftxui;
 
   std::filesystem::path current = normalize_browser_directory(start);
-  TuiBrowserSort sort_mode = TuiBrowserSort::Name;
+  PathBrowserSort sort_mode = PathBrowserSort::Name;
   std::vector<PathBrowserEntry> all_entries = list_entries(current, mode, sort_mode);
   std::vector<PathBrowserEntry> entries;
   std::vector<std::string> labels;
@@ -84,12 +67,8 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
   };
 
   auto reload_directory = [&]() {
-    all_entries = list_entries(current, mode, sort_mode);
     filter.clear();
-    synced_filter.clear();
-    synced_dir.clear();
-    selected = 0;
-    sync_visible();
+    reload_entries();
   };
 
   sync_visible();
@@ -99,11 +78,11 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
   auto filter_input = Input(&filter, "filter name…", filter_opt);
   auto menu = Menu(&labels, &selected);
   auto sort_name = Button("Name", [&] {
-    sort_mode = TuiBrowserSort::Name;
+    sort_mode = PathBrowserSort::Name;
     reload_entries();
   });
   auto sort_modified = Button("Modified", [&] {
-    sort_mode = TuiBrowserSort::ModifiedDesc;
+    sort_mode = PathBrowserSort::ModifiedDesc;
     reload_entries();
   });
   auto sort_controls = Container::Horizontal({sort_name, sort_modified});
@@ -118,7 +97,7 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
     rows.push_back(text(current.string()) | dim);
     rows.push_back(hbox({text("filter: "), filter_input->Render() | flex}));
     rows.push_back(hbox({text("sort:   "), sort_name->Render(), text(" "), sort_modified->Render(),
-                         text(sort_mode == TuiBrowserSort::Name ? "  current=name" : "  current=modified desc") |
+                         text(sort_mode == PathBrowserSort::Name ? "  current=name" : "  current=modified desc") |
                              dim}));
     rows.push_back(separator());
 

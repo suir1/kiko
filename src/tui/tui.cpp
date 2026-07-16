@@ -158,7 +158,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<NoteConfig>
 
   auto browse_send_path = [&] {
     const auto start_path = menu.path.empty() ? std::filesystem::current_path() : std::filesystem::path(menu.path);
-    if (auto picked = run_tui_path_picker(start_path, TuiPickMode::FileOrDirectory)) {
+    if (auto picked = run_tui_path_picker(start_path, PathPickMode::FileOrDirectory)) {
       menu.path = picked->string();
       menu_error.clear();
     }
@@ -167,7 +167,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<NoteConfig>
   auto browse_output_dir = [&] {
     const auto start_path =
         menu.output_dir.empty() ? std::filesystem::current_path() : std::filesystem::path(menu.output_dir);
-    if (auto picked = run_tui_path_picker(start_path, TuiPickMode::DirectoryOnly)) {
+    if (auto picked = run_tui_path_picker(start_path, PathPickMode::DirectoryOnly)) {
       menu.output_dir = picked->string();
       menu_error.clear();
     }

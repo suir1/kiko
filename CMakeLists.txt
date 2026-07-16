@@ -294,11 +294,6 @@ target_link_libraries(kiko_tui_failure_hint_test PRIVATE kiko_core)
 kiko_enable_test_assertions(kiko_tui_failure_hint_test)
 add_test(NAME tui_failure_hint COMMAND kiko_tui_failure_hint_test)
 
-add_executable(kiko_tui_browser_test tests/tui_browser_test.cpp src/tui/tui_browser.cpp)
-target_link_libraries(kiko_tui_browser_test PRIVATE kiko_core ftxui::component)
-kiko_enable_test_assertions(kiko_tui_browser_test)
-add_test(NAME tui_browser COMMAND kiko_tui_browser_test)
-
 add_executable(kiko_web_test tests/web_test.cpp src/web/web.cpp src/web/web_assets.cpp src/web/web_job.cpp)
 target_link_libraries(kiko_web_test PRIVATE kiko_core)
 kiko_enable_test_assertions(kiko_web_test)
