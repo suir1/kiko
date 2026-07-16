@@ -73,6 +73,5 @@ class AdaptivePuncher {
 };
 
 [[nodiscard]] std::string role_name(Role role);
-[[nodiscard]] Role parse_role(const std::string& value);
 
 }  // namespace kiko

@@ -23,6 +23,4 @@ struct TuiTransferActions {
                                                            std::function<void()> quit,
                                                            std::function<void()> wake);
 
-[[nodiscard]] bool transfer_finished_or_failed(TuiState& state);
-
 }  // namespace kiko

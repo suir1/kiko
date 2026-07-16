@@ -31,6 +31,12 @@ void validate_connection_count(std::uint64_t count) {
   if (count == 0 || count > kMaxRelayConnections) throw KikoError("invalid conn_count");
 }
 
+Role decode_role(const std::string& value) {
+  if (value == "sender") return Role::Sender;
+  if (value == "receiver") return Role::Receiver;
+  throw KikoError("unknown role: " + value);
+}
+
 }  // namespace
 
 Message encode_relay_hello(const RelayHello& hello) {
@@ -66,7 +72,7 @@ RelayHello decode_relay_hello(const Message& message) {
   RelayHello hello;
   hello.room = message.get("room");
   if (hello.room.empty()) throw KikoError("relay hello room is required");
-  hello.role = parse_role(message.get("role"));
+  hello.role = decode_role(message.get("role"));
   hello.conn_index = message.get_u64("conn_index", 0);
   hello.listen = Endpoint{message.get("listen_host"), message_port_or(message, "listen_port", 0, true)};
   hello.punch_public =

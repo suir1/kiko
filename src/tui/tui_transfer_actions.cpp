@@ -20,12 +20,12 @@ bool transfer_failed(TuiState& state) {
   return state.failed;
 }
 
-}  // namespace
-
 bool transfer_finished_or_failed(TuiState& state) {
   std::lock_guard<std::mutex> lock(state.mutex);
   return state.finished || state.failed;
 }
+
+}  // namespace
 
 TuiTransferActions make_tui_transfer_actions(TuiState& state, TuiMenuState& menu, std::string& action_notice,
                                              std::function<void()> repeat_transfer,

@@ -414,7 +414,8 @@ class WebServer {
 
     auto listener = TcpListener::bind(options_.listen);
     const auto local = listener.local_endpoint();
-    url_ = "http://" + (is_ipv6_address(local.host) ? ("[" + local.host + "]") : local.host) + ":" +
+    url_ = "http://" +
+           (ip_address_family(local.host) == IpAddressFamily::IPv6 ? ("[" + local.host + "]") : local.host) + ":" +
            std::to_string(local.port) + "/?token=" + token_;
     std::cout << "kiko web listening on " << url_ << "\n" << std::flush;
     if (options_.open_browser) open_browser_best_effort(url_);

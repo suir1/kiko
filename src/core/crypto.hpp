@@ -45,6 +45,5 @@ class Sha256Hasher {
 [[nodiscard]] Bytes hmac_sha256(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data);
 [[nodiscard]] Bytes hkdf_sha256(std::span<const std::uint8_t> ikm, std::span<const std::uint8_t> salt,
                                 std::span<const std::uint8_t> info, std::size_t length);
-[[nodiscard]] bool constant_time_equal(std::span<const std::uint8_t> a, std::span<const std::uint8_t> b);
 
 }  // namespace kiko

@@ -183,7 +183,11 @@ struct PeerRouteSession::Impl {
 
     local_addrs = local_candidates_for_listener(local_listen, interfaces);
     advertised_listen = local_listen;
-    apply_manual_ip(local_addrs, advertised_listen, connection.manual_ip);
+    if (connection.manual_ip && !connection.manual_ip->empty()) {
+      const auto manual = parse_endpoint(*connection.manual_ip, advertised_listen.port);
+      advertised_listen.host = manual.host;
+      local_addrs = {manual.host};
+    }
 
     if (is_host) {
       race_entries = relay_race_entries_for_send(use_embedded, embedded_endpoint, connection.only_local, external_relay);

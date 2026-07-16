@@ -16,9 +16,6 @@ void push_unique_endpoint(std::vector<Endpoint>& out, const Endpoint& ep);
 [[nodiscard]] std::vector<std::string> local_candidates_for_listener(
     const Endpoint& local_listen, const NetworkInterfaceInventory& interfaces);
 
-void apply_manual_ip(std::vector<std::string>& local_addrs, Endpoint& listen,
-                     const std::optional<std::string>& manual_ip);
-
 [[nodiscard]] std::vector<RelayRaceEntry> relay_race_entries_for_send(bool use_embedded, const Endpoint& embedded_ep,
                                                                       bool only_local,
                                                                       const Endpoint& external_relay);

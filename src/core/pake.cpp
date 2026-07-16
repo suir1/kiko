@@ -145,7 +145,8 @@ SessionKey perform_handshake(TcpSocket& channel, Role role, const std::string& c
   send_frame(channel, my_mac);
   auto peer_mac = recv_frame(channel);
   if (!peer_mac) throw KikoError("peer closed during key confirmation");
-  if (!constant_time_equal(*peer_mac, expected_mac)) {
+  if (peer_mac->size() != expected_mac.size() ||
+      sodium_memcmp(peer_mac->data(), expected_mac.data(), expected_mac.size()) != 0) {
     throw KikoError("key confirmation failed: wrong code or tampering detected");
   }
 

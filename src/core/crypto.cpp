@@ -127,11 +127,6 @@ Bytes hkdf_sha256(std::span<const std::uint8_t> ikm, std::span<const std::uint8_
   return out;
 }
 
-bool constant_time_equal(std::span<const std::uint8_t> a, std::span<const std::uint8_t> b) {
-  if (a.size() != b.size()) return false;
-  return sodium_memcmp(a.data(), b.data(), a.size()) == 0;
-}
-
 StreamCipher::StreamCipher(const SessionKey& key, bool sender_originates, std::uint8_t stream_id) {
   sodium_ready();
   const std::string stream_tag = std::string("kiko-stream:") + std::to_string(stream_id);

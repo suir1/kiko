@@ -166,10 +166,4 @@ std::string AdaptivePuncher::report() const {
 
 std::string role_name(Role role) { return role == Role::Sender ? "sender" : "receiver"; }
 
-Role parse_role(const std::string& value) {
-  if (value == "sender") return Role::Sender;
-  if (value == "receiver") return Role::Receiver;
-  throw KikoError("unknown role: " + value);
-}
-
 }  // namespace kiko

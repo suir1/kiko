@@ -24,15 +24,6 @@ std::vector<std::string> local_candidates_for_listener(const Endpoint& local_lis
   return {local_listen.host};
 }
 
-void apply_manual_ip(std::vector<std::string>& local_addrs, Endpoint& listen,
-                     const std::optional<std::string>& manual_ip) {
-  if (!manual_ip || manual_ip->empty()) return;
-  auto ep = parse_endpoint(*manual_ip, listen.port);
-  listen.host = ep.host;
-  local_addrs.clear();
-  local_addrs.push_back(ep.host);
-}
-
 std::vector<RelayRaceEntry> relay_race_entries_for_send(bool use_embedded, const Endpoint& embedded_ep,
                                                         bool only_local, const Endpoint& external_relay) {
   std::vector<RelayRaceEntry> entries;
