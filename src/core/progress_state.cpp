@@ -11,6 +11,16 @@ void append_timing_field(std::string& line, const std::string& name, int value_m
   line += name + "=" + std::to_string(value_ms) + "ms";
 }
 
+void set_terminal_state(TransferProgressState& state, bool failed, bool canceled, const std::string& error,
+                        const std::string& activity) {
+  state.finished = true;
+  state.failed = failed;
+  state.canceled = canceled;
+  state.error = error;
+  state.activity = activity;
+  state.ended = std::chrono::steady_clock::now();
+}
+
 }  // namespace
 
 static std::string format_route_phase_label(RoutePhase phase, const RoutePhaseDetail& detail) {
@@ -223,32 +233,17 @@ void TransferProgressState::transfer_retry_waiting(int next_attempt, int max_att
 }
 
 void TransferProgressState::finish_success(const std::string& final_activity) {
-  finished = true;
-  failed = false;
-  canceled = false;
-  error.clear();
-  activity = final_activity;
-  ended = std::chrono::steady_clock::now();
+  set_terminal_state(*this, false, false, {}, final_activity);
 }
 
 void TransferProgressState::finish_failed(const std::string& message) {
   append_log("error: " + message);
-  finished = true;
-  failed = true;
-  canceled = false;
-  error = message;
-  activity = "failed";
-  ended = std::chrono::steady_clock::now();
+  set_terminal_state(*this, true, false, message, "failed");
 }
 
 void TransferProgressState::finish_canceled() {
   append_log("canceled");
-  finished = true;
-  failed = false;
-  canceled = true;
-  error.clear();
-  activity = "canceled";
-  ended = std::chrono::steady_clock::now();
+  set_terminal_state(*this, false, true, {}, "canceled");
 }
 
 void ProgressStateReporter::status(const std::string& message) {
