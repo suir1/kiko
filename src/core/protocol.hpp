@@ -28,10 +28,6 @@ void send_frame(TcpSocket& socket, const Bytes& payload);
 [[nodiscard]] std::optional<Bytes> recv_frame(TcpSocket& socket);
 [[nodiscard]] std::optional<Bytes> recv_frame_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
                                                       const std::atomic_bool* cancel = nullptr);
-void send_text(TcpSocket& socket, const std::string& text);
-[[nodiscard]] std::optional<std::string> recv_text(TcpSocket& socket);
-[[nodiscard]] std::optional<std::string> recv_text_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
-                                                           const std::atomic_bool* cancel = nullptr);
 
 [[nodiscard]] std::string encode_message(const Message& message);
 [[nodiscard]] Message decode_message(const std::string& text);

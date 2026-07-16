@@ -82,23 +82,6 @@ std::optional<Bytes> recv_frame_timeout(TcpSocket& socket, std::chrono::millisec
   return payload;
 }
 
-void send_text(TcpSocket& socket, const std::string& text) {
-  send_frame(socket, Bytes(text.begin(), text.end()));
-}
-
-std::optional<std::string> recv_text(TcpSocket& socket) {
-  auto payload = recv_frame(socket);
-  if (!payload) return std::nullopt;
-  return std::string(payload->begin(), payload->end());
-}
-
-std::optional<std::string> recv_text_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
-                                             const std::atomic_bool* cancel) {
-  auto payload = recv_frame_timeout(socket, timeout, cancel);
-  if (!payload) return std::nullopt;
-  return std::string(payload->begin(), payload->end());
-}
-
 std::string encode_message(const Message& message) {
   nlohmann::json object = nlohmann::json::object();
   object["type"] = message.type;
@@ -128,19 +111,22 @@ Message decode_message(const std::string& text) {
   return message;
 }
 
-void send_message(TcpSocket& socket, const Message& message) { send_text(socket, encode_message(message)); }
+void send_message(TcpSocket& socket, const Message& message) {
+  const auto text = encode_message(message);
+  send_frame(socket, Bytes(text.begin(), text.end()));
+}
 
 std::optional<Message> recv_message(TcpSocket& socket) {
-  auto text = recv_text(socket);
-  if (!text) return std::nullopt;
-  return decode_message(*text);
+  auto payload = recv_frame(socket);
+  if (!payload) return std::nullopt;
+  return decode_message(std::string(payload->begin(), payload->end()));
 }
 
 std::optional<Message> recv_message_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
                                             const std::atomic_bool* cancel) {
-  auto text = recv_text_timeout(socket, timeout, cancel);
-  if (!text) return std::nullopt;
-  return decode_message(*text);
+  auto payload = recv_frame_timeout(socket, timeout, cancel);
+  if (!payload) return std::nullopt;
+  return decode_message(std::string(payload->begin(), payload->end()));
 }
 
 }  // namespace kiko
