@@ -29,6 +29,14 @@ NoteSession::~NoteSession() {
 
 NoteSessionEnd NoteSession::run() {
   sender_ = std::thread([this] { sender_loop(); });
+  auto finish_run = [this] {
+    stop_.store(true);
+    interrupt_channel();
+    changed_.notify_all();
+    stop_sender();
+    close_channel();
+    if (sender_error_) std::rethrow_exception(sender_error_);
+  };
   try {
     auto peer = open_peer_session(config_, reporter_);
     auto channel = std::make_unique<TcpSocket>(std::move(peer.channel));
@@ -78,21 +86,11 @@ NoteSessionEnd NoteSession::run() {
       }
     }
 
-    stop_.store(true);
-    interrupt_channel();
-    changed_.notify_all();
-    stop_sender();
-    close_channel();
-    if (sender_error_) std::rethrow_exception(sender_error_);
+    finish_run();
     if (explicit_stop_.load() || cancellation_->requested()) return NoteSessionEnd::Stopped;
     return NoteSessionEnd::PeerClosed;
   } catch (...) {
-    stop_.store(true);
-    interrupt_channel();
-    changed_.notify_all();
-    stop_sender();
-    close_channel();
-    if (sender_error_) std::rethrow_exception(sender_error_);
+    finish_run();
     throw;
   }
 }
