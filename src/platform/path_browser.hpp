@@ -33,9 +33,5 @@ struct PathBrowserEntry {
                                                                    PathBrowserSort sort);
 [[nodiscard]] std::vector<PathBrowserEntry> filter_browser_entries(const std::vector<PathBrowserEntry>& entries,
                                                                    const std::string& filter);
-[[nodiscard]] std::vector<PathBrowserEntry> browse_directory(const std::filesystem::path& dir,
-                                                             PathPickMode mode,
-                                                             PathBrowserSort sort,
-                                                             const std::string& filter = {});
 
 }  // namespace kiko

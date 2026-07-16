@@ -129,9 +129,4 @@ std::vector<PathBrowserEntry> filter_browser_entries(const std::vector<PathBrows
   return out;
 }
 
-std::vector<PathBrowserEntry> browse_directory(const std::filesystem::path& dir, PathPickMode mode,
-                                               PathBrowserSort sort, const std::string& filter) {
-  return filter_browser_entries(list_browser_directory(dir, mode, sort), filter);
-}
-
 }  // namespace kiko

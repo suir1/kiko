@@ -467,7 +467,7 @@ class WebServer {
       const auto sort = parse_browser_sort(query_value(req.query, "sort"));
       const auto filter = query_value(req.query, "filter");
       const auto absolute = normalize_browser_directory(std::filesystem::path(path));
-      auto entries = browse_directory(absolute, mode, sort, filter);
+      auto entries = filter_browser_entries(list_browser_directory(absolute, mode, sort), filter);
       send_json(socket, 200, "OK", directory_to_json(absolute, entries));
       return;
     }
