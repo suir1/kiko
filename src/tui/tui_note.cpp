@@ -47,49 +47,42 @@ class TuiNoteReporter : public ProgressReporter {
       : state_(state), wake_(std::move(wake)) {}
 
   void status(const std::string& message) override {
-    {
-      std::lock_guard<std::mutex> lock(state_.mutex);
-      state_.status = message;
-    }
-    wake_();
+    update_state([&](TuiNoteState& state) { state.status = message; });
   }
 
   void code_ready(const std::string& code, bool show_qrcode) override {
     (void)show_qrcode;
-    {
-      std::lock_guard<std::mutex> lock(state_.mutex);
-      state_.code = code;
-      state_.status = "waiting for peer";
-    }
-    wake_();
+    update_state([&](TuiNoteState& state) {
+      state.code = code;
+      state.status = "waiting for peer";
+    });
   }
 
   void route_phase(RoutePhase phase, const RoutePhaseDetail& detail) override {
     (void)phase;
-    {
-      std::lock_guard<std::mutex> lock(state_.mutex);
-      state_.status = detail.message.empty() ? "connecting" : detail.message;
-    }
-    wake_();
+    update_state([&](TuiNoteState& state) {
+      state.status = detail.message.empty() ? "connecting" : detail.message;
+    });
   }
 
   void route_outcome(const RouteOutcome& outcome) override {
-    {
-      std::lock_guard<std::mutex> lock(state_.mutex);
-      state_.route = outcome.data_path;
-    }
-    wake_();
+    update_state([&](TuiNoteState& state) { state.route = outcome.data_path; });
   }
 
   void handshake_ok() override {
+    update_state([](TuiNoteState& state) { state.status = "secure channel ready"; });
+  }
+
+ private:
+  template <typename Mutation>
+  void update_state(Mutation mutation) {
     {
       std::lock_guard<std::mutex> lock(state_.mutex);
-      state_.status = "secure channel ready";
+      mutation(state_);
     }
     wake_();
   }
 
- private:
   TuiNoteState& state_;
   std::function<void()> wake_;
 };
