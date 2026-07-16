@@ -43,7 +43,9 @@ std::chrono::milliseconds dial_timeout_for(const DirectCandidate& candidate,
   return clamp_ms(plan_connect_timeout, std::chrono::milliseconds(150), std::chrono::milliseconds(400));
 }
 
-void assign_candidate_dial_timeouts(PunchPlan& plan) {
+}  // namespace
+
+void tune_direct_candidate_timeouts(PunchPlan& plan) {
   for (auto& candidate : plan.candidates) {
     candidate.reasons.erase(std::remove(candidate.reasons.begin(), candidate.reasons.end(), "short_probe"),
                             candidate.reasons.end());
@@ -57,8 +59,6 @@ void assign_candidate_dial_timeouts(PunchPlan& plan) {
     }
   }
 }
-
-}  // namespace
 
 NatProfile classify_nat(const std::vector<std::string>& local_addresses, const Endpoint& reflexive) {
   NatProfile profile;
@@ -97,8 +97,6 @@ void add_direct_candidate_reason(DirectCandidate& candidate, std::string reason)
     candidate.reasons.push_back(std::move(reason));
   }
 }
-
-void tune_direct_candidate_timeouts(PunchPlan& plan) { assign_candidate_dial_timeouts(plan); }
 
 PunchPlan AdaptivePuncher::plan(Role role, const std::vector<DirectCandidate>& candidates) const {
   PunchPlan plan;

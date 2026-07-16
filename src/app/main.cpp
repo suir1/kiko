@@ -26,22 +26,10 @@ namespace {
 
 constexpr int kDefaultPairTimeoutSec = static_cast<int>(kiko::kDefaultPairTimeout.count());
 
-kiko::Endpoint parse_endpoint_option(const std::string& value, std::uint16_t default_port) {
-  return kiko::parse_endpoint(value, default_port);
-}
-
-kiko::Endpoint parse_bind_endpoint_option(const std::string& value, std::uint16_t default_port) {
-  return kiko::parse_bind_endpoint(value, default_port);
-}
-
-std::optional<std::string> default_relay_pass(const kiko::UserConfig& user_config) {
-  return kiko::resolve_relay_pass_default(user_config);
-}
-
 void apply_relay_pass_cli(std::optional<std::string>& pass, const std::string& cli_value,
                           const kiko::UserConfig& user_config) {
   if (!cli_value.empty()) pass = cli_value;
-  else if (!pass) pass = default_relay_pass(user_config);
+  else if (!pass) pass = kiko::resolve_relay_pass_default(user_config);
 }
 
 kiko::SymlinkMode parse_symlink_mode_option(const std::string& value) {
@@ -99,8 +87,8 @@ void add_peer_connection_options(CLI::App* command, PeerCliOptions& options, boo
 
 void apply_peer_cli_options(kiko::PeerConnectionOptions& config, const PeerCliOptions& options,
                             const kiko::UserConfig& user_config) {
-  config.relay = parse_endpoint_option(options.relay, 9000);
-  config.listen = parse_bind_endpoint_option(options.listen, 0);
+  config.relay = kiko::parse_endpoint(options.relay, 9000);
+  config.listen = kiko::parse_bind_endpoint(options.listen, 0);
   config.no_direct = options.no_direct;
   config.lan_discover = !options.no_lan;
   config.disable_local = options.no_local;
@@ -260,13 +248,13 @@ int main(int argc, char** argv) {
 
   try {
     if (app.got_subcommand(tui_cmd)) {
-      return kiko::run_tui_menu(parse_endpoint_option(tui_relay, 9000));
+      return kiko::run_tui_menu(kiko::parse_endpoint(tui_relay, 9000));
     }
 
     if (app.got_subcommand(web_cmd)) {
       kiko::WebOptions opts;
-      opts.listen = parse_bind_endpoint_option(web_listen, 0);
-      opts.relay = parse_endpoint_option(web_relay, 9000);
+      opts.listen = kiko::parse_bind_endpoint(web_listen, 0);
+      opts.relay = kiko::parse_endpoint(web_relay, 9000);
       apply_relay_pass_cli(opts.relay_pass, web_relay_pass, user_config);
       opts.open_browser = !web_no_open;
       opts.user_config = user_config;
@@ -278,12 +266,12 @@ int main(int argc, char** argv) {
       config.password = relay_pass;
       config.room_ttl = std::chrono::seconds(relay_room_ttl_sec);
       config.cleanup_interval = std::chrono::seconds(relay_cleanup_sec);
-      return kiko::run_relay(parse_bind_endpoint_option(relay_listen, 9000), config);
+      return kiko::run_relay(kiko::parse_bind_endpoint(relay_listen, 9000), config);
     }
 
     if (app.got_subcommand(doctor_cmd)) {
       kiko::DoctorOptions opts;
-      opts.relay = parse_endpoint_option(doctor_relay, 9000);
+      opts.relay = kiko::parse_endpoint(doctor_relay, 9000);
       apply_relay_pass_cli(opts.relay_pass, doctor_relay_pass, user_config);
       opts.udp_probe = doctor_udp_probe;
       opts.json_output = doctor_json;
