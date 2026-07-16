@@ -41,21 +41,4 @@ int recommend_connections(std::int64_t relay_rtt_ms, std::uint64_t total_bytes) 
   return 4;
 }
 
-TransferPayloadStats transfer_payload_stats(const std::vector<FileEntry>& files) {
-  TransferPayloadStats stats;
-  std::size_t regular_files = 0;
-  std::size_t compressible = 0;
-  for (const auto& entry : files) {
-    const bool dir_marker = entry.size == 0 && !entry.relative.empty() && entry.relative.back() == '/';
-    if (dir_marker || entry.symlink) continue;
-    ++regular_files;
-    if (entry.size > stats.largest_file_bytes) stats.largest_file_bytes = entry.size;
-    if (should_compress_path(entry.absolute)) ++compressible;
-  }
-  if (regular_files > 0) {
-    stats.compressible_ratio = static_cast<double>(compressible) / static_cast<double>(regular_files);
-  }
-  return stats;
-}
-
 }  // namespace kiko

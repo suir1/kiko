@@ -65,7 +65,7 @@ void apply_network_options_to_send(SendConfig& config, const TuiNetworkOptions& 
   config.use_gitignore = options.use_gitignore;
 }
 
-std::optional<std::string> validate_network_options(const TuiNetworkOptions& options, int mode) {
+std::optional<std::string> validate_network_options(const TuiNetworkOptions& options) {
   if (options.only_local && options.disable_local) {
     return "only local and disable local cannot both be enabled";
   }
@@ -79,7 +79,6 @@ std::optional<std::string> validate_network_options(const TuiNetworkOptions& opt
       return std::string("invalid proxy URL: ") + e.what();
     }
   }
-  (void)mode;
   return std::nullopt;
 }
 

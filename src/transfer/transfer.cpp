@@ -30,11 +30,24 @@ int normalize_connection_count(int connections) {
 }
 
 void fill_transfer_snapshot(ConnectivitySnapshot& snapshot, const std::vector<FileEntry>& files, int connections_hint) {
-  const auto stats = transfer_payload_stats(files);
   snapshot.file_count = files.size();
-  snapshot.largest_file_bytes = stats.largest_file_bytes;
-  snapshot.compressible_ratio = stats.compressible_ratio;
+  snapshot.largest_file_bytes = 0;
+  snapshot.compressible_ratio = 0;
   snapshot.connections_hint = connections_hint;
+
+  std::size_t regular_files = 0;
+  std::size_t compressible_files = 0;
+  for (const auto& entry : files) {
+    const bool directory = entry.size == 0 && !entry.relative.empty() && entry.relative.back() == '/';
+    if (directory || entry.symlink) continue;
+    ++regular_files;
+    snapshot.largest_file_bytes = std::max(snapshot.largest_file_bytes, entry.size);
+    if (should_compress_path(entry.absolute)) ++compressible_files;
+  }
+  if (regular_files > 0) {
+    snapshot.compressible_ratio =
+        static_cast<double>(compressible_files) / static_cast<double>(regular_files);
+  }
 }
 
 void emit_debug_route(const PeerConnectionOptions& config, ProgressReporter& reporter) {

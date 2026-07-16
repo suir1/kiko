@@ -98,8 +98,7 @@ void verify_part_file_digest(const std::filesystem::path& part_path, const std::
                          actual_sha256);
 }
 
-void finalize_part_file(const std::filesystem::path& part_path, const std::filesystem::path& current_path,
-                        const std::string& relative) {
+void finalize_part_file(const std::filesystem::path& part_path, const std::filesystem::path& current_path) {
   std::error_code ec;
   std::filesystem::rename(part_path, current_path, ec);
   if (ec) {
@@ -107,7 +106,6 @@ void finalize_part_file(const std::filesystem::path& part_path, const std::files
     std::filesystem::rename(part_path, current_path, ec);
     if (ec) throw KikoError("failed to finalize file: " + current_path.string());
   }
-  (void)relative;
 }
 
 void validate_safe_symlink_target(const std::string& relative, const std::string& target) {

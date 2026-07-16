@@ -47,14 +47,14 @@ int main() {
   }
 
   apply_network_preset(0, options);
-  if (validate_network_options(options, 0)) {
-    std::cerr << "FAIL: default options should validate: " << *validate_network_options(options, 0) << "\n";
+  if (validate_network_options(options)) {
+    std::cerr << "FAIL: default options should validate: " << *validate_network_options(options) << "\n";
     return 1;
   }
 
   options.only_local = true;
   options.disable_local = true;
-  if (!validate_network_options(options, 0)) {
+  if (!validate_network_options(options)) {
     std::cerr << "FAIL: expected validation error for conflicting local flags\n";
     return 1;
   }

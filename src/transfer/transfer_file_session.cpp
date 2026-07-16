@@ -285,7 +285,7 @@ std::uint64_t ReceiveFileSession::complete_received(const std::string& expected_
   } else {
     verify_received_digest(part_path_, relative_, received_size, declared_size_, expected_sha256, actual_sha256);
   }
-  finalize_part_file(part_path_, current_path_, relative_);
+  finalize_part_file(part_path_, current_path_);
   apply_file_metadata(current_path_, header_);
   reporter_.file_complete(relative_, declared_size_, true);
   return declared_size_;

@@ -63,7 +63,7 @@ TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
   if (auto connections_error = apply_connections_text(state)) {
     return {.error = *connections_error};
   }
-  if (auto net_error = validate_network_options(state.network, state.mode)) {
+  if (auto net_error = validate_network_options(state.network)) {
     return {.error = *net_error};
   }
 
@@ -101,7 +101,7 @@ TuiPreparedNote prepare_tui_note(TuiMenuState& state) {
   if (auto code_error = validate_pairing_code_format(code, join)) {
     return {.error = *code_error};
   }
-  if (auto net_error = validate_network_options(state.network, state.mode)) {
+  if (auto net_error = validate_network_options(state.network)) {
     return {.error = *net_error};
   }
 

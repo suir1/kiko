@@ -17,6 +17,6 @@ void apply_network_preset(int preset, TuiNetworkOptions& options);
 void apply_network_options_to_peer(PeerConnectionOptions& config, const TuiNetworkOptions& options);
 void apply_network_options_to_send(SendConfig& config, const TuiNetworkOptions& options);
 
-[[nodiscard]] std::optional<std::string> validate_network_options(const TuiNetworkOptions& options, int mode);
+[[nodiscard]] std::optional<std::string> validate_network_options(const TuiNetworkOptions& options);
 
 }  // namespace kiko

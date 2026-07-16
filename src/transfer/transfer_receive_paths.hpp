@@ -22,8 +22,7 @@ void verify_received_digest(const std::filesystem::path& part_path, const std::s
                             const std::string& actual_sha256);
 void verify_part_file_digest(const std::filesystem::path& part_path, const std::string& relative,
                              std::uint64_t declared_size, const std::string& expected_sha256, Bytes& buffer);
-void finalize_part_file(const std::filesystem::path& part_path, const std::filesystem::path& current_path,
-                        const std::string& relative);
+void finalize_part_file(const std::filesystem::path& part_path, const std::filesystem::path& current_path);
 void validate_safe_symlink_target(const std::string& relative, const std::string& target);
 void create_safe_symlink(const std::filesystem::path& current_path, const std::string& relative,
                          const std::string& target);
