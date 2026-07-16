@@ -415,7 +415,7 @@ class WebServer {
       : options_(std::move(options)), token_(std::move(token)) {}
 
   int run() {
-    if (!web_listen_is_loopback(options_.listen)) {
+    if (!is_loopback_host(options_.listen.host)) {
       throw KikoError("kiko web only supports loopback listen addresses in this version");
     }
 
@@ -576,10 +576,6 @@ class WebServer {
 };
 
 }  // namespace
-
-bool web_listen_is_loopback(const Endpoint& endpoint) {
-  return is_loopback_host(endpoint.host);
-}
 
 std::string generate_web_token() {
   std::random_device rd;

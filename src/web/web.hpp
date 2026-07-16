@@ -16,7 +16,6 @@ struct WebOptions {
   UserConfig user_config;
 };
 
-[[nodiscard]] bool web_listen_is_loopback(const Endpoint& endpoint);
 [[nodiscard]] std::string generate_web_token();
 
 int run_web_console(const WebOptions& options);

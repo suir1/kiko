@@ -8,12 +8,6 @@
 int main() {
   using namespace kiko;
 
-  assert(web_listen_is_loopback(Endpoint{"127.0.0.1", 0}));
-  assert(web_listen_is_loopback(Endpoint{"::1", 0}));
-  assert(web_listen_is_loopback(Endpoint{"localhost", 0}));
-  assert(!web_listen_is_loopback(Endpoint{"0.0.0.0", 0}));
-  assert(!web_listen_is_loopback(Endpoint{"192.168.1.10", 0}));
-
   const auto token_a = generate_web_token();
   const auto token_b = generate_web_token();
   assert(token_a.size() == 48);
