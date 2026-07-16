@@ -8,24 +8,6 @@
 #include <utility>
 
 namespace kiko {
-namespace {
-
-bool transfer_finished(TuiState& state) {
-  std::lock_guard<std::mutex> lock(state.mutex);
-  return state.finished && !state.failed && !state.canceled;
-}
-
-bool transfer_failed(TuiState& state) {
-  std::lock_guard<std::mutex> lock(state.mutex);
-  return state.failed;
-}
-
-bool transfer_finished_or_failed(TuiState& state) {
-  std::lock_guard<std::mutex> lock(state.mutex);
-  return state.finished || state.failed;
-}
-
-}  // namespace
 
 ftxui::Component make_tui_transfer_actions(TuiState& state, TuiMenuState& menu, std::string& action_notice,
                                            std::function<void()> repeat_transfer,
@@ -33,6 +15,19 @@ ftxui::Component make_tui_transfer_actions(TuiState& state, TuiMenuState& menu, 
                                            std::function<void()> return_to_menu, std::function<void()> quit,
                                            std::function<void()> wake) {
   using namespace ftxui;
+
+  auto transfer_finished = [&state] {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    return state.finished && !state.failed && !state.canceled;
+  };
+  auto transfer_failed = [&state] {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    return state.failed;
+  };
+  auto transfer_finished_or_failed = [&state] {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    return state.finished || state.failed;
+  };
 
   const auto repeat = std::move(repeat_transfer);
   auto again_button = Button("Again", repeat);
@@ -53,10 +48,10 @@ ftxui::Component make_tui_transfer_actions(TuiState& state, TuiMenuState& menu, 
   auto menu_button = Button("Menu", std::move(return_to_menu));
   auto quit_button = Button("Quit", std::move(quit));
 
-  auto again_maybe = Maybe(again_button, [&state] { return transfer_finished(state); });
-  auto retry_maybe = Maybe(retry_button, [&state] { return transfer_failed(state); });
-  auto fix_retry_maybe = Maybe(fix_retry_button, [&state] { return transfer_failed(state); });
-  auto diagnose_maybe = Maybe(diagnose_button, [&state] { return transfer_failed(state); });
+  auto again_maybe = Maybe(again_button, transfer_finished);
+  auto retry_maybe = Maybe(retry_button, transfer_failed);
+  auto fix_retry_maybe = Maybe(fix_retry_button, transfer_failed);
+  auto diagnose_maybe = Maybe(diagnose_button, transfer_failed);
 
   auto actions = Container::Horizontal({
       again_maybe,
@@ -66,7 +61,7 @@ ftxui::Component make_tui_transfer_actions(TuiState& state, TuiMenuState& menu, 
       menu_button,
       quit_button,
   });
-  return Maybe(actions, [&state] { return transfer_finished_or_failed(state); });
+  return Maybe(actions, transfer_finished_or_failed);
 }
 
 }  // namespace kiko
