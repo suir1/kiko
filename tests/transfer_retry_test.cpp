@@ -68,15 +68,6 @@ int main() {
     if (!check_case(test_case)) return 1;
   }
 
-  if (total_transfer_attempts(false, 5) != 1) {
-    std::cerr << "FAIL: disabled reconnect should use one attempt\n";
-    return 1;
-  }
-  if (total_transfer_attempts(true, 0) != 1 || total_transfer_attempts(true, 3) != 3) {
-    std::cerr << "FAIL: reconnect attempt normalization mismatch\n";
-    return 1;
-  }
-
   std::cout << "PASS: transfer retry classifier\n";
   return 0;
 }

@@ -1,6 +1,5 @@
 #include "transfer_retry.hpp"
 
-#include <algorithm>
 #include <cctype>
 #include <initializer_list>
 #include <string>
@@ -94,11 +93,6 @@ bool is_retryable_transfer_error_message(std::string_view message) {
                           "expected transfer ack",
                           "interrupted",
                       });
-}
-
-int total_transfer_attempts(bool auto_reconnect, int reconnect_attempts) {
-  if (!auto_reconnect) return 1;
-  return std::max(1, reconnect_attempts);
 }
 
 }  // namespace kiko::detail

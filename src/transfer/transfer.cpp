@@ -83,7 +83,7 @@ int run_with_auto_reconnect(Config config, bool generate_code, ProgressReporter&
   else config.code = normalize_pairing_code(config.code);
   if (auto error = validate_pairing_code_format(config.code, true)) throw KikoError(*error);
 
-  const int max_attempts = total_transfer_attempts(config.auto_reconnect, config.reconnect_attempts);
+  const int max_attempts = config.auto_reconnect ? std::max(1, config.reconnect_attempts) : 1;
   for (int attempt = 1;; ++attempt) {
     try {
       throw_if_cancelled(config.cancellation);
