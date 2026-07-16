@@ -14,8 +14,6 @@ struct RelayRouteDecision {
   std::string relay_reason;
 };
 
-[[nodiscard]] bool relay_route_has_presence(RelayRouteChoice choice);
-[[nodiscard]] bool relay_route_choice_final(RelayRouteChoice choice);
 [[nodiscard]] RelayRouteChoice relay_route_choice_from(const Message& msg);
 void merge_relay_route_choice(RelayRouteChoice& state, RelayRouteChoice next);
 [[nodiscard]] RelayRouteDecision relay_route_decision_for(RelayRouteChoice first, RelayRouteChoice second,

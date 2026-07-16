@@ -12,9 +12,7 @@
 
 namespace kiko {
 
-[[nodiscard]] std::string format_route_phase_label(RoutePhase phase, const RoutePhaseDetail& detail);
 [[nodiscard]] std::string format_route_outcome_label(const RouteOutcome& outcome);
-[[nodiscard]] std::string format_route_timing_label(const RouteTiming& timing);
 
 class TransferProgressState {
  public:

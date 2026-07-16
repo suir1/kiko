@@ -40,8 +40,6 @@ struct TaggedFrame {
 
 void ensure_declared_space(std::uint64_t current_total, std::uint64_t declared_size, std::uint64_t next_size,
                            const std::string& relative);
-[[nodiscard]] std::size_t declared_remaining_limit(std::uint64_t current_total, std::uint64_t declared_size,
-                                                   const std::string& relative);
 
 void send_transfer_manifest(TcpSocket& socket, StreamCipher& cipher, const std::vector<FileEntry>& files);
 

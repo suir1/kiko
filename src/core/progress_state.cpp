@@ -13,7 +13,7 @@ void append_timing_field(std::string& line, const std::string& name, int value_m
 
 }  // namespace
 
-std::string format_route_phase_label(RoutePhase phase, const RoutePhaseDetail& detail) {
+static std::string format_route_phase_label(RoutePhase phase, const RoutePhaseDetail& detail) {
   switch (phase) {
     case RoutePhase::Rendezvous:
       return "rendezvous";
@@ -47,7 +47,7 @@ std::string format_route_outcome_label(const RouteOutcome& outcome) {
   return label;
 }
 
-std::string format_route_timing_label(const RouteTiming& timing) {
+static std::string format_route_timing_label(const RouteTiming& timing) {
   std::string line;
   append_timing_field(line, "rendezvous", timing.rendezvous_ms);
   append_timing_field(line, "direct_probe", timing.direct_probe_ms);

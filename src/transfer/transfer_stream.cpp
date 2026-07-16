@@ -19,8 +19,8 @@ void ensure_declared_space(std::uint64_t current_total, std::uint64_t declared_s
   }
 }
 
-std::size_t declared_remaining_limit(std::uint64_t current_total, std::uint64_t declared_size,
-                                     const std::string& relative) {
+static std::size_t declared_remaining_limit(std::uint64_t current_total, std::uint64_t declared_size,
+                                            const std::string& relative) {
   ensure_declared_space(current_total, declared_size, 0, relative);
   const auto remaining = declared_size - current_total;
   const auto max_size = static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max());

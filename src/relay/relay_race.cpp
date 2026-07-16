@@ -85,11 +85,11 @@ std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const RelayHe
 
 }  // namespace
 
-std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const RelayHello& hello,
-                                                        const ConnectOptions& connect_options,
-                                                        const std::optional<std::string>& relay_pass,
-                                                        std::chrono::milliseconds timeout,
-                                                        const std::atomic_bool* cancel) {
+static std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const RelayHello& hello,
+                                                               const ConnectOptions& connect_options,
+                                                               const std::optional<std::string>& relay_pass,
+                                                               std::chrono::milliseconds timeout,
+                                                               const std::atomic_bool* cancel) {
   if (cancel && cancel->load()) return std::nullopt;
   RelayHello registration = hello;
   if (relay_pass && !relay_pass->empty()) registration.relay_pass = relay_pass;

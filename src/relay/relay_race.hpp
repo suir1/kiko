@@ -34,13 +34,6 @@ struct RelayRaceEntry {
   std::chrono::milliseconds start_delay{0};
 };
 
-[[nodiscard]] std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& relay, const RelayHello& hello,
-                                                                      const ConnectOptions& connect_options,
-                                                                      const std::optional<std::string>& relay_pass = std::nullopt,
-                                                                      std::chrono::milliseconds timeout =
-                                                                          std::chrono::seconds(5),
-                                                                      const std::atomic_bool* cancel = nullptr);
-
 [[nodiscard]] std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>& entries,
                                                              const RelayHello& hello,
                                                              std::chrono::milliseconds deadline,

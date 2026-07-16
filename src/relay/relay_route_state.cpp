@@ -2,11 +2,11 @@
 
 namespace kiko {
 
-bool relay_route_has_presence(RelayRouteChoice choice) {
+static bool relay_route_has_presence(RelayRouteChoice choice) {
   return choice != RelayRouteChoice::Waiting && choice != RelayRouteChoice::Invalid;
 }
 
-bool relay_route_choice_final(RelayRouteChoice choice) {
+static bool relay_route_choice_final(RelayRouteChoice choice) {
   return choice == RelayRouteChoice::DirectOk || choice == RelayRouteChoice::RelayReady ||
          choice == RelayRouteChoice::Invalid;
 }
