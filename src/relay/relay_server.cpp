@@ -76,25 +76,10 @@ class RelayStateImpl {
 
   ~RelayStateImpl() { stop_cleanup(); }
 
-  [[nodiscard]] bool check_password(const Message& hello) const {
-    return relay_password_ok(config_, hello);
-  }
-
-  [[nodiscard]] RelayRoomPairing pair_or_wait(const std::string& match_key, const std::string& active_room,
-                                              RelayWaitingPeer peer, bool auxiliary) {
-    return rooms_.pair_or_wait(match_key, active_room, std::move(peer), auxiliary);
-  }
-
-  void release_active_room(const std::string& room) { rooms_.release_active_room(room); }
-
-  void close_waiting() { rooms_.close_waiting(); }
-
   RelayServerConfig config_;
   RelayRoomState rooms_;
   std::atomic<bool> cleanup_stop_{false};
   std::thread cleanup_thread_;
-
-  void purge_stale_waiting() { rooms_.purge_stale_waiting(); }
 
  private:
   void start_cleanup() {
@@ -106,7 +91,7 @@ class RelayStateImpl {
           std::this_thread::sleep_for(std::chrono::seconds(1));
         }
         if (cleanup_stop_.load()) break;
-        purge_stale_waiting();
+        rooms_.purge_stale_waiting();
       }
     });
   }
@@ -141,7 +126,7 @@ void send_peer_messages(RelayWaitingPeer& a, RelayWaitingPeer& b) {
 }
 
 void handle_punch_probe(TcpSocket& socket, const Message& probe, const std::shared_ptr<RelayStateImpl>& state) {
-  if (!state->check_password(probe)) {
+  if (!relay_password_ok(state->config_, probe)) {
     send_message(socket, Message{"error", {{"code", "bad_password"}}});
     return;
   }
@@ -271,7 +256,7 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
     if (!first || first->type != "hello") throw KikoError("expected hello");
     const auto& hello = *first;
 
-    if (!state->check_password(hello)) {
+    if (!relay_password_ok(state->config_, hello)) {
       reject_client(socket, "bad_password");
       return;
     }
@@ -306,9 +291,9 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
     auto match_key = registration.room + "#" + std::to_string(registration.conn_index);
     active_room = relay_room_base(match_key);
 
-    state->purge_stale_waiting();
+    state->rooms_.purge_stale_waiting();
 
-    auto pairing = state->pair_or_wait(match_key, active_room, std::move(self), registration.auxiliary);
+    auto pairing = state->rooms_.pair_or_wait(match_key, active_room, std::move(self), registration.auxiliary);
     if (pairing.kind == RelayRoomPairing::Kind::Waiting) return;
     if (pairing.kind == RelayRoomPairing::Kind::RoomFull) {
       reject_client(pairing.self->socket, "room_full");
@@ -327,7 +312,7 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
       std::shared_ptr<RelayStateImpl> state;
       std::string room;
       ~ActiveRoomCleanup() {
-        if (!room.empty()) state->release_active_room(room);
+        if (!room.empty()) state->rooms_.release_active_room(room);
       }
     } cleanup{state, pairing.claimed_active_room ? active_room : std::string{}};
 
@@ -370,7 +355,6 @@ void accept_loop(TcpListener& listener, const std::shared_ptr<RelayStateImpl>& s
 }  // namespace
 
 struct BackgroundRelay::Impl {
-  RelayServerConfig config;
   std::shared_ptr<RelayStateImpl> state;
   std::unique_ptr<TcpListener> listener;
   std::thread accept_thread;
@@ -388,7 +372,6 @@ void BackgroundRelay::start(const Endpoint& bind_addr, const RelayServerConfig& 
   auto listener = TcpListener::bind(bind_addr);
   bound_ = listener.local_endpoint();
   impl_ = std::make_unique<Impl>();
-  impl_->config = config;
   impl_->state = std::make_shared<RelayStateImpl>(config);
   impl_->listener = std::make_unique<TcpListener>(std::move(listener));
   impl_->stop.store(false);
@@ -403,7 +386,7 @@ void BackgroundRelay::stop() {
   if (impl_) {
     impl_->stop.store(true);
     if (impl_->accept_thread.joinable()) impl_->accept_thread.join();
-    if (impl_->state) impl_->state->close_waiting();
+    if (impl_->state) impl_->state->rooms_.close_waiting();
     std::vector<std::thread> client_threads;
     {
       std::lock_guard<std::mutex> lock(impl_->client_mutex);
