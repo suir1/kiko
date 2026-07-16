@@ -29,12 +29,7 @@ WebJobStore::WebJobStore() : impl_(std::make_unique<Impl>()) {}
 
 WebJobStore::~WebJobStore() {
   cancel();
-  std::thread worker;
-  {
-    std::lock_guard<std::mutex> lock(impl_->mutex);
-    if (impl_->worker.joinable()) worker = std::move(impl_->worker);
-  }
-  if (worker.joinable()) worker.join();
+  if (impl_->worker.joinable()) impl_->worker.join();
 }
 
 WebJobSnapshot WebJobStore::snapshot() const {
