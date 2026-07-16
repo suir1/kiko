@@ -20,19 +20,6 @@ void apply_menu_preset(TuiMenuState& menu, int preset, std::string& menu_error, 
 
 }  // namespace
 
-namespace detail {
-
-void invoke_active_browse_callback(int mode, const std::function<void()>& browse_send_path,
-                                   const std::function<void()>& browse_output_dir) {
-  if (mode == 0) {
-    if (browse_send_path) browse_send_path();
-    return;
-  }
-  if (mode == 1 && browse_output_dir) browse_output_dir();
-}
-
-}  // namespace detail
-
 TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay, std::string& menu_error,
                                TuiMenuCallbacks callbacks) {
   using namespace ftxui;
@@ -60,7 +47,8 @@ TuiMenuView make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_relay
   auto browse_output_dir = std::move(callbacks.browse_output_dir);
   auto browse_button = Button("Browse...", [&, browse_send_path = std::move(browse_send_path),
                                             browse_output_dir = std::move(browse_output_dir)] {
-    detail::invoke_active_browse_callback(menu.mode, browse_send_path, browse_output_dir);
+    if (menu.mode == 0 && browse_send_path) browse_send_path();
+    if (menu.mode == 1 && browse_output_dir) browse_output_dir();
   });
   auto doctor_button = Button("Network check", std::move(callbacks.network_check));
 

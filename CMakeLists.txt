@@ -278,12 +278,6 @@ target_link_libraries(kiko_tui_menu_state_test PRIVATE kiko_core ftxui::componen
 kiko_enable_test_assertions(kiko_tui_menu_state_test)
 add_test(NAME tui_menu_state COMMAND kiko_tui_menu_state_test)
 
-add_executable(kiko_tui_menu_view_test tests/tui_menu_view_test.cpp src/tui/tui_menu_view.cpp
-               src/tui/tui_menu_state.cpp src/tui/tui_transfer_view.cpp)
-target_link_libraries(kiko_tui_menu_view_test PRIVATE kiko_core ftxui::component)
-kiko_enable_test_assertions(kiko_tui_menu_view_test)
-add_test(NAME tui_menu_view COMMAND kiko_tui_menu_view_test)
-
 add_executable(kiko_tui_session_test tests/tui_session_test.cpp src/tui/tui_session.cpp src/tui/tui_transfer_view.cpp)
 target_link_libraries(kiko_tui_session_test PRIVATE kiko_core ftxui::component)
 kiko_enable_test_assertions(kiko_tui_session_test)

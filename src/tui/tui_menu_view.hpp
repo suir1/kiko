@@ -12,13 +12,6 @@
 
 namespace kiko {
 
-namespace detail {
-
-void invoke_active_browse_callback(int mode, const std::function<void()>& browse_send_path,
-                                   const std::function<void()>& browse_output_dir);
-
-}  // namespace detail
-
 struct TuiMenuCallbacks {
   std::function<void()> browse_send_path;
   std::function<void()> browse_output_dir;
