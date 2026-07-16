@@ -390,14 +390,6 @@ json parse_body_json(const HttpRequest& req) {
   }
 }
 
-PathPickMode parse_pick_mode(const std::string& value) {
-  return value == "dir" ? PathPickMode::DirectoryOnly : PathPickMode::FileOrDirectory;
-}
-
-PathBrowserSort parse_browser_sort(const std::string& value) {
-  return value == "modified" ? PathBrowserSort::ModifiedDesc : PathBrowserSort::Name;
-}
-
 void open_browser_best_effort(const std::string& url) {
 #ifdef _WIN32
   const std::string command = "start \"\" \"" + url + "\"";
@@ -470,8 +462,10 @@ class WebServer {
     }
     if (req.method == "GET" && req.path == "/api/fs") {
       const auto path = query_value(req.query, "path", ".");
-      const auto mode = parse_pick_mode(query_value(req.query, "mode"));
-      const auto sort = parse_browser_sort(query_value(req.query, "sort"));
+      const auto mode = query_value(req.query, "mode") == "dir" ? PathPickMode::DirectoryOnly
+                                                                  : PathPickMode::FileOrDirectory;
+      const auto sort = query_value(req.query, "sort") == "modified" ? PathBrowserSort::ModifiedDesc
+                                                                       : PathBrowserSort::Name;
       const auto filter = query_value(req.query, "filter");
       const auto absolute = normalize_browser_directory(std::filesystem::path(path));
       auto entries = filter_browser_entries(list_browser_directory(absolute, mode, sort), filter);
