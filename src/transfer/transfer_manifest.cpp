@@ -47,14 +47,14 @@ std::uint32_t manifest_u32_field(const nlohmann::json& object, const char* key, 
   return static_cast<std::uint32_t>(value);
 }
 
-void ensure_manifest_total(std::uint64_t& total, std::uint64_t size, const std::string& relative) {
+}  // namespace
+
+void add_manifest_size(std::uint64_t& total, std::uint64_t size, const std::string& relative) {
   if (size > std::numeric_limits<std::uint64_t>::max() - total) {
     throw KikoError("manifest total size overflow near " + relative);
   }
   total += size;
 }
-
-}  // namespace
 
 std::string encode_transfer_manifest(const std::vector<FileEntry>& files) {
   nlohmann::json root = nlohmann::json::object();
@@ -72,7 +72,7 @@ std::string encode_transfer_manifest(const std::vector<FileEntry>& files) {
     if (entry.mtime_ms > 0) item["mtime_ms"] = entry.mtime_ms;
     if (entry.mode > 0) item["mode"] = entry.mode;
     root["entries"].push_back(std::move(item));
-    if (!is_dir_entry(entry) && !is_symlink_entry(entry)) ensure_manifest_total(total_size, entry.size, entry.relative);
+    if (!is_dir_entry(entry) && !is_symlink_entry(entry)) add_manifest_size(total_size, entry.size, entry.relative);
   }
 
   root["count"] = files.size();
@@ -106,7 +106,7 @@ TransferManifest decode_transfer_manifest(std::string_view text) {
     entry.imohash = manifest_string_field(item, "imohash");
     entry.mtime_ms = manifest_u64_field(item, "mtime_ms", 0);
     entry.mode = manifest_u32_field(item, "mode", 0);
-    if (entry.kind == "file") ensure_manifest_total(computed_total, entry.size, entry.path);
+    if (entry.kind == "file") add_manifest_size(computed_total, entry.size, entry.path);
     manifest.entries.push_back(std::move(entry));
   }
 

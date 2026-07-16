@@ -3,18 +3,10 @@
 #include "transfer_receive_paths.hpp"
 #include "transfer_resume.hpp"
 
-#include <limits>
 #include <set>
 
 namespace kiko::detail {
 namespace {
-
-void ensure_manifest_total(std::uint64_t& total, std::uint64_t size, const std::string& relative) {
-  if (size > std::numeric_limits<std::uint64_t>::max() - total) {
-    throw KikoError("manifest total size overflow near " + relative);
-  }
-  total += size;
-}
 
 std::string target_key(const std::filesystem::path& path) {
   auto key = path.lexically_normal().generic_string();
@@ -106,7 +98,7 @@ ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const 
       if (entry.size != 0) throw KikoError("transfer manifest directory must have size 0: " + entry.path);
     } else if (entry.kind == "file") {
       if (entry.path.back() == '/') throw KikoError("transfer manifest file path must not end with /: " + entry.path);
-      ensure_manifest_total(computed_total, entry.size, entry.path);
+      add_manifest_size(computed_total, entry.size, entry.path);
     } else {
       throw KikoError("transfer manifest contains unknown entry kind: " + entry.kind);
     }
