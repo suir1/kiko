@@ -11,11 +11,8 @@
 namespace kiko::detail {
 namespace {
 
-void append_mtime_field(Message& header, const FileEntry& entry) {
+void append_metadata_fields(Message& header, const FileEntry& entry) {
   if (entry.mtime_ms > 0) header.fields["mtime_ms"] = std::to_string(entry.mtime_ms);
-}
-
-void append_mode_field(Message& header, const FileEntry& entry) {
   if (entry.mode > 0) header.fields["mode"] = std::to_string(entry.mode);
 }
 
@@ -25,18 +22,14 @@ bool is_dir_entry(const FileEntry& entry) {
   return entry.size == 0 && !entry.relative.empty() && entry.relative.back() == '/';
 }
 
-bool is_symlink_entry(const FileEntry& entry) {
-  return entry.symlink;
-}
-
 namespace {
 
 bool should_compress_entry(const FileEntry& entry) {
-  return !is_dir_entry(entry) && !is_symlink_entry(entry) && should_compress_path(entry.absolute);
+  return !is_dir_entry(entry) && !entry.symlink && should_compress_path(entry.absolute);
 }
 
 Message make_file_header(const FileEntry& entry) {
-  if (is_symlink_entry(entry)) {
+  if (entry.symlink) {
     return Message{"file",
                    {{"path", entry.relative},
                     {"size", "0"},
@@ -46,8 +39,7 @@ Message make_file_header(const FileEntry& entry) {
   }
   if (is_dir_entry(entry)) {
     Message header{"file", {{"path", entry.relative}, {"size", "0"}, {"compress", "none"}}};
-    append_mtime_field(header, entry);
-    append_mode_field(header, entry);
+    append_metadata_fields(header, entry);
     return header;
   }
 
@@ -56,8 +48,7 @@ Message make_file_header(const FileEntry& entry) {
                   {"size", std::to_string(entry.size)},
                   {"imohash", entry.imohash},
                   {"compress", should_compress_entry(entry) ? "zstd" : "none"}}};
-  append_mtime_field(header, entry);
-  append_mode_field(header, entry);
+  append_metadata_fields(header, entry);
   return header;
 }
 
@@ -66,7 +57,7 @@ Message make_file_header(const FileEntry& entry) {
 SendFileSession::SendFileSession(const FileEntry& entry, TcpSocket& control, StreamCipher& cipher,
                                  ProgressReporter& reporter, TransferTiming& timing, Bytes& buffer)
     : entry_(entry), control_(control), cipher_(cipher), reporter_(reporter), timing_(timing) {
-  const bool marker = is_symlink_entry(entry_) || is_dir_entry(entry_);
+  const bool marker = entry_.symlink || is_dir_entry(entry_);
   if (!marker) {
     input_.open(entry_.absolute, std::ios::binary);
     if (!input_) throw KikoError("failed to open input file: " + entry_.absolute.string());

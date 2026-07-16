@@ -11,7 +11,7 @@ namespace kiko::detail {
 namespace {
 
 std::string manifest_kind(const FileEntry& entry) {
-  if (is_symlink_entry(entry)) return "symlink";
+  if (entry.symlink) return "symlink";
   if (is_dir_entry(entry)) return "dir";
   return "file";
 }
@@ -72,7 +72,7 @@ std::string encode_transfer_manifest(const std::vector<FileEntry>& files) {
     if (entry.mtime_ms > 0) item["mtime_ms"] = entry.mtime_ms;
     if (entry.mode > 0) item["mode"] = entry.mode;
     root["entries"].push_back(std::move(item));
-    if (!is_dir_entry(entry) && !is_symlink_entry(entry)) add_manifest_size(total_size, entry.size, entry.relative);
+    if (!is_dir_entry(entry) && !entry.symlink) add_manifest_size(total_size, entry.size, entry.relative);
   }
 
   root["count"] = files.size();
