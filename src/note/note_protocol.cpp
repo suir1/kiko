@@ -8,6 +8,34 @@
 namespace kiko {
 namespace {
 
+std::string note_frame_type_name(NoteFrameType type) {
+  switch (type) {
+    case NoteFrameType::Hello:
+      return "hello";
+    case NoteFrameType::Update:
+      return "update";
+    case NoteFrameType::Clear:
+      return "clear";
+    case NoteFrameType::Ack:
+      return "ack";
+    case NoteFrameType::Ping:
+      return "ping";
+    case NoteFrameType::Bye:
+      return "bye";
+  }
+  return "update";
+}
+
+NoteFrameType parse_note_frame_type(const std::string& value) {
+  if (value == "hello") return NoteFrameType::Hello;
+  if (value == "update") return NoteFrameType::Update;
+  if (value == "clear") return NoteFrameType::Clear;
+  if (value == "ack") return NoteFrameType::Ack;
+  if (value == "ping") return NoteFrameType::Ping;
+  if (value == "bye") return NoteFrameType::Bye;
+  throw KikoError("unknown note frame kind: " + value);
+}
+
 std::string encode_note_frame(const NoteFrame& frame) {
   if (frame.text.size() > kNoteMaxBytes) throw KikoError("note text exceeds 1 MiB limit");
   Message msg{"note",
@@ -37,34 +65,6 @@ NoteFrame decode_note_frame(const std::string& payload) {
 }
 
 }  // namespace
-
-std::string note_frame_type_name(NoteFrameType type) {
-  switch (type) {
-    case NoteFrameType::Hello:
-      return "hello";
-    case NoteFrameType::Update:
-      return "update";
-    case NoteFrameType::Clear:
-      return "clear";
-    case NoteFrameType::Ack:
-      return "ack";
-    case NoteFrameType::Ping:
-      return "ping";
-    case NoteFrameType::Bye:
-      return "bye";
-  }
-  return "update";
-}
-
-NoteFrameType parse_note_frame_type(const std::string& value) {
-  if (value == "hello") return NoteFrameType::Hello;
-  if (value == "update") return NoteFrameType::Update;
-  if (value == "clear") return NoteFrameType::Clear;
-  if (value == "ack") return NoteFrameType::Ack;
-  if (value == "ping") return NoteFrameType::Ping;
-  if (value == "bye") return NoteFrameType::Bye;
-  throw KikoError("unknown note frame kind: " + value);
-}
 
 NoteFrame make_note_hello() {
   NoteFrame frame;

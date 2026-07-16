@@ -78,13 +78,9 @@ void apply_file_mode_bits(const std::filesystem::path& path, std::uint32_t mode)
   std::filesystem::permissions(path, mode_to_exec_perms(exec_mode), std::filesystem::perm_options::add, ec);
 }
 
-void apply_file_mtime(const std::filesystem::path& path, const Message& header) {
-  apply_mtime_ms(path, header.get_u64("mtime_ms", 0));
-}
-
 void apply_file_metadata(const std::filesystem::path& path, const Message& header) {
   apply_file_mode_bits(path, static_cast<std::uint32_t>(header.get_u64("mode", 0)));
-  apply_file_mtime(path, header);
+  apply_mtime_ms(path, header.get_u64("mtime_ms", 0));
 }
 
 }  // namespace kiko::detail

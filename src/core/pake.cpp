@@ -72,13 +72,18 @@ void require_valid_point(const Point& point) {
 
 Bytes span_of(const std::string& value) { return Bytes(value.begin(), value.end()); }
 
-}  // namespace
+struct CodeParts {
+  std::string room_label;
+  std::string secret;
+};
 
 CodeParts split_code(const std::string& code) {
-  auto pos = code.find('-');
+  const auto pos = code.find('-');
   if (pos == std::string::npos) return CodeParts{code, code};
   return CodeParts{code.substr(0, pos), code.substr(pos + 1)};
 }
+
+}  // namespace
 
 std::string room_token(const std::string& code) {
   auto material = "kiko-room:" + split_code(code).room_label;

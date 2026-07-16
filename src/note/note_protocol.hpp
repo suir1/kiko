@@ -39,9 +39,6 @@ struct NoteDocument {
   std::string text;
 };
 
-[[nodiscard]] std::string note_frame_type_name(NoteFrameType type);
-[[nodiscard]] NoteFrameType parse_note_frame_type(const std::string& value);
-
 [[nodiscard]] NoteFrame make_note_hello();
 [[nodiscard]] NoteFrame make_note_update(std::uint64_t revision, std::string text);
 [[nodiscard]] NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::string text,

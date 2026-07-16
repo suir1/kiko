@@ -11,7 +11,6 @@ namespace kiko::detail {
 [[nodiscard]] std::uint32_t file_mode_bits(const std::filesystem::path& path);
 void apply_mtime_ms(const std::filesystem::path& path, std::uint64_t mtime_ms);
 void apply_file_mode_bits(const std::filesystem::path& path, std::uint32_t mode);
-void apply_file_mtime(const std::filesystem::path& path, const Message& header);
 void apply_file_metadata(const std::filesystem::path& path, const Message& header);
 
 }  // namespace kiko::detail
