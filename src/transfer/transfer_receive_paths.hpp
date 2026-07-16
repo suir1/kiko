@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 
 namespace kiko::detail {
@@ -14,7 +15,9 @@ namespace kiko::detail {
 [[nodiscard]] bool is_dir_header(const std::string& path, std::uint64_t size);
 [[nodiscard]] bool is_symlink_header(const Message& header);
 [[nodiscard]] bool path_exists_no_follow(const std::filesystem::path& path);
-[[nodiscard]] std::filesystem::path unique_conflict_path(const std::filesystem::path& path);
+[[nodiscard]] std::filesystem::path unique_conflict_path(
+    const std::filesystem::path& path,
+    const std::function<bool(const std::filesystem::path&)>& reserved = {});
 void report_renamed_conflict(const std::string& relative, const std::filesystem::path& renamed,
                              ProgressReporter& reporter);
 void verify_received_digest(const std::filesystem::path& part_path, const std::string& relative,

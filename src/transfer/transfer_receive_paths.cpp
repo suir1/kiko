@@ -45,7 +45,9 @@ bool path_exists_no_follow(const std::filesystem::path& path) {
   return !ec && std::filesystem::exists(status);
 }
 
-std::filesystem::path unique_conflict_path(const std::filesystem::path& path) {
+std::filesystem::path unique_conflict_path(
+    const std::filesystem::path& path,
+    const std::function<bool(const std::filesystem::path&)>& reserved) {
   const auto parent = path.parent_path();
   auto stem = path.stem().string();
   const auto extension = path.extension().string();
@@ -56,7 +58,10 @@ std::filesystem::path unique_conflict_path(const std::filesystem::path& path) {
     auto candidate = parent / (stem + " (" + std::to_string(i) + ")" + extension);
     auto candidate_part = candidate;
     candidate_part += ".kikopart";
-    if (!path_exists_no_follow(candidate) && !path_exists_no_follow(candidate_part)) return candidate;
+    if ((!reserved || !reserved(candidate)) && !path_exists_no_follow(candidate) &&
+        !path_exists_no_follow(candidate_part)) {
+      return candidate;
+    }
   }
   throw KikoError("could not choose a non-conflicting filename for " + path.string());
 }

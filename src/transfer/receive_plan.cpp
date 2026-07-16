@@ -46,26 +46,6 @@ void ensure_existing_parents_are_directories(const std::filesystem::path& path, 
   }
 }
 
-std::filesystem::path unique_conflict_path_reserved(const std::filesystem::path& path,
-                                                    const std::set<std::string>& reserved_targets) {
-  const auto parent = path.parent_path();
-  auto stem = path.stem().string();
-  const auto extension = path.extension().string();
-  if (stem.empty()) stem = path.filename().string();
-  if (stem.empty()) stem = "received";
-
-  for (int i = 1; i < 10000; ++i) {
-    auto candidate = parent / (stem + " (" + std::to_string(i) + ")" + extension);
-    auto candidate_part = candidate;
-    candidate_part += ".kikopart";
-    if (!reserved_targets.contains(target_key(candidate)) && !path_exists_no_follow(candidate) &&
-        !path_exists_no_follow(candidate_part)) {
-      return candidate;
-    }
-  }
-  throw KikoError("could not choose a non-conflicting filename for " + path.string());
-}
-
 }  // namespace
 
 ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const std::filesystem::path& output_dir,
@@ -113,7 +93,9 @@ ReceivePlan preflight_transfer_manifest(const TransferManifest& manifest, const 
       action = ReceivePlanAction::Skip;
     } else if (existing_target && conflict_policy == ConflictPolicy::Rename) {
       action = ReceivePlanAction::Rename;
-      target_path = unique_conflict_path_reserved(current_path, reserved_targets);
+      target_path = unique_conflict_path(current_path, [&](const std::filesystem::path& candidate) {
+        return reserved_targets.contains(target_key(candidate));
+      });
     } else if (existing_target) {
       std::error_code ec;
       const auto status = std::filesystem::symlink_status(current_path, ec);
