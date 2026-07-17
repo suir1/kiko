@@ -383,6 +383,26 @@ json parse_body_json(const HttpRequest& req) {
   }
 }
 
+template <typename Action>
+void respond_to_api_action(TcpSocket& socket, Action&& action, bool catch_action_errors = true) {
+  std::string error;
+  const auto run_catching = [&] {
+    try {
+      return action(error);
+    } catch (const std::exception& e) {
+      error = e.what();
+      return false;
+    }
+  };
+  const bool ok = catch_action_errors ? run_catching() : action(error);
+  if (!ok) {
+    const int status = error.find("already running") != std::string::npos ? 409 : 400;
+    send_json(socket, status, status == 409 ? "Conflict" : "Bad Request", error_json(error));
+    return;
+  }
+  send_json(socket, 200, "OK", json{{"ok", true}});
+}
+
 void open_browser_best_effort(const std::string& url) {
 #ifdef _WIN32
   const std::string command = "start \"\" \"" + url + "\"";
@@ -489,49 +509,21 @@ class WebServer {
       send_json(socket, 200, "OK", json{{"svg", *svg}});
       return;
     }
-    if (req.method == "POST" && (req.path == "/api/send" || req.path == "/api/recv" || req.path == "/api/doctor")) {
-      const auto body = parse_body_json(req);
-      std::string error;
-      bool ok = false;
-      try {
-        if (req.path == "/api/send") ok = jobs_.start_send(parse_send_config(body, options_), error);
-        if (req.path == "/api/recv") ok = jobs_.start_recv(parse_recv_config(body, options_), error);
-        if (req.path == "/api/doctor") ok = jobs_.start_doctor(parse_doctor_options(body, options_), error);
-      } catch (const std::exception& e) {
-        error = e.what();
-      }
-      if (!ok) {
-        const int status = error.find("already running") != std::string::npos ? 409 : 400;
-        send_json(socket, status, status == 409 ? "Conflict" : "Bad Request", error_json(error));
-        return;
-      }
-      send_json(socket, 200, "OK", json{{"ok", true}});
-      return;
-    }
     if (req.method == "POST" &&
-        (req.path == "/api/note/start" || req.path == "/api/note/update" || req.path == "/api/note/clear" ||
+        (req.path == "/api/send" || req.path == "/api/recv" || req.path == "/api/doctor" ||
+         req.path == "/api/note/start" || req.path == "/api/note/update" || req.path == "/api/note/clear" ||
          req.path == "/api/note/pad/create" || req.path == "/api/note/pad/select")) {
       const auto body = parse_body_json(req);
-      std::string error;
-      bool ok = false;
-      try {
-        if (req.path == "/api/note/start") ok = jobs_.start_note(parse_note_config(body, options_), error);
-        if (req.path == "/api/note/update") ok = jobs_.update_note(json_string(body, "text"), error);
-        if (req.path == "/api/note/pad/select") {
-          ok = jobs_.select_note_pad(json_string(body, "pad_id"), error);
-        }
-      } catch (const std::exception& e) {
-        error = e.what();
-      }
-      if (req.path == "/api/note/clear") ok = jobs_.clear_note(error);
-      if (req.path == "/api/note/pad/create") ok = jobs_.create_note_pad(error);
-      if (!ok) {
-        const int status = error.find("already running") != std::string::npos ? 409 : 400;
-        send_json(socket, status, status == 409 ? "Conflict" : "Bad Request", error_json(error));
-        return;
-      }
-      send_json(socket, 200, "OK", json{{"ok", true}});
-      return;
+      return respond_to_api_action(socket, [&](std::string& error) {
+        if (req.path == "/api/send") return jobs_.start_send(parse_send_config(body, options_), error);
+        if (req.path == "/api/recv") return jobs_.start_recv(parse_recv_config(body, options_), error);
+        if (req.path == "/api/doctor") return jobs_.start_doctor(parse_doctor_options(body, options_), error);
+        if (req.path == "/api/note/start") return jobs_.start_note(parse_note_config(body, options_), error);
+        if (req.path == "/api/note/update") return jobs_.update_note(json_string(body, "text"), error);
+        if (req.path == "/api/note/clear") return jobs_.clear_note(error);
+        if (req.path == "/api/note/pad/create") return jobs_.create_note_pad(error);
+        return jobs_.select_note_pad(json_string(body, "pad_id"), error);
+      }, req.path != "/api/note/clear" && req.path != "/api/note/pad/create");
     }
     send_json(socket, 404, "Not Found", error_json("not found"));
   }
