@@ -67,16 +67,12 @@ Endpoint parse_endpoint_impl(const std::string& value, std::uint16_t default_por
   return Endpoint{host, checked_endpoint_port(port, value, allow_zero_port)};
 }
 
-std::string normalize_ip_host(std::string_view host) {
+std::optional<asio::ip::address> parse_ip_address(std::string_view host) {
   if (host.size() >= 2 && host.front() == '[' && host.back() == ']') host = host.substr(1, host.size() - 2);
   const auto zone = host.find('%');
   if (zone != std::string_view::npos) host = host.substr(0, zone);
-  return std::string(host);
-}
-
-std::optional<asio::ip::address> parse_ip_address(std::string_view host) {
   asio::error_code ec;
-  auto address = asio::ip::make_address(normalize_ip_host(host), ec);
+  auto address = asio::ip::make_address(std::string(host), ec);
   if (ec) return std::nullopt;
   return address;
 }
