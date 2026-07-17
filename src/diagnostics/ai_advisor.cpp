@@ -8,17 +8,6 @@
 namespace kiko {
 namespace {
 
-std::string nat_type_json(NatType type) {
-  switch (type) {
-    case NatType::Open:
-      return "open";
-    case NatType::BehindNat:
-      return "behind-nat";
-    default:
-      return "unknown";
-  }
-}
-
 nlohmann::json route_plan_json(const RoutePlan& plan) {
   nlohmann::json j = {{"skip_direct", plan.skip_direct},
                       {"udp_punch_enabled", plan.udp_punch_enabled},
@@ -53,8 +42,8 @@ bool valid_direct_candidate_kind(const std::string& kind) {
 
 std::string connectivity_snapshot_to_json(const ConnectivitySnapshot& snapshot) {
   nlohmann::json j;
-  j["nat_self"] = nat_type_json(snapshot.self_nat);
-  j["nat_peer"] = nat_type_json(snapshot.peer_nat);
+  j["nat_self"] = nat_type_name(snapshot.self_nat);
+  j["nat_peer"] = nat_type_name(snapshot.peer_nat);
   j["stun_nat_class"] = stun_nat_class_name(snapshot.stun_nat);
   j["lan_discovered_count"] = snapshot.lan_discovered_count;
   j["vpn_detected"] = snapshot.vpn_detected;
