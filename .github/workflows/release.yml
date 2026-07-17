@@ -26,9 +26,6 @@ jobs:
           - os: ubuntu-22.04
             asset: linux-x64
             archive: tar.gz
-          - os: ubuntu-24.04-arm
-            asset: linux-arm64
-            archive: tar.gz
           - os: macos-latest
             asset: macos-arm64
             archive: tar.gz
@@ -92,6 +89,10 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
         if: runner.os == 'Windows'
 
+      - name: Check Linux ABI baseline
+        run: bash scripts/check_linux_abi.sh build/kiko build/kiko-relayd
+        if: runner.os == 'Linux'
+
       - name: Package
         run: |
           set -euo pipefail
@@ -122,8 +123,72 @@ jobs:
           name: kiko-${{ matrix.asset }}
           path: dist/kiko-${{ env.RELEASE_TAG }}-${{ matrix.asset }}.${{ matrix.archive }}
 
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    container: ubuntu:22.04
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            autoconf autoconf-archive automake binutils build-essential ca-certificates cmake curl git \
+            libtool ninja-build pkg-config tar unzip zip
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Install vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git .vcpkg
+          ./.vcpkg/bootstrap-vcpkg.sh
+        shell: bash
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .vcpkg/downloads
+            .vcpkg/installed
+            build/vcpkg_installed
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-vcpkg-${{ hashFiles('vcpkg.json', 'CMakePresets.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-vcpkg-
+
+      - name: Configure
+        run: cmake --preset local-vcpkg
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --preset local-vcpkg -C Release --output-on-failure
+
+      - name: Check Linux ABI baseline
+        run: bash scripts/check_linux_abi.sh build/kiko build/kiko-relayd
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          name="kiko-${RELEASE_TAG}-linux-arm64"
+          mkdir -p "dist/${name}"
+          cp build/kiko "dist/${name}/"
+          cp build/kiko-relayd "dist/${name}/"
+          cp README.md LICENSE "dist/${name}/"
+          tar -czf "dist/${name}.tar.gz" -C dist "${name}"
+        shell: bash
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiko-linux-arm64
+          path: dist/kiko-${{ env.RELEASE_TAG }}-linux-arm64.tar.gz
+
   publish:
-    needs: build
+    needs: [build, build-linux-arm64]
     runs-on: ubuntu-latest
 
     steps:
