@@ -82,6 +82,11 @@ std::string nat_type_name(NatType type) {
   }
 }
 
+bool is_direct_candidate_order_kind(const std::string& kind) {
+  return kind == "manual" || kind == "discovered" || kind == "lan" || kind == "listen" ||
+         kind == "ipv6_global" || kind == "public";
+}
+
 DirectCandidate make_direct_candidate(Endpoint endpoint, std::string kind, int priority) {
   DirectCandidate candidate;
   candidate.endpoint = std::move(endpoint);

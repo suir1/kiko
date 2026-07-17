@@ -24,11 +24,7 @@ int failure_count_for_kind(const ConnectivitySnapshot& snapshot, const std::stri
 
 std::string normalized_direct_kind(std::string kind) {
   if (kind == "public-same-port") return "public";
-  if (kind == "manual" || kind == "discovered" || kind == "lan" || kind == "listen" ||
-      kind == "ipv6_global" || kind == "public") {
-    return kind;
-  }
-  return {};
+  return is_direct_candidate_order_kind(kind) ? kind : std::string{};
 }
 
 void push_unique_kind(std::vector<std::string>& kinds, const std::string& kind) {

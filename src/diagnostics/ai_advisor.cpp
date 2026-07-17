@@ -33,11 +33,6 @@ bool valid_relay_kind(const std::string& kind) {
   return kind == "embedded" || kind == "lan" || kind == "external";
 }
 
-bool valid_direct_candidate_kind(const std::string& kind) {
-  return kind == "manual" || kind == "discovered" || kind == "lan" || kind == "listen" ||
-         kind == "ipv6_global" || kind == "public";
-}
-
 }  // namespace
 
 std::string connectivity_snapshot_to_json(const ConnectivitySnapshot& snapshot) {
@@ -157,7 +152,7 @@ RoutePlan validate_ai_route_plan(const nlohmann::json& j) {
     for (const auto& item : j["direct_candidate_order"]) {
       if (!item.is_string()) continue;
       const auto kind = item.get<std::string>();
-      if (valid_direct_candidate_kind(kind) &&
+      if (is_direct_candidate_order_kind(kind) &&
           std::find(plan.direct_candidate_order.begin(), plan.direct_candidate_order.end(), kind) ==
               plan.direct_candidate_order.end()) {
         plan.direct_candidate_order.push_back(kind);

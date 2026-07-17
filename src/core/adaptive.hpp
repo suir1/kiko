@@ -42,6 +42,7 @@ struct DirectCandidate {
   std::vector<std::string> reasons;
 };
 
+[[nodiscard]] bool is_direct_candidate_order_kind(const std::string& kind);
 [[nodiscard]] DirectCandidate make_direct_candidate(Endpoint endpoint, std::string kind, int priority);
 void add_direct_candidate_reason(DirectCandidate& candidate, std::string reason);
 
