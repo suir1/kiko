@@ -104,6 +104,10 @@ static std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& r
 
   auto socket = connect_tcp(relay, timeout, connect_options, cancel);
   if (!socket.valid()) return std::nullopt;
+  auto close_and_fail = [&]() -> std::optional<TcpSocket> {
+    socket.close();
+    return std::nullopt;
+  };
 
   auto remaining_until_deadline = [&]() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
@@ -112,8 +116,7 @@ static std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& r
   try {
     send_message(socket, Message{"ping", {}});
   } catch (const std::exception&) {
-    socket.close();
-    return std::nullopt;
+    return close_and_fail();
   }
   bool pong_ok = false;
   while ((!cancel || !cancel->load()) && std::chrono::steady_clock::now() < deadline) {
@@ -129,31 +132,20 @@ static std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& r
           pong_ok = true;
           break;
         }
-        if (msg->type == "error") {
-          socket.close();
-          return std::nullopt;
-        }
+        if (msg->type == "error") return close_and_fail();
       }
     } catch (const KikoError&) {
-      socket.close();
-      return std::nullopt;
+      return close_and_fail();
     }
   }
-  if (!pong_ok || (cancel && cancel->load())) {
-    socket.close();
-    return std::nullopt;
-  }
+  if (!pong_ok || (cancel && cancel->load())) return close_and_fail();
 
-  if (remaining_until_deadline().count() <= 0 || (cancel && cancel->load())) {
-    socket.close();
-    return std::nullopt;
-  }
+  if (remaining_until_deadline().count() <= 0 || (cancel && cancel->load())) return close_and_fail();
 
   try {
     send_message(socket, encode_relay_hello(registration));
   } catch (const std::exception&) {
-    socket.close();
-    return std::nullopt;
+    return close_and_fail();
   }
   return socket;
 }
