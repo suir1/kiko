@@ -17,6 +17,21 @@ void verify_magic(const std::uint8_t* header) {
   }
 }
 
+template <typename Receive>
+std::optional<Bytes> receive_frame(Receive receive) {
+  std::uint8_t magic[4]{};
+  if (!receive(magic, sizeof(magic))) return std::nullopt;
+  verify_magic(magic);
+
+  std::uint32_t be_len = 0;
+  if (!receive(&be_len, sizeof(be_len))) return std::nullopt;
+  const auto len = ntohl(be_len);
+  if (len > 64ull * 1024ull * 1024ull) throw KikoError("received frame too large");
+  Bytes payload(len);
+  if (len > 0 && !receive(payload.data(), payload.size())) return std::nullopt;
+  return payload;
+}
+
 }  // namespace
 
 std::string Message::get(const std::string& key, const std::string& fallback) const {
@@ -54,32 +69,13 @@ void send_frame(TcpSocket& socket, const Bytes& payload) {
 }
 
 std::optional<Bytes> recv_frame(TcpSocket& socket) {
-  std::uint8_t magic[4]{};
-  if (!socket.recv_exact(magic, sizeof(magic))) return std::nullopt;
-  verify_magic(magic);
-
-  std::uint32_t be_len = 0;
-  if (!socket.recv_exact(&be_len, sizeof(be_len))) return std::nullopt;
-  auto len = ntohl(be_len);
-  if (len > 64ull * 1024ull * 1024ull) throw KikoError("received frame too large");
-  Bytes payload(len);
-  if (len > 0 && !socket.recv_exact(payload.data(), payload.size())) return std::nullopt;
-  return payload;
+  return receive_frame([&](void* data, std::size_t size) { return socket.recv_exact(data, size); });
 }
 
 std::optional<Bytes> recv_frame_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
                                         const std::atomic_bool* cancel) {
-  std::uint8_t magic[4]{};
-  if (!socket.recv_exact_timeout(magic, sizeof(magic), timeout, cancel)) return std::nullopt;
-  verify_magic(magic);
-
-  std::uint32_t be_len = 0;
-  if (!socket.recv_exact_timeout(&be_len, sizeof(be_len), timeout, cancel)) return std::nullopt;
-  auto len = ntohl(be_len);
-  if (len > 64ull * 1024ull * 1024ull) throw KikoError("received frame too large");
-  Bytes payload(len);
-  if (len > 0 && !socket.recv_exact_timeout(payload.data(), payload.size(), timeout, cancel)) return std::nullopt;
-  return payload;
+  return receive_frame(
+      [&](void* data, std::size_t size) { return socket.recv_exact_timeout(data, size, timeout, cancel); });
 }
 
 std::string encode_message(const Message& message) {
