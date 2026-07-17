@@ -157,7 +157,9 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-vcpkg-
 
       - name: Configure
-        run: cmake --preset local-vcpkg
+        run: >-
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
         env:
           VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
 
@@ -165,7 +167,7 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Test
-        run: ctest --preset local-vcpkg -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Check Linux ABI baseline
         run: bash scripts/check_linux_abi.sh build/kiko build/kiko-relayd
