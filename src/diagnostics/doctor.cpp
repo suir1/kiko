@@ -226,24 +226,15 @@ std::string recommendation_for(const DoctorReport& report) {
 }
 
 nlohmann::json route_result_hint_json(const DoctorReport& report) {
-  if (!relay_reachable(report)) {
-    return {{"path", "none"},
-            {"reason", "relay_unreachable"},
-            {"direct_attempted", false},
-            {"data_relay_required", true},
-            {"rendezvous_relay_required", true}};
-  }
-  if (report.plan.skip_direct) {
-    return {{"path", "relay"},
-            {"reason", "direct_skipped"},
-            {"direct_attempted", false},
-            {"data_relay_required", true},
-            {"rendezvous_relay_required", true}};
-  }
-  return {{"path", "direct_or_relay"},
-          {"reason", "direct_probe_then_relay_fallback"},
-          {"direct_attempted", true},
-          {"data_relay_required", false},
+  const bool relay_ok = relay_reachable(report);
+  const bool direct_attempted = relay_ok && !report.plan.skip_direct;
+  const char* path = !relay_ok ? "none" : (direct_attempted ? "direct_or_relay" : "relay");
+  const char* reason =
+      !relay_ok ? "relay_unreachable" : (direct_attempted ? "direct_probe_then_relay_fallback" : "direct_skipped");
+  return {{"path", path},
+          {"reason", reason},
+          {"direct_attempted", direct_attempted},
+          {"data_relay_required", !direct_attempted},
           {"rendezvous_relay_required", true}};
 }
 
