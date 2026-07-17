@@ -44,10 +44,6 @@ void prepend_candidate_order(RoutePlan& plan, std::initializer_list<std::string>
   plan.direct_candidate_order = std::move(order);
 }
 
-void prefer_prior_direct_kind(RoutePlan& plan, const ConnectivitySnapshot& snapshot) {
-  prepend_candidate_order(plan, {normalized_direct_kind(snapshot.profile.last_direct_candidate_kind)});
-}
-
 void prefer_local_before_public(RoutePlan& plan) {
   prepend_candidate_order(plan, {"lan", "listen", "manual", "discovered", "ipv6_global", "public"});
 }
@@ -86,7 +82,9 @@ void apply_same_port_history(RoutePlan& plan, const ConnectivitySnapshot& snapsh
 
 void apply_profile_route_history(RoutePlan& plan, const ConnectivitySnapshot& snapshot) {
   apply_same_port_history(plan, snapshot);
-  if (!snapshot.profile.last_direct_candidate_kind.empty()) prefer_prior_direct_kind(plan, snapshot);
+  if (!snapshot.profile.last_direct_candidate_kind.empty()) {
+    prepend_candidate_order(plan, {normalized_direct_kind(snapshot.profile.last_direct_candidate_kind)});
+  }
 
   if (snapshot.profile.last_path == "direct") return;
 
