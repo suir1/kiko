@@ -298,7 +298,7 @@ if (-not $Version) {
 }
 
 if (-not $Version) {
-    throw "Could not determine latest kiko release from https://github.com/$Repo/releases. Set KIKO_VERSION=v0.2.1-alpha and retry."
+    throw "Could not determine latest kiko release from https://github.com/$Repo/releases. Set KIKO_VERSION=v0.2.2-alpha and retry."
 }
 
 $arch = Get-KikoWindowsArch
