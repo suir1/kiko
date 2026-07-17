@@ -3,7 +3,6 @@
 #include "core/common.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <system_error>
 #include <utility>
 
@@ -12,12 +11,6 @@ namespace {
 
 constexpr const char* kParentLabel = "../";
 constexpr const char* kSelectHereLabel = "[Select this folder]";
-
-std::string lower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  return value;
-}
 
 void load_modified_time(PathBrowserEntry& entry) {
   std::error_code ec;
@@ -117,12 +110,12 @@ std::vector<PathBrowserEntry> filter_browser_entries(const std::vector<PathBrows
                                                      const std::string& filter) {
   if (filter.empty()) return entries;
 
-  const auto lowered_filter = lower(filter);
+  const auto lowered_filter = lowercase_ascii(filter);
   std::vector<PathBrowserEntry> out;
   out.reserve(entries.size());
   for (const auto& entry : entries) {
     if (entry.parent || entry.select_here ||
-        lower(entry.path.filename().string()).find(lowered_filter) != std::string::npos) {
+        lowercase_ascii(entry.path.filename().string()).find(lowered_filter) != std::string::npos) {
       out.push_back(entry);
     }
   }

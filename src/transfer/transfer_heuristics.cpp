@@ -1,7 +1,6 @@
 #include "transfer_heuristics.hpp"
 
-#include <algorithm>
-#include <cctype>
+#include "core/common.hpp"
 
 namespace kiko {
 namespace {
@@ -9,8 +8,7 @@ namespace {
 std::string lower_ext(const std::filesystem::path& path) {
   auto ext = path.extension().string();
   if (!ext.empty() && ext[0] == '.') ext.erase(ext.begin());
-  for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  return ext;
+  return lowercase_ascii(ext);
 }
 
 bool is_precompressed_ext(const std::string& ext) {

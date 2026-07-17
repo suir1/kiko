@@ -4,20 +4,13 @@
 
 #include <asio/ip/address.hpp>
 
-#include <algorithm>
 #include <array>
-#include <cctype>
 #include <sstream>
 #include <string_view>
 #include <vector>
 
 namespace kiko {
 namespace {
-
-std::string to_lower(std::string s) {
-  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  return s;
-}
 
 bool recv_line(TcpSocket& socket, std::string& line, std::chrono::milliseconds timeout) {
   line.clear();
@@ -126,7 +119,7 @@ std::optional<ProxyConfig> parse_proxy_url(const std::string& url) {
   if (url.empty()) return std::nullopt;
   auto scheme_end = url.find("://");
   if (scheme_end == std::string::npos) return std::nullopt;
-  auto scheme = to_lower(url.substr(0, scheme_end));
+  auto scheme = lowercase_ascii(url.substr(0, scheme_end));
   auto rest = url.substr(scheme_end + 3);
   ProxyConfig cfg;
   if (scheme == "http" || scheme == "https") {

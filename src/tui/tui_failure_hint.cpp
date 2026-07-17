@@ -1,22 +1,15 @@
 #include "tui_failure_hint.hpp"
 
+#include "core/common.hpp"
 #include "tui_advanced.hpp"
 
-#include <algorithm>
-#include <cctype>
 #include <string>
 
 namespace kiko {
 namespace {
 
-std::string to_lower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  return value;
-}
-
 bool contains_ci(const std::string& haystack, const char* needle) {
-  return to_lower(haystack).find(needle) != std::string::npos;
+  return lowercase_ascii(haystack).find(needle) != std::string::npos;
 }
 
 }  // namespace

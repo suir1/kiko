@@ -207,11 +207,7 @@ std::string normalize_pairing_code(const std::string& code) {
   auto end = std::find_if_not(code.rbegin(), code.rend(), [](unsigned char c) { return std::isspace(c); }).base();
   if (begin >= end) return {};
 
-  std::string out(begin, end);
-  std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
-  return out;
+  return lowercase_ascii(std::string(begin, end));
 }
 
 std::optional<std::string> validate_pairing_code_format(const std::string& code, bool required) {
@@ -290,6 +286,12 @@ std::string hex_encode(const Bytes& bytes) {
   oss << std::hex << std::setfill('0');
   for (auto b : bytes) oss << std::setw(2) << static_cast<int>(b);
   return oss.str();
+}
+
+std::string lowercase_ascii(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return value;
 }
 
 std::string trim(const std::string& value) {

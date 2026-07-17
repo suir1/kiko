@@ -1,18 +1,13 @@
 #include "transfer_retry.hpp"
 
-#include <cctype>
+#include "core/common.hpp"
+
 #include <initializer_list>
 #include <string>
 
 namespace kiko::detail {
 
 namespace {
-
-std::string lowercase(std::string_view text) {
-  std::string out(text);
-  for (char& ch : out) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-  return out;
-}
 
 bool contains_any(std::string_view text, std::initializer_list<std::string_view> needles) {
   for (const auto needle : needles) {
@@ -24,7 +19,7 @@ bool contains_any(std::string_view text, std::initializer_list<std::string_view>
 }  // namespace
 
 bool is_retryable_transfer_error_message(std::string_view message) {
-  const auto text = lowercase(message);
+  const auto text = lowercase_ascii(std::string(message));
   if (contains_any(text,
                    {
                        "bad_password",

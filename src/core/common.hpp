@@ -60,6 +60,7 @@ std::optional<std::uint64_t> parse_u64_strict(const std::string& value);
 std::vector<std::string> split_csv(const std::string& value);
 std::string join_csv(const std::vector<std::string>& values);
 std::string hex_encode(const Bytes& bytes);
+[[nodiscard]] std::string lowercase_ascii(std::string value);
 std::string trim(const std::string& value);
 std::uint64_t now_ms();
 

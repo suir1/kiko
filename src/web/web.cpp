@@ -12,7 +12,6 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -31,12 +30,6 @@ using json = nlohmann::json;
 constexpr std::size_t kMaxBodyBytes = 1024 * 1024;
 constexpr std::size_t kMaxQrTextBytes = 1200;
 constexpr int kDefaultPairTimeoutSec = static_cast<int>(kDefaultPairTimeout.count());
-
-std::string lower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  return value;
-}
 
 std::string url_decode(const std::string& value) {
   std::string out;
@@ -334,7 +327,7 @@ std::optional<HttpRequest> read_http_request(TcpSocket& socket) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
     const auto colon = line.find(':');
     if (colon == std::string::npos) continue;
-    auto name = lower(trim(line.substr(0, colon)));
+    auto name = lowercase_ascii(trim(line.substr(0, colon)));
     auto value = trim(line.substr(colon + 1));
     req.headers[name] = value;
   }
