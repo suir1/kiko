@@ -97,6 +97,16 @@ int close_pipe(FILE* pipe) {
 #endif
 }
 
+AiChatResult parse_ai_response(const std::string& response) {
+  try {
+    const auto body = nlohmann::json::parse(response);
+    if (body.contains("error")) return {.error = body["error"].dump()};
+    return {.ok = true, .content = body["choices"][0]["message"]["content"].get<std::string>()};
+  } catch (const std::exception& e) {
+    return {.error = std::string("AI response parse failed: ") + e.what()};
+  }
+}
+
 AiChatResult curl_https_post(const ParsedUrl& url, const std::string& api_key, const std::string& body,
                              std::chrono::milliseconds timeout) {
   AiChatResult result;
@@ -122,18 +132,7 @@ AiChatResult curl_https_post(const ParsedUrl& url, const std::string& api_key, c
     result.error = "empty response from AI endpoint";
     return result;
   }
-  try {
-    auto j = nlohmann::json::parse(output);
-    if (j.contains("error")) {
-      result.error = j["error"].dump();
-      return result;
-    }
-    result.content = j["choices"][0]["message"]["content"].get<std::string>();
-    result.ok = true;
-  } catch (const std::exception& e) {
-    result.error = std::string("AI response parse failed: ") + e.what();
-  }
-  return result;
+  return parse_ai_response(output);
 }
 
 AiChatResult http_post(const ParsedUrl& url, const std::string& api_key, const std::string& body,
@@ -191,19 +190,7 @@ AiChatResult http_post(const ParsedUrl& url, const std::string& api_key, const s
     result.error = "empty HTTP response from AI endpoint";
     return result;
   }
-
-  try {
-    auto j = nlohmann::json::parse(response_body);
-    if (j.contains("error")) {
-      result.error = j["error"].dump();
-      return result;
-    }
-    result.content = j["choices"][0]["message"]["content"].get<std::string>();
-    result.ok = true;
-  } catch (const std::exception& e) {
-    result.error = std::string("AI response parse failed: ") + e.what();
-  }
-  return result;
+  return parse_ai_response(response_body);
 }
 
 }  // namespace
