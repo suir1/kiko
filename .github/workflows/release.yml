@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to rebuild, for example v0.2.2-alpha."
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -14,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             asset: linux-x64
             archive: tar.gz
           - os: ubuntu-24.04-arm
@@ -34,6 +43,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install system dependencies (Linux)
         run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool pkg-config
@@ -84,7 +95,7 @@ jobs:
       - name: Package
         run: |
           set -euo pipefail
-          name="kiko-${GITHUB_REF_NAME}-${{ matrix.asset }}"
+          name="kiko-${RELEASE_TAG}-${{ matrix.asset }}"
           mkdir -p "dist/${name}"
           cp build/kiko "dist/${name}/"
           cp build/kiko-relayd "dist/${name}/"
@@ -95,7 +106,7 @@ jobs:
 
       - name: Package (Windows)
         run: |
-          $name = "kiko-${env:GITHUB_REF_NAME}-${{ matrix.asset }}"
+          $name = "kiko-${env:RELEASE_TAG}-${{ matrix.asset }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
           Copy-Item "build/kiko.exe" "dist/$name/"
           Copy-Item "build/kiko-relayd.exe" "dist/$name/"
@@ -109,7 +120,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kiko-${{ matrix.asset }}
-          path: dist/kiko-${{ github.ref_name }}-${{ matrix.asset }}.${{ matrix.archive }}
+          path: dist/kiko-${{ env.RELEASE_TAG }}-${{ matrix.asset }}.${{ matrix.archive }}
 
   publish:
     needs: build
@@ -119,6 +130,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -128,7 +140,7 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: |
           prerelease_args=()
           if [[ "$TAG" == *alpha* || "$TAG" == *beta* || "$TAG" == *rc* ]]; then
