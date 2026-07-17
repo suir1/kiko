@@ -3,17 +3,10 @@
 #include "file_metadata.hpp"
 #include "transfer/gitignore.hpp"
 #include "core/imohash.hpp"
+#include "transfer_receive_paths.hpp"
 
 namespace kiko {
 namespace {
-
-bool target_is_safe_relative_symlink(const std::filesystem::path& target) {
-  if (target.empty() || target.is_absolute()) return false;
-  for (const auto& part : target) {
-    if (part == "..") return false;
-  }
-  return true;
-}
 
 std::string relative_lexical(const std::filesystem::path& path, const std::filesystem::path& base) {
   auto rel = path.lexically_relative(base);
@@ -25,7 +18,7 @@ FileEntry make_symlink_entry(const std::filesystem::path& path, const std::files
   std::error_code ec;
   const auto target = std::filesystem::read_symlink(path, ec);
   if (ec) throw KikoError("failed to read symlink: " + path.string());
-  if (!target_is_safe_relative_symlink(target)) {
+  if (!detail::is_safe_relative_symlink_target(target)) {
     throw KikoError("unsafe symlink target for " + path.string() + ": " + target.generic_string());
   }
   auto rel = relative_lexical(path, base);

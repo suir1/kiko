@@ -5,15 +5,15 @@
 
 namespace kiko::detail {
 
-namespace {
-
-bool target_is_safe_relative_symlink(const std::filesystem::path& target) {
+bool is_safe_relative_symlink_target(const std::filesystem::path& target) {
   if (target.empty() || target.is_absolute()) return false;
   for (const auto& part : target) {
     if (part == "..") return false;
   }
   return true;
 }
+
+namespace {
 
 std::string sha256_file_hex(const std::filesystem::path& path, Bytes& buffer) {
   std::ifstream input(path, std::ios::binary);
@@ -118,7 +118,7 @@ void validate_safe_symlink_target(const std::string& relative, const std::string
     throw KikoError("refusing invalid symlink path: " + relative);
   }
   const std::filesystem::path link_target(target);
-  if (!target_is_safe_relative_symlink(link_target)) {
+  if (!is_safe_relative_symlink_target(link_target)) {
     throw KikoError("refusing unsafe symlink target for " + relative + ": " + target);
   }
 }

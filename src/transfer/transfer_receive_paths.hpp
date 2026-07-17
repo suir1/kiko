@@ -12,6 +12,7 @@
 
 namespace kiko::detail {
 
+[[nodiscard]] bool is_safe_relative_symlink_target(const std::filesystem::path& target);
 [[nodiscard]] bool is_dir_header(const std::string& path, std::uint64_t size);
 [[nodiscard]] bool is_symlink_header(const Message& header);
 [[nodiscard]] bool path_exists_no_follow(const std::filesystem::path& path);
