@@ -13,11 +13,6 @@ constexpr const char kPunchPayload[] = "kiko-punch";
 
 bool cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
 
-std::optional<std::uint64_t> parse_punch_token_ms(const std::string& token) {
-  if (token.empty()) return std::nullopt;
-  return parse_u64_strict(token);
-}
-
 void wait_until_punch_time(std::uint64_t punch_at_ms, const std::atomic_bool* cancel) {
   while (true) {
     if (cancelled(cancel)) return;
@@ -59,7 +54,7 @@ bool send_udp_packet(const Endpoint& target, const void* data, std::size_t size)
 
 void udp_punch_burst(const UdpPunchParams& params) {
   if (params.peer_wan.host.empty() || params.peer_wan.port == 0) return;
-  const auto punch_at = parse_punch_token_ms(params.token);
+  const auto punch_at = parse_u64_strict(params.token);
   if (!punch_at) return;
 
   wait_until_punch_time(*punch_at, params.cancel);

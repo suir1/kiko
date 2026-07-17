@@ -58,19 +58,6 @@ std::chrono::milliseconds candidate_connect_timeout(const DirectCandidate& candi
   return std::min(timeout, remaining);
 }
 
-std::optional<std::uint64_t> parse_punch_token_ms(const std::string& token) {
-  if (token.empty()) return std::nullopt;
-  return parse_u64_strict(token);
-}
-
-std::optional<std::uint64_t> parse_punch_time(const std::string& punch_token) {
-  try {
-    return parse_punch_token_ms(punch_token);
-  } catch (const KikoError&) {
-    return std::nullopt;
-  }
-}
-
 bool wait_until_punch_target(std::uint64_t target_ms, std::chrono::steady_clock::time_point deadline,
                              const std::atomic_bool* cancel) {
   while (!direct_cancelled(cancel) && std::chrono::steady_clock::now() < deadline) {
@@ -277,7 +264,7 @@ std::optional<TcpSocket> try_synchronized_same_port_phase(Role role, TcpListener
     return std::nullopt;
   };
 
-  if (const auto punch_at = parse_punch_time(punch_token)) {
+  if (const auto punch_at = parse_u64_strict(punch_token)) {
     constexpr int kBurstOffsetsMs[] = {-80, 0, 80, 160};
     for (const int offset : kBurstOffsetsMs) {
       if (direct_cancelled(cancel) || std::chrono::steady_clock::now() >= phase_deadline) break;
