@@ -13,6 +13,7 @@ on:
 
 env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  ABI_CHECK_SCRIPT: ${{ github.event_name == 'workflow_dispatch' && '.release-tools/scripts/check_linux_abi.sh' || 'scripts/check_linux_abi.sh' }}
 
 permissions:
   contents: write
@@ -42,6 +43,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
+
+      - name: Checkout release tools
+        uses: actions/checkout@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          sparse-checkout: scripts/check_linux_abi.sh
+          sparse-checkout-cone-mode: false
 
       - name: Install system dependencies (Linux)
         run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool pkg-config
@@ -90,7 +100,7 @@ jobs:
         if: runner.os == 'Windows'
 
       - name: Check Linux ABI baseline
-        run: bash scripts/check_linux_abi.sh build/kiko build/kiko-relayd
+        run: bash "$ABI_CHECK_SCRIPT" build/kiko build/kiko-relayd
         if: runner.os == 'Linux'
 
       - name: Package
@@ -139,6 +149,15 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
 
+      - name: Checkout release tools
+        uses: actions/checkout@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          sparse-checkout: scripts/check_linux_abi.sh
+          sparse-checkout-cone-mode: false
+
       - name: Install vcpkg
         run: |
           git clone https://github.com/microsoft/vcpkg.git .vcpkg
@@ -170,7 +189,7 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Check Linux ABI baseline
-        run: bash scripts/check_linux_abi.sh build/kiko build/kiko-relayd
+        run: bash "$ABI_CHECK_SCRIPT" build/kiko build/kiko-relayd
 
       - name: Package
         run: |
