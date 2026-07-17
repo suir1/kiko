@@ -21,6 +21,16 @@ std::filesystem::path profile_path() {
   return std::filesystem::path(".kiko_profile.json");
 }
 
+nlohmann::json load_profile_root(const std::filesystem::path& path) {
+  std::ifstream in(path);
+  if (!in) return {};
+  try {
+    return nlohmann::json::parse(in);
+  } catch (...) {
+    return {};
+  }
+}
+
 std::map<std::string, int> parse_failures_by_kind(const nlohmann::json& object) {
   std::map<std::string, int> out;
   if (!object.is_object()) return out;
@@ -63,15 +73,7 @@ nlohmann::json rtt_by_path_json(const std::map<std::string, std::int64_t>& rtts)
 
 void save_profile_success(const std::string& fingerprint, const ProfileSuccess& success) {
   const auto storage_path = profile_path();
-  nlohmann::json root;
-  std::ifstream in(storage_path);
-  if (in) {
-    try {
-      in >> root;
-    } catch (...) {
-      root = nlohmann::json::object();
-    }
-  }
+  auto root = load_profile_root(storage_path);
   const int prev = root.contains(fingerprint) ? root[fingerprint].value("success_count", 0) : 0;
   auto entry = root.contains(fingerprint) && root[fingerprint].is_object() ? root[fingerprint] : nlohmann::json::object();
   const auto prev_path = entry.value("last_path", std::string{});
@@ -132,14 +134,7 @@ std::string network_fingerprint(const NetworkInterfaceInventory& interfaces) {
 }
 
 std::optional<NetworkProfileEntry> load_profile(const std::string& fingerprint) {
-  std::ifstream in(profile_path());
-  if (!in) return std::nullopt;
-  nlohmann::json root;
-  try {
-    in >> root;
-  } catch (...) {
-    return std::nullopt;
-  }
+  const auto root = load_profile_root(profile_path());
   if (!root.contains(fingerprint)) return std::nullopt;
   NetworkProfileEntry entry;
   entry.last_path = root[fingerprint].value("last_path", "");
