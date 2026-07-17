@@ -21,6 +21,20 @@ void set_terminal_state(TransferProgressState& state, bool failed, bool canceled
   state.ended = std::chrono::steady_clock::now();
 }
 
+void reset_transfer_attempt(TransferProgressState& state) {
+  state.current_file.clear();
+  state.current_done = 0;
+  state.current_size = 0;
+  state.overall_done = 0;
+  state.files_done = 0;
+  state.handshake = false;
+  state.finished = false;
+  state.failed = false;
+  state.canceled = false;
+  state.error.clear();
+  state.ended.reset();
+}
+
 }  // namespace
 
 static std::string format_route_phase_label(RoutePhase phase, const RoutePhaseDetail& detail) {
@@ -74,26 +88,16 @@ TransferProgressState::TransferProgressState(std::size_t max_log_lines)
 void TransferProgressState::reset() {
   activity = "starting...";
   code.clear();
-  current_file.clear();
-  current_done = 0;
-  current_size = 0;
-  overall_done = 0;
+  reset_transfer_attempt(*this);
   overall_total = 0;
-  files_done = 0;
   files_total = 0;
   route_phase.clear();
   route_summary.clear();
   route_timing.clear();
   receive_plan = {};
   has_receive_plan = false;
-  handshake = false;
-  finished = false;
-  failed = false;
-  canceled = false;
-  error.clear();
   logs.clear();
   started = std::chrono::steady_clock::now();
-  ended.reset();
 }
 
 void TransferProgressState::append_log(const std::string& text) {
@@ -209,17 +213,7 @@ void TransferProgressState::transfer_completed(std::size_t file_count, std::uint
 }
 
 void TransferProgressState::transfer_retrying(int next_attempt, int max_attempts, const std::string& reason) {
-  current_file.clear();
-  current_done = 0;
-  current_size = 0;
-  overall_done = 0;
-  files_done = 0;
-  handshake = false;
-  finished = false;
-  failed = false;
-  canceled = false;
-  error.clear();
-  ended.reset();
+  reset_transfer_attempt(*this);
   route_phase = "reconnecting";
   activity = "reconnecting " + std::to_string(next_attempt) + "/" + std::to_string(max_attempts);
   append_log(format_transfer_retry_summary(next_attempt, max_attempts, reason));
