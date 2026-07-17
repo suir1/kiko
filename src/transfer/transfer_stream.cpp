@@ -146,6 +146,18 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
   bool saw_manifest = false;
   bool saw_file_header = false;
   std::optional<ReceivePlan> receive_plan;
+  auto commit_received_payload = [&](std::span<const std::uint8_t> payload) {
+    if (payload.empty()) return;
+    const auto write_start = TransferClock::now();
+    out.write(reinterpret_cast<const char*>(payload.data()), static_cast<std::streamsize>(payload.size()));
+    add_transfer_elapsed(timing.disk_write_ms, write_start);
+    const auto hash_start = TransferClock::now();
+    current_file->hasher().update(payload);
+    add_transfer_elapsed(timing.hash_ms, hash_start);
+    current_total += payload.size();
+    timing.payload_bytes += payload.size();
+    reporter.file_advance(payload.size());
+  };
 
   while (true) {
     auto frame = recv_tagged(channel, cipher);
@@ -192,33 +204,13 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
               frame->payload,
               declared_remaining_limit(current_total, current_file->declared_size(), current_file->relative()));
           add_transfer_elapsed(timing.decompress_ms, decompress_start);
-          if (!decompressed.empty()) {
-            const auto write_start = TransferClock::now();
-            out.write(reinterpret_cast<const char*>(decompressed.data()),
-                      static_cast<std::streamsize>(decompressed.size()));
-            add_transfer_elapsed(timing.disk_write_ms, write_start);
-            const auto hash_start = TransferClock::now();
-            current_file->hasher().update(decompressed);
-            add_transfer_elapsed(timing.hash_ms, hash_start);
-            current_total += decompressed.size();
-            timing.payload_bytes += decompressed.size();
-            reporter.file_advance(decompressed.size());
-          }
+          commit_received_payload(decompressed);
         } else {
           if (!frame->payload.empty()) {
             ensure_declared_space(current_total, current_file->declared_size(),
                                   static_cast<std::uint64_t>(frame->payload.size()), current_file->relative());
-            const auto write_start = TransferClock::now();
-            out.write(reinterpret_cast<const char*>(frame->payload.data()),
-                      static_cast<std::streamsize>(frame->payload.size()));
-            add_transfer_elapsed(timing.disk_write_ms, write_start);
-            const auto hash_start = TransferClock::now();
-            current_file->hasher().update(frame->payload);
-            add_transfer_elapsed(timing.hash_ms, hash_start);
-            current_total += frame->payload.size();
-            timing.payload_bytes += frame->payload.size();
-            reporter.file_advance(frame->payload.size());
           }
+          commit_received_payload(frame->payload);
         }
         break;
       }
