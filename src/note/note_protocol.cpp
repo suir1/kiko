@@ -8,31 +8,23 @@
 namespace kiko {
 namespace {
 
+constexpr std::pair<NoteFrameType, const char*> kNoteFrameTypes[] = {
+    {NoteFrameType::Hello, "hello"},   {NoteFrameType::Update, "update"},
+    {NoteFrameType::Clear, "clear"},   {NoteFrameType::Ack, "ack"},
+    {NoteFrameType::Ping, "ping"},     {NoteFrameType::Bye, "bye"},
+};
+
 std::string note_frame_type_name(NoteFrameType type) {
-  switch (type) {
-    case NoteFrameType::Hello:
-      return "hello";
-    case NoteFrameType::Update:
-      return "update";
-    case NoteFrameType::Clear:
-      return "clear";
-    case NoteFrameType::Ack:
-      return "ack";
-    case NoteFrameType::Ping:
-      return "ping";
-    case NoteFrameType::Bye:
-      return "bye";
+  for (const auto& [candidate, name] : kNoteFrameTypes) {
+    if (candidate == type) return name;
   }
   return "update";
 }
 
 NoteFrameType parse_note_frame_type(const std::string& value) {
-  if (value == "hello") return NoteFrameType::Hello;
-  if (value == "update") return NoteFrameType::Update;
-  if (value == "clear") return NoteFrameType::Clear;
-  if (value == "ack") return NoteFrameType::Ack;
-  if (value == "ping") return NoteFrameType::Ping;
-  if (value == "bye") return NoteFrameType::Bye;
+  for (const auto& [type, name] : kNoteFrameTypes) {
+    if (value == name) return type;
+  }
   throw KikoError("unknown note frame kind: " + value);
 }
 
