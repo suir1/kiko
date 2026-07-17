@@ -27,7 +27,7 @@ If `raw.githubusercontent.com` is blocked by your network, download the Windows 
 [Releases](https://github.com/suir1/kiko/releases) and unzip `kiko.exe` into a directory on `PATH`.
 
 The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
-`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.2.1-alpha` to install a specific release.
+`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.2.2-alpha` to install a specific release.
 Use `KIKO_INSTALL_DRY_RUN=1` to print the release asset URL without downloading it.
 Set `KIKO_ADD_TO_PATH=1` to add the install directory to your user PATH (`~/.zshrc`, `~/.bashrc`,
 `~/.profile`, or Windows User PATH). You can also use `KIKO_ADD_TO_PATH=prompt` for an interactive
@@ -346,8 +346,8 @@ Tags matching `v*` trigger the release workflow. It builds and tests Linux, macO
 uploads the packaged binaries to the matching GitHub Release.
 
 ```sh
-git tag v0.2.1-alpha
-git push origin v0.2.1-alpha
+git tag v0.2.2-alpha
+git push origin v0.2.2-alpha
 ```
 
 ## Stack

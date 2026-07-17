@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag to install, for example v0.2.1-alpha. Defaults to latest release."
+        description: "Release tag to install, for example v0.2.2-alpha. Defaults to latest release."
         required: false
         type: string
   release:
