@@ -22,6 +22,20 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf autoconf-archive automake libtool pkg-config
         if: runner.os == 'Linux'
 
+      - name: Cache Playwright Chromium (Ubuntu)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-chromium-1.52.0
+        if: matrix.os == 'ubuntu-latest'
+
+      - name: Install browser smoke dependencies (Ubuntu)
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check playwright==1.52.0
+          .venv/bin/python -m playwright install --with-deps chromium
+        if: matrix.os == 'ubuntu-latest'
+
       - name: Install system dependencies (macOS)
         run: brew install ninja autoconf autoconf-archive automake libtool pkg-config
         if: runner.os == 'macOS'
@@ -55,7 +69,12 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-vcpkg-
 
       - name: Configure
-        run: cmake --preset local-vcpkg
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            cmake --preset local-vcpkg -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
+          else
+            cmake --preset local-vcpkg
+          fi
         env:
           VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
         if: runner.os != 'Windows'
@@ -69,6 +88,8 @@ jobs:
 
       - name: Test
         run: ctest --preset local-vcpkg -C Release --output-on-failure
+        env:
+          KIKO_REQUIRE_BROWSER_SMOKE: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
         if: runner.os != 'Windows'
 
       - name: Test (Windows)

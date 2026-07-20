@@ -24,9 +24,23 @@ The gate covers:
 - Host and Join pairing timeouts, including the no-peer case for both roles.
 - Relay file transfer, TUI rendering, browser API smoke, and installer smoke.
 
-`web_browser_smoke` is allowed to skip when Playwright or its browser runtime
-is unavailable. It must not be treated as a pass on a machine where browser
-coverage is required.
+`web_browser_smoke` may skip on developer machines without Playwright. Ubuntu
+CI installs Playwright Chromium and sets `KIKO_REQUIRE_BROWSER_SMOKE=1`, so a
+missing browser runtime fails CI instead of being reported as a skip.
+
+To run the same strict browser gate locally:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install playwright==1.52.0
+.venv/bin/python -m playwright install chromium
+cmake --preset local-vcpkg -DPython3_EXECUTABLE="$PWD/.venv/bin/python"
+KIKO_REQUIRE_BROWSER_SMOKE=1 ctest --test-dir build -R web_browser_smoke --output-on-failure
+```
+
+The browser scenario verifies empty-code Host, non-empty-code Join, Unicode
+note editing, copy of the code and note, direct-text QR requests, multiple-pad
+switching, and clearing one pad without changing another.
 
 ## VPS Manual Gate
 

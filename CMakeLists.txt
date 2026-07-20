@@ -329,8 +329,9 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME pair_timeout_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/pair_timeout_smoke.py
            $<TARGET_FILE:kiko> $<TARGET_FILE:kiko-relayd>)
   set_tests_properties(pair_timeout_smoke PROPERTIES DEPENDS "kiko;kiko-relayd" TIMEOUT 12)
-  add_test(NAME web_browser_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/web_browser_smoke.py $<TARGET_FILE:kiko>)
-  set_tests_properties(web_browser_smoke PROPERTIES DEPENDS kiko TIMEOUT 30 SKIP_RETURN_CODE 77)
+  add_test(NAME web_browser_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/web_browser_smoke.py
+           $<TARGET_FILE:kiko> $<TARGET_FILE:kiko-relayd>)
+  set_tests_properties(web_browser_smoke PROPERTIES DEPENDS "kiko;kiko-relayd" TIMEOUT 60 SKIP_RETURN_CODE 77)
 endif()
 
 if(NOT WIN32 AND Python3_Interpreter_FOUND)
