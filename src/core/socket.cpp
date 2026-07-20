@@ -319,11 +319,17 @@ bool TcpSocket::recv_exact_timeout(void* data, std::size_t size, std::chrono::mi
       received += static_cast<std::size_t>(n);
       continue;
     }
-    if (n == 0) return false;
+    if (n == 0) {
+      close();
+      return false;
+    }
 
     const int error = net_last_error();
     if (error == kErrIntr || error == kErrWouldBlock) continue;
-    if (native_recv_closed(error)) return false;
+    if (native_recv_closed(error)) {
+      close();
+      return false;
+    }
     throw KikoError("recv failed: " + net_error_string(error));
   }
   return true;

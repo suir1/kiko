@@ -174,6 +174,42 @@ int main() {
   {
     auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
     const auto endpoint = listener.local_endpoint();
+    bool writer_failed = false;
+    std::thread writer([&] {
+      auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+      if (!socket.valid()) {
+        writer_failed = true;
+        return;
+      }
+      socket.close();
+    });
+
+    auto accepted = listener.accept(std::chrono::seconds(2));
+    if (!accepted.valid()) {
+      writer.join();
+      std::cerr << "FAIL: recv_exact_timeout EOF test did not accept connection\n";
+      return 1;
+    }
+    std::uint8_t byte = 0;
+    const bool complete = accepted.recv_exact_timeout(&byte, sizeof(byte), std::chrono::seconds(1));
+    writer.join();
+    if (writer_failed) {
+      std::cerr << "FAIL: recv_exact_timeout EOF test writer did not connect\n";
+      return 1;
+    }
+    if (complete) {
+      std::cerr << "FAIL: recv_exact_timeout returned complete after peer EOF\n";
+      return 1;
+    }
+    if (accepted.valid()) {
+      std::cerr << "FAIL: recv_exact_timeout left socket valid after peer EOF\n";
+      return 1;
+    }
+  }
+
+  {
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    const auto endpoint = listener.local_endpoint();
     bool accept_failed = false;
     std::thread accepter([&] {
       auto accepted = listener.accept(std::chrono::seconds(2));

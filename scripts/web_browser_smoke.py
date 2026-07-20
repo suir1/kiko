@@ -307,8 +307,6 @@ def main() -> None:
 
                     stop_interactive(join)
                     stage = "Host session close"
-                    if page.locator("#note-start").is_disabled():
-                        page.click("#cancel")
                     wait_for_idle(page)
                     children.remove(join)
 
