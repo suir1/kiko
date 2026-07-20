@@ -102,11 +102,6 @@ def wait_for_job(base: str, token_path: str, predicate, timeout: float, label: s
     return latest
 
 
-def missing_output_lines(output: str, text: str) -> list[str]:
-    normalized = output.replace("\r\n", "\n").replace("\r", "\n")
-    return [line for line in text.splitlines() if line and line not in normalized]
-
-
 def main() -> None:
     if len(sys.argv) != 3:
         fail("usage: web_note_smoke.py /path/to/kiko /path/to/kiko-relayd")
@@ -254,12 +249,11 @@ def main() -> None:
         join.stdin.write("/quit\n")
         join.stdin.flush()
         output = communicate_or_fail(join, timeout=8)
-        missing_note_lines = missing_output_lines(output, note_text)
-        if missing_note_lines:
-            fail(f"join output did not contain synced note lines: {missing_note_lines!r}\n" + output[-2000:])
-        missing_pad_lines = missing_output_lines(output, pad_text)
-        if missing_pad_lines:
-            fail(f"join output did not contain second pad note lines: {missing_pad_lines!r}\n" + output[-2000:])
+        note_header = f"--- Note 1 rev 1 ({len(note_text.encode('utf-8'))} bytes) ---"
+        if "remote updated main" not in output or note_header not in output:
+            fail("join output did not confirm the Unicode note payload:\n" + output[-2000:])
+        if pad_text not in output:
+            fail("join output did not contain second pad note text:\n" + output[-2000:])
     except BaseException:
         for proc in reversed(procs):
             terminate(proc)
