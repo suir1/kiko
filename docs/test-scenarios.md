@@ -44,7 +44,7 @@ switching, and clearing one pad without changing another.
 
 ## VPS Manual Gate
 
-Use the released `v0.2.3-alpha` binaries on two devices.
+Use the released `v0.2.4-alpha` binaries on two devices.
 
 ### Relay health
 
