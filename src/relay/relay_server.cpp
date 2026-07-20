@@ -2,6 +2,7 @@
 
 #include "core/adaptive.hpp"
 #include "core/common.hpp"
+#include "core/config.hpp"
 #include "platform/platform.hpp"
 #include "core/protocol.hpp"
 #include "relay_protocol.hpp"
@@ -245,7 +246,7 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
   try {
     auto first = recv_message_timeout(socket, kControlReadTimeout);
     if (first && first->type == "ping") {
-      send_message(socket, Message{"pong", {}});
+      send_message(socket, Message{"pong", {{"version", kVersion}}});
       first = recv_message_timeout(socket, kControlReadTimeout);
       if (!first) return;
     }

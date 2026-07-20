@@ -194,6 +194,7 @@ endif()
 
 find_package(Threads REQUIRED)
 target_link_libraries(kiko_core PUBLIC Threads::Threads)
+target_compile_definitions(kiko_core PUBLIC "KIKO_VERSION=\"${PROJECT_VERSION}\"")
 
 target_compile_options(kiko_core PRIVATE
   $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wall -Wextra -Wpedantic>
@@ -218,7 +219,6 @@ set(KIKO_APP_SOURCES
 
 add_executable(kiko ${KIKO_APP_SOURCES})
 target_link_libraries(kiko PRIVATE kiko_core ftxui::component CLI11::CLI11)
-target_compile_definitions(kiko PRIVATE "KIKO_VERSION=\"${PROJECT_VERSION}\"")
 
 set(KIKO_RELAYD_SOURCES
   src/app/relayd_main.cpp

@@ -19,6 +19,12 @@ struct RelayProbeEntry {
   std::string endpoint;
   std::int64_t rtt_ms = -1;
   bool pong_ok = false;
+  std::string version;
+};
+
+struct RelayProbeResult {
+  std::int64_t rtt_ms = -1;
+  std::string version;
 };
 
 struct RelayPeerResult {
@@ -44,6 +50,10 @@ struct RelayRaceEntry {
 [[nodiscard]] std::int64_t probe_relay_rtt_ms(const Endpoint& relay,
                                               const ConnectOptions& connect_options = ConnectOptions{},
                                               std::chrono::milliseconds timeout = std::chrono::seconds(3));
+
+[[nodiscard]] RelayProbeResult probe_relay(const Endpoint& relay,
+                                           const ConnectOptions& connect_options = ConnectOptions{},
+                                           std::chrono::milliseconds timeout = std::chrono::seconds(3));
 
 [[nodiscard]] std::vector<RelayProbeEntry> probe_and_sort_relay_race_entries(std::vector<RelayRaceEntry>& entries,
                                                                              const Endpoint& external_relay,

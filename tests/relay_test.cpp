@@ -1,4 +1,5 @@
 #include "connect/connectivity.hpp"
+#include "core/config.hpp"
 #include "core/protocol.hpp"
 #include "relay/relay_race.hpp"
 #include "relay/relay_server.hpp"
@@ -178,6 +179,12 @@ int main() {
     relay.start(Endpoint{"127.0.0.1", 0});
     const auto endpoint = relay.local_endpoint();
 
+    const auto probe = probe_relay(endpoint);
+    if (probe.rtt_ms < 0 || probe.version != kVersion) {
+      std::cerr << "FAIL: relay probe did not return RTT and version\n";
+      return 1;
+    }
+
     auto sender = connect_tcp(endpoint, std::chrono::seconds(2));
     if (!sender.valid()) {
       std::cerr << "FAIL: sender could not connect relay\n";
@@ -185,7 +192,7 @@ int main() {
     }
     send_message(sender, Message{"ping", {}});
     auto sender_pong = recv_message_timeout(sender, std::chrono::seconds(2));
-    if (!sender_pong || sender_pong->type != "pong") {
+    if (!sender_pong || sender_pong->type != "pong" || sender_pong->get("version") != kVersion) {
       std::cerr << "FAIL: sender did not receive relay pong\n";
       return 1;
     }
@@ -198,7 +205,7 @@ int main() {
     }
     send_message(receiver, Message{"ping", {}});
     auto receiver_pong = recv_message_timeout(receiver, std::chrono::seconds(2));
-    if (!receiver_pong || receiver_pong->type != "pong") {
+    if (!receiver_pong || receiver_pong->type != "pong" || receiver_pong->get("version") != kVersion) {
       std::cerr << "FAIL: receiver did not receive relay pong\n";
       return 1;
     }

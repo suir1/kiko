@@ -291,19 +291,27 @@ std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>
   return wait_for_peer_candidates(relays, remaining, cancel);
 }
 
-std::int64_t probe_relay_rtt_ms(const Endpoint& relay, const ConnectOptions& connect_options,
-                                std::chrono::milliseconds timeout) {
+RelayProbeResult probe_relay(const Endpoint& relay, const ConnectOptions& connect_options,
+                             std::chrono::milliseconds timeout) {
+  RelayProbeResult result;
   const auto start = now_ms();
   auto sock = connect_tcp(relay, timeout, connect_options);
-  if (!sock.valid()) return -1;
+  if (!sock.valid()) return result;
   try {
     send_message(sock, Message{"ping", {}});
     auto pong = recv_message_timeout(sock, std::min(timeout, kRelayProbeReadTimeout));
-    if (!pong || pong->type != "pong") return -1;
+    if (!pong || pong->type != "pong") return result;
+    result.version = pong->get("version");
   } catch (const std::exception&) {
-    return -1;
+    return result;
   }
-  return static_cast<std::int64_t>(now_ms() - start);
+  result.rtt_ms = static_cast<std::int64_t>(now_ms() - start);
+  return result;
+}
+
+std::int64_t probe_relay_rtt_ms(const Endpoint& relay, const ConnectOptions& connect_options,
+                                std::chrono::milliseconds timeout) {
+  return probe_relay(relay, connect_options, timeout).rtt_ms;
 }
 
 std::vector<RelayProbeEntry> probe_and_sort_relay_race_entries(std::vector<RelayRaceEntry>& entries,
@@ -313,14 +321,14 @@ std::vector<RelayProbeEntry> probe_and_sort_relay_race_entries(std::vector<Relay
 
   struct ScoredEntry {
     RelayRaceEntry entry;
-    std::int64_t rtt_ms = -1;
+    RelayProbeResult probe;
   };
 
   std::vector<std::future<ScoredEntry>> futures;
   futures.reserve(entries.size());
   for (const auto& entry : entries) {
     futures.push_back(std::async(std::launch::async, [entry, connect_options]() {
-      return ScoredEntry{entry, probe_relay_rtt_ms(entry.endpoint, connect_options_for_entry(entry, connect_options))};
+      return ScoredEntry{entry, probe_relay(entry.endpoint, connect_options_for_entry(entry, connect_options))};
     }));
   }
 
@@ -329,10 +337,10 @@ std::vector<RelayProbeEntry> probe_and_sort_relay_race_entries(std::vector<Relay
   for (auto& future : futures) scored.push_back(future.get());
 
   std::stable_sort(scored.begin(), scored.end(), [](const ScoredEntry& a, const ScoredEntry& b) {
-    if (a.rtt_ms < 0 && b.rtt_ms < 0) return false;
-    if (a.rtt_ms < 0) return false;
-    if (b.rtt_ms < 0) return true;
-    return a.rtt_ms < b.rtt_ms;
+    if (a.probe.rtt_ms < 0 && b.probe.rtt_ms < 0) return false;
+    if (a.probe.rtt_ms < 0) return false;
+    if (b.probe.rtt_ms < 0) return true;
+    return a.probe.rtt_ms < b.probe.rtt_ms;
   });
 
   entries.clear();
@@ -344,8 +352,9 @@ std::vector<RelayProbeEntry> probe_and_sort_relay_race_entries(std::vector<Relay
     RelayProbeEntry probe;
     probe.kind = relay_kind_for_entry(item.entry, external_relay);
     probe.endpoint = item.entry.endpoint.to_string();
-    probe.rtt_ms = item.rtt_ms;
-    probe.pong_ok = item.rtt_ms >= 0;
+    probe.rtt_ms = item.probe.rtt_ms;
+    probe.pong_ok = item.probe.rtt_ms >= 0;
+    probe.version = item.probe.version;
     probes.push_back(std::move(probe));
   }
   return probes;

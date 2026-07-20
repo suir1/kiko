@@ -96,7 +96,11 @@ std::string connectivity_snapshot_to_json(const ConnectivitySnapshot& snapshot) 
   j["relays"] = nlohmann::json::array();
   for (const auto& relay : snapshot.relays) {
     j["relays"].push_back(
-        {{"kind", relay.kind}, {"endpoint", relay.endpoint}, {"rtt_ms", relay.rtt_ms}, {"pong_ok", relay.pong_ok}});
+        {{"kind", relay.kind},
+         {"endpoint", relay.endpoint},
+         {"rtt_ms", relay.rtt_ms},
+         {"pong_ok", relay.pong_ok},
+         {"version", relay.version}});
   }
   if (snapshot.punch.attempted || snapshot.punch.direct_ok || !snapshot.punch.failures.empty()) {
     nlohmann::json punch;

@@ -11,7 +11,9 @@ int main() {
 
   {
     DoctorReport report;
-    report.snapshot.relays.push_back(RelayProbeEntry{"external", "relay.example:9000", 35, true});
+    RelayProbeEntry relay{"external", "relay.example:9000", 35, true};
+    relay.version = "0.2.2";
+    report.snapshot.relays.push_back(relay);
     report.plan.reason = "stun_symmetric_short_direct";
     report.plan.direct_timeout = std::chrono::milliseconds(500);
     report.plan.direct_connect = std::chrono::milliseconds(220);
@@ -25,6 +27,7 @@ int main() {
 
     const auto j = nlohmann::json::parse(doctor_report_to_json(report));
     assert(j["relay_reachable"] == true);
+    assert(j["relays"][0]["version"] == "0.2.2");
     assert(j["recommendation"] == "short_direct_then_relay");
     assert(j["route_result_hint"]["path"] == "direct_or_relay");
     assert(j["route_result_hint"]["direct_attempted"] == true);

@@ -264,8 +264,10 @@ DoctorReport run_doctor(const DoctorOptions& options) {
   RelayProbeEntry entry;
   entry.kind = "external";
   entry.endpoint = options.relay.to_string();
-  entry.rtt_ms = probe_relay_rtt_ms(options.relay, connect_options);
+  const auto relay_probe = probe_relay(options.relay, connect_options);
+  entry.rtt_ms = relay_probe.rtt_ms;
   entry.pong_ok = entry.rtt_ms >= 0;
+  entry.version = relay_probe.version;
   report.snapshot.relays.push_back(entry);
 
   if (options.udp_probe || options.ai_explain) {
@@ -367,7 +369,11 @@ std::string doctor_report_to_json(const DoctorReport& report) {
   j["relays"] = nlohmann::json::array();
   for (const auto& r : report.snapshot.relays) {
     j["relays"].push_back(
-        {{"kind", r.kind}, {"endpoint", r.endpoint}, {"rtt_ms", r.rtt_ms}, {"pong_ok", r.pong_ok}});
+        {{"kind", r.kind},
+         {"endpoint", r.endpoint},
+         {"rtt_ms", r.rtt_ms},
+         {"pong_ok", r.pong_ok},
+         {"version", r.version}});
   }
   j["diagnosis"] = report.diagnosis;
   return j.dump(2);
@@ -447,7 +453,9 @@ int run_doctor_cli(const DoctorOptions& options) {
     std::cout << "  stun nat: " << stun_nat_class_name(report.snapshot.stun_nat) << "\n";
     if (report.stun && report.stun->ok) std::cout << "  stun mapped: " << report.stun->mapped.to_string() << "\n";
     for (const auto& r : report.snapshot.relays) {
-      std::cout << "  relay " << r.endpoint << " ping: " << (r.pong_ok ? std::to_string(r.rtt_ms) + "ms" : "fail") << "\n";
+      std::cout << "  relay " << r.endpoint << " ping: " << (r.pong_ok ? std::to_string(r.rtt_ms) + "ms" : "fail");
+      if (!r.version.empty()) std::cout << " version=" << r.version;
+      std::cout << "\n";
     }
     std::cout << "  plan: skip_direct=" << (report.plan.skip_direct ? "true" : "false") << " reason=" << report.plan.reason
               << "\n";
