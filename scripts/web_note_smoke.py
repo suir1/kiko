@@ -87,6 +87,18 @@ def communicate_or_fail(proc: subprocess.Popen[str], timeout: float) -> str:
         return ""
 
 
+def wait_for_job(base: str, token_path: str, predicate, timeout: float, label: str) -> dict:
+    deadline = time.time() + timeout
+    latest: dict = {}
+    while time.time() < deadline:
+        latest = api(base, "/api/job" + token_path)
+        if predicate(latest):
+            return latest
+        time.sleep(0.1)
+    fail(f"{label}: {json.dumps(latest, ensure_ascii=False)}")
+    return latest
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         fail("usage: web_note_smoke.py /path/to/kiko /path/to/kiko-relayd")
@@ -133,16 +145,8 @@ def main() -> None:
             },
         )
 
-        code = ""
-        deadline = time.time() + 8
-        while time.time() < deadline:
-            job = api(base, "/api/job" + token_path)
-            code = str(job.get("code") or "")
-            if code:
-                break
-            time.sleep(0.1)
-        if not code:
-            fail("web notepad did not generate a code")
+        job = wait_for_job(base, token_path, lambda value: bool(value.get("code")), 8, "web notepad did not generate a code")
+        code = str(job["code"])
 
         join = subprocess.Popen(
             [
@@ -175,34 +179,67 @@ def main() -> None:
         else:
             fail("web notepad did not connect")
 
-        note_text = "hello from web note"
+        note_text = "你好，kiko\nline two\t✓"
         api(base, "/api/note/update" + token_path, {"text": note_text})
-        deadline = time.time() + 8
-        while time.time() < deadline:
-            job = api(base, "/api/job" + token_path)
-            if job.get("note_synced") and job.get("note_text") == note_text:
-                break
-            time.sleep(0.1)
-        else:
-            fail("web notepad did not receive ack")
+        wait_for_job(
+            base,
+            token_path,
+            lambda value: value.get("note_synced") and value.get("note_text") == note_text,
+            8,
+            "web notepad did not receive Unicode/multiline ack",
+        )
 
         api(base, "/api/note/pad/create" + token_path, {})
         pad_text = "hello from web note pad two"
         api(base, "/api/note/update" + token_path, {"text": pad_text})
-        deadline = time.time() + 8
-        while time.time() < deadline:
-            job = api(base, "/api/job" + token_path)
-            pads = job.get("note_pads") or []
-            if (
-                job.get("note_synced")
-                and job.get("note_active_pad") == "pad-2"
-                and job.get("note_text") == pad_text
-                and len(pads) >= 2
-            ):
-                break
-            time.sleep(0.1)
-        else:
-            fail("web notepad second pad did not sync")
+        wait_for_job(
+            base,
+            token_path,
+            lambda value: value.get("note_synced")
+            and value.get("note_active_pad") == "pad-2"
+            and value.get("note_text") == pad_text
+            and any(pad.get("id") == "pad-2" and pad.get("title") == "Note 2" for pad in value.get("note_pads") or [])
+            and len(value.get("note_pads") or []) >= 2,
+            8,
+            "web notepad second pad did not sync",
+        )
+
+        api(base, "/api/note/pad/select" + token_path, {"pad_id": "main"})
+        wait_for_job(
+            base,
+            token_path,
+            lambda value: value.get("note_active_pad") == "main" and value.get("note_text") == note_text,
+            4,
+            "switching back to main pad lost its text",
+        )
+
+        api(base, "/api/note/pad/select" + token_path, {"pad_id": "pad-2"})
+        wait_for_job(
+            base,
+            token_path,
+            lambda value: value.get("note_active_pad") == "pad-2" and value.get("note_text") == pad_text,
+            4,
+            "switching to pad-2 did not restore its text",
+        )
+
+        api(base, "/api/note/clear" + token_path, {})
+        wait_for_job(
+            base,
+            token_path,
+            lambda value: value.get("note_synced")
+            and value.get("note_active_pad") == "pad-2"
+            and value.get("note_text") == "",
+            8,
+            "clearing pad-2 did not sync",
+        )
+        api(base, "/api/note/pad/select" + token_path, {"pad_id": "main"})
+        wait_for_job(
+            base,
+            token_path,
+            lambda value: value.get("note_active_pad") == "main" and value.get("note_text") == note_text,
+            4,
+            "clearing pad-2 changed main pad",
+        )
 
         if not join.stdin:
             fail("join stdin was unavailable")

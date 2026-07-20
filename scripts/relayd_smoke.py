@@ -5,6 +5,7 @@ import struct
 import subprocess
 import sys
 import time
+import re
 
 
 def send_msg(sock, msg):
@@ -30,10 +31,26 @@ def recv_msg(sock):
     return json.loads(recv_exact(sock, size).decode())
 
 
+def relay_version(binary):
+    proc = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=3)
+    if proc.returncode != 0:
+        raise RuntimeError(f"relayd --version failed: {proc.stderr.strip()}")
+    match = re.fullmatch(r"kiko-relayd (\S+)\s*", proc.stdout)
+    if not match:
+        raise RuntimeError(f"unexpected relayd version output: {proc.stdout!r}")
+    return match.group(1)
+
+
 def main():
     if len(sys.argv) != 2:
         print("usage: relayd_smoke.py /path/to/kiko-relayd", file=sys.stderr)
         return 2
+
+    try:
+        expected_version = relay_version(sys.argv[1])
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        print(str(error), file=sys.stderr)
+        return 1
 
     proc = subprocess.Popen(
         [sys.argv[1], "--listen", "127.0.0.1:0"],
@@ -56,6 +73,10 @@ def main():
                     msg = recv_msg(sock)
                     if msg.get("type") != "pong":
                         raise RuntimeError(f"expected pong, got {msg!r}")
+                    if msg.get("version") != expected_version:
+                        raise RuntimeError(
+                            f"relay pong version mismatch: expected {expected_version!r}, got {msg!r}"
+                        )
                     return 0
             except OSError as error:
                 last_error = error

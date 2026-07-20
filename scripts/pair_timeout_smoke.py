@@ -32,6 +32,27 @@ def free_tcp_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def run_timeout_case(kiko: Path, relay_addr: str, label: str, args: list[str]) -> None:
+    start = time.monotonic()
+    options = ["--relay", relay_addr, "--no-direct", "--no-lan", "--no-local", "--pair-timeout", "1"]
+    if args[1] == "host":
+        options.insert(-2, "--no-qrcode")
+    proc = subprocess.run(
+        [str(kiko), *args, *options],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=8,
+    )
+    elapsed = time.monotonic() - start
+    if proc.returncode == 0:
+        fail(f"{label} unexpectedly succeeded without a peer")
+    if elapsed > 4:
+        fail(f"{label} pair timeout took too long: {elapsed:.2f}s")
+    if "failed to connect relay or rendezvous peer" not in proc.stderr:
+        fail(f"{label} unexpected stderr: {proc.stderr}")
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         fail("usage: pair_timeout_smoke.py /path/to/kiko /path/to/kiko-relayd")
@@ -51,33 +72,8 @@ def main() -> None:
             output = relay.stdout.read() if relay.stdout else ""
             fail("kiko-relayd exited early: " + output)
 
-        start = time.monotonic()
-        proc = subprocess.run(
-            [
-                str(kiko),
-                "note",
-                "host",
-                "--relay",
-                relay_addr,
-                "--no-direct",
-                "--no-lan",
-                "--no-local",
-                "--no-qrcode",
-                "--pair-timeout",
-                "1",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=8,
-        )
-        elapsed = time.monotonic() - start
-        if proc.returncode == 0:
-            fail("note host unexpectedly succeeded without a peer")
-        if elapsed > 4:
-            fail(f"pair timeout took too long: {elapsed:.2f}s")
-        if "failed to connect relay or rendezvous peer" not in proc.stderr:
-            fail("unexpected stderr: " + proc.stderr)
+        run_timeout_case(kiko, relay_addr, "note host", ["note", "host"])
+        run_timeout_case(kiko, relay_addr, "note join", ["note", "join", "deadbeef"])
     finally:
         terminate(relay)
 

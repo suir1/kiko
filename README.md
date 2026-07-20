@@ -302,6 +302,9 @@ python3 scripts/relay_transfer_smoke.py ./build/kiko \
   --expect-scope global
 ```
 
+The complete automated and VPS manual regression matrix is in
+[`docs/test-scenarios.md`](docs/test-scenarios.md).
+
 Docker network labs:
 
 ```sh
