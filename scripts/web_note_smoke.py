@@ -59,9 +59,12 @@ def terminate(proc: subprocess.Popen[str]) -> None:
 
 def dump_child_output(procs: list[subprocess.Popen[str]]) -> None:
     for proc in procs:
-        if not proc.stdout:
+        if not proc.stdout or proc.stdout.closed:
             continue
-        output = proc.stdout.read()
+        try:
+            output = proc.stdout.read()
+        except ValueError:
+            continue
         if not output:
             continue
         print(f"--- child output: {proc.args} ---", file=sys.stderr)
@@ -246,9 +249,10 @@ def main() -> None:
         join.stdin.write("/quit\n")
         join.stdin.flush()
         output = communicate_or_fail(join, timeout=8)
-        if note_text not in output:
+        normalized_output = output.replace("\r\n", "\n").replace("\r", "\n")
+        if note_text not in normalized_output:
             fail("join output did not contain synced note text:\n" + output[-2000:])
-        if pad_text not in output:
+        if pad_text not in normalized_output:
             fail("join output did not contain second pad note text:\n" + output[-2000:])
     except BaseException:
         for proc in reversed(procs):
