@@ -230,7 +230,7 @@ bool WebJobStore::start_note(PeerSessionConfig config, std::string& error) {
           impl_->state.code = code;
           impl_->state.note = runtime->session->snapshot();
         },
-        [cancellation, runtime = std::move(runtime)]() mutable {
+        [cancellation, runtime]() mutable {
           const auto result = runtime->session->run();
           if (result == NoteSessionEnd::Stopped) cancellation->request();
           return std::string("notepad closed");
