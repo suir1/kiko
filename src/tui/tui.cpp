@@ -19,7 +19,6 @@
 #include <ftxui/dom/elements.hpp>
 
 #include <filesystem>
-#include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -31,8 +30,7 @@ namespace kiko {
 namespace {
 
 int run_transfer_screen(
-    const std::string& title,
-    const std::function<void(ProgressReporter&, const std::shared_ptr<TransferCancellation>&)>& run) {
+    const std::string& title, TuiTask run) {
   using namespace ftxui;
 
   TuiState state;
@@ -40,21 +38,7 @@ int run_transfer_screen(
   auto cancellation = std::make_shared<TransferCancellation>();
 
   auto screen = ScreenInteractive::Fullscreen();
-  TuiReporter reporter(state, [&] { screen.PostEvent(Event::Custom); });
-
-  std::thread worker([&] {
-    try {
-      run(reporter, cancellation);
-    } catch (const std::exception& e) {
-      std::lock_guard<std::mutex> lock(state.mutex);
-      if (cancellation->requested()) {
-        state.finish_canceled();
-      } else {
-        state.finish_failed(e.what());
-      }
-    }
-    screen.PostEvent(Event::Custom);
-  });
+  auto worker = start_tui_task(std::move(run), state, [&] { screen.PostEvent(Event::Custom); }, cancellation);
 
   auto renderer = Renderer([&] {
     std::lock_guard<std::mutex> lock(state.mutex);

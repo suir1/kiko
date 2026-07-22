@@ -2,7 +2,9 @@
 
 #include <cassert>
 #include <chrono>
+#include <filesystem>
 #include <iostream>
+#include <thread>
 
 using namespace kiko;
 
@@ -64,6 +66,33 @@ int main() {
   error.clear();
   assert(!store.start_note(note, error));
   assert(error == "note code is required");
+
+  SendConfig missing_send;
+  const auto missing_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+  missing_send.file = std::filesystem::temp_directory_path() /
+                      ("kiko-web-job-missing-input-" + std::to_string(missing_suffix));
+  error.clear();
+  assert(store.start_send(missing_send, error));
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (store.snapshot().running && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  snapshot = store.snapshot();
+  assert(!snapshot.running);
+  assert(snapshot.failed);
+  assert(snapshot.error.find("not a file or directory") != std::string::npos);
+  store.join_finished_worker();
+
+  error.clear();
+  assert(store.start_send(missing_send, error));
+  const auto second_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (store.snapshot().running && std::chrono::steady_clock::now() < second_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  snapshot = store.snapshot();
+  assert(!snapshot.running);
+  assert(snapshot.failed);
+  store.join_finished_worker();
 
   for (int i = 0; i < 130; ++i) reporter.status("line " + std::to_string(i));
   snapshot = store.snapshot();

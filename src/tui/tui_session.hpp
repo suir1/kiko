@@ -11,6 +11,12 @@ namespace kiko {
 
 class TransferCancellation;
 
+using TuiTask =
+    std::function<void(ProgressReporter&, const std::shared_ptr<TransferCancellation>&)>;
+
+[[nodiscard]] std::thread start_tui_task(TuiTask task, TuiState& state, std::function<void()> wake,
+                                         std::shared_ptr<TransferCancellation> cancellation);
+
 [[nodiscard]] std::thread start_tui_transfer(TuiTransferSpec spec, TuiState& state, std::function<void()> wake,
                                              std::shared_ptr<TransferCancellation> cancellation);
 

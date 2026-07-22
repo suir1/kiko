@@ -64,47 +64,66 @@ struct WebJobStore::Access {
     return true;
   }
 
+  static void reset_task(WebJobStore::Impl& impl) {
+    std::lock_guard<std::mutex> lock(impl.mutex);
+    impl.note_runtime.reset();
+    impl.cancellation.reset();
+    impl.state = WebJobSnapshot{};
+  }
+
   template <typename Function>
   static void launch_worker(WebJobStore::Impl& impl, Function&& function) {
     std::lock_guard<std::mutex> lock(impl.mutex);
+    if (impl.worker.joinable()) throw KikoError("previous web task worker is still active");
+    impl.worker = std::thread(std::forward<Function>(function));
+  }
+
+  template <typename Initializer, typename Function>
+  static bool start_task(WebJobStore& store, const char* kind,
+                         std::shared_ptr<TransferCancellation> cancellation, Initializer&& initialize,
+                         Function&& function, std::string& error) {
     try {
-      if (impl.worker.joinable()) throw KikoError("previous web task worker is still active");
-      impl.worker = std::thread(std::forward<Function>(function));
-    } catch (...) {
-      impl.note_runtime.reset();
-      impl.cancellation.reset();
-      impl.state = WebJobSnapshot{};
-      throw;
+      store.join_finished_worker();
+      if (!begin_task(*store.impl_, kind, cancellation, error)) return false;
+
+      try {
+        std::forward<Initializer>(initialize)();
+        launch_worker(*store.impl_,
+                      [&store, cancellation = std::move(cancellation),
+                       function = std::forward<Function>(function)]() mutable {
+                        try {
+                          auto success_activity = function();
+                          cancellation->requested() ? finish_canceled(store)
+                                                    : finish_success(store, success_activity);
+                        } catch (const std::exception& e) {
+                          cancellation->requested() ? finish_canceled(store) : finish_failed(store, e.what());
+                        }
+                      });
+      } catch (...) {
+        reset_task(*store.impl_);
+        throw;
+      }
+      return true;
+    } catch (const std::exception& e) {
+      error = e.what();
+      return false;
     }
   }
 
   template <typename Config>
   static bool start_transfer(WebJobStore& store, const char* kind, const char* activity, Config config,
                              int (*run)(const Config&, ProgressReporter&), std::string& error) {
-    try {
-      store.join_finished_worker();
-      auto cancellation = std::make_shared<TransferCancellation>();
-      config.cancellation = cancellation;
-      if (!begin_task(*store.impl_, kind, cancellation, error)) return false;
-
-      launch_worker(*store.impl_,
-                    [&store, config = std::move(config), cancellation = std::move(cancellation),
-                     activity = std::string(activity), run] {
-                      WebReporter reporter(store);
-                      try {
-                        const int rc = run(config, reporter);
-                        if (rc == 0) finish_success(store, activity + " complete");
-                        else if (cancellation->requested()) finish_canceled(store);
-                        else finish_failed(store, activity + " exited with code " + std::to_string(rc));
-                      } catch (const std::exception& e) {
-                        cancellation->requested() ? finish_canceled(store) : finish_failed(store, e.what());
-                      }
-                    });
-      return true;
-    } catch (const std::exception& e) {
-      error = e.what();
-      return false;
-    }
+    auto cancellation = std::make_shared<TransferCancellation>();
+    config.cancellation = cancellation;
+    return start_task(
+        store, kind, std::move(cancellation), [] {},
+        [&store, config = std::move(config), activity = std::string(activity), run]() mutable {
+          WebReporter reporter(store);
+          const int rc = run(config, reporter);
+          if (rc != 0) throw KikoError(activity + " exited with code " + std::to_string(rc));
+          return activity + " complete";
+        },
+        error);
   }
 
   static void finish_success(WebJobStore& store, const std::string& activity) {
@@ -148,42 +167,27 @@ bool WebJobStore::start_recv(RecvConfig config, std::string& error) {
 }
 
 bool WebJobStore::start_doctor(DoctorOptions options, std::string& error) {
-  try {
-    join_finished_worker();
-    auto cancellation = std::make_shared<TransferCancellation>();
-    if (!Access::begin_task(*impl_, "doctor", cancellation, error)) return false;
-
-    Access::launch_worker(
-        *impl_, [this, options = std::move(options), cancellation = std::move(cancellation)]() mutable {
-          try {
-            append_log("doctor started");
-            const auto report = run_doctor(options);
-            if (cancellation->requested()) {
-              Access::finish_canceled(*this);
-              return;
-            }
-            const auto report_json = doctor_report_to_json(report);
-            update([&](WebJobSnapshot& state) {
-              state.doctor_json = report_json;
-              state.doctor_summary = report.diagnosis;
-              state.activity = "doctor complete";
-            });
-            append_log(report.diagnosis);
-            Access::finish_success(*this, "doctor complete");
-          } catch (const std::exception& e) {
-            cancellation->requested() ? Access::finish_canceled(*this) : Access::finish_failed(*this, e.what());
-          }
+  auto cancellation = std::make_shared<TransferCancellation>();
+  return Access::start_task(
+      *this, "doctor", cancellation, [] {},
+      [this, options = std::move(options), cancellation]() mutable {
+        append_log("doctor started");
+        const auto report = run_doctor(options);
+        throw_if_cancelled(cancellation);
+        const auto report_json = doctor_report_to_json(report);
+        update([&](WebJobSnapshot& state) {
+          state.doctor_json = report_json;
+          state.doctor_summary = report.diagnosis;
+          state.activity = "doctor complete";
         });
-    return true;
-  } catch (const std::exception& e) {
-    error = e.what();
-    return false;
-  }
+        append_log(report.diagnosis);
+        return std::string("doctor complete");
+      },
+      error);
 }
 
 bool WebJobStore::start_note(PeerSessionConfig config, std::string& error) {
   try {
-    join_finished_worker();
     if (config.role == Role::Receiver && config.code.empty()) throw KikoError("note code is required");
 
     auto cancellation = std::make_shared<TransferCancellation>();
@@ -217,29 +221,21 @@ bool WebJobStore::start_note(PeerSessionConfig config, std::string& error) {
     };
     runtime->session = std::make_shared<NoteSession>(config, *runtime->reporter, std::move(callbacks));
 
-    if (!Access::begin_task(*impl_, "note", cancellation, error)) return false;
-    {
-      std::lock_guard<std::mutex> lock(impl_->mutex);
-      impl_->note_runtime = runtime;
-      impl_->state.activity = config.role == Role::Sender ? "hosting notepad" : "joining notepad";
-      impl_->state.code = config.code;
-      impl_->state.note = runtime->session->snapshot();
-    }
-
-    Access::launch_worker(
-        *impl_, [this, cancellation = std::move(cancellation), runtime = std::move(runtime)]() mutable {
-          try {
-            const auto result = runtime->session->run();
-            if (result == NoteSessionEnd::Stopped || cancellation->requested()) {
-              Access::finish_canceled(*this);
-            } else {
-              Access::finish_success(*this, "notepad closed");
-            }
-          } catch (const std::exception& e) {
-            cancellation->requested() ? Access::finish_canceled(*this) : Access::finish_failed(*this, e.what());
-          }
-        });
-    return true;
+    return Access::start_task(
+        *this, "note", cancellation,
+        [this, runtime, role = config.role, code = config.code] {
+          std::lock_guard<std::mutex> lock(impl_->mutex);
+          impl_->note_runtime = runtime;
+          impl_->state.activity = role == Role::Sender ? "hosting notepad" : "joining notepad";
+          impl_->state.code = code;
+          impl_->state.note = runtime->session->snapshot();
+        },
+        [cancellation, runtime = std::move(runtime)]() mutable {
+          const auto result = runtime->session->run();
+          if (result == NoteSessionEnd::Stopped) cancellation->request();
+          return std::string("notepad closed");
+        },
+        error);
   } catch (const std::exception& e) {
     error = e.what();
     return false;
