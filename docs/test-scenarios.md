@@ -57,6 +57,16 @@ the deployed `kiko-relayd` version.
 
 ### Relay-only Notepad
 
+Run the same-host integration preflight through the public Relay before the
+two-device UI check:
+
+```sh
+python3 scripts/web_note_smoke.py ./build/kiko --relay 106.53.170.243:9000
+```
+
+This covers Web Host, CLI Join, synchronization, Unicode text, multiple pads,
+pad isolation, and peer shutdown. It does not replace the two-device TUI check.
+
 On device A:
 
 ```sh

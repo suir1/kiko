@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke test for Web Notepad over a local relay."""
+"""Smoke test for Web Notepad over a local or external relay."""
 
 from __future__ import annotations
 
@@ -103,25 +103,27 @@ def wait_for_job(base: str, token_path: str, predicate, timeout: float, label: s
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        fail("usage: web_note_smoke.py /path/to/kiko /path/to/kiko-relayd")
+    external_relay = len(sys.argv) == 4 and sys.argv[2] == "--relay"
+    if len(sys.argv) != 3 and not external_relay:
+        fail("usage: web_note_smoke.py /path/to/kiko /path/to/kiko-relayd | --relay HOST:PORT")
 
     kiko = Path(sys.argv[1])
-    relayd = Path(sys.argv[2])
-    relay_addr = f"127.0.0.1:{free_tcp_port()}"
+    relayd = None if external_relay else Path(sys.argv[2])
+    relay_addr = sys.argv[3] if external_relay else f"127.0.0.1:{free_tcp_port()}"
     procs: list[subprocess.Popen[str]] = []
 
     try:
-        relay = subprocess.Popen(
-            [str(relayd), "--listen", relay_addr],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        procs.append(relay)
-        time.sleep(0.2)
-        if relay.poll() is not None:
-            fail("kiko-relayd exited early")
+        if relayd:
+            relay = subprocess.Popen(
+                [str(relayd), "--listen", relay_addr],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            procs.append(relay)
+            time.sleep(0.2)
+            if relay.poll() is not None:
+                fail("kiko-relayd exited early")
 
         web = subprocess.Popen(
             [str(kiko), "web", "--no-open", "--listen", "127.0.0.1:0", "--relay", relay_addr],
