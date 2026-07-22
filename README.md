@@ -5,12 +5,18 @@
 ## Install
 
 Download prebuilt binaries from [Releases](https://github.com/suir1/kiko/releases), or install the latest release.
-Current packages cover Linux x64, Linux ARM64, macOS ARM64, macOS x64, and Windows x64.
-Android / Termux prebuilt packages are not published yet; the shell installer detects Termux and prints source-build steps instead of installing an incompatible Linux binary.
+Current packages cover Linux x64, Linux ARM64, macOS ARM64, macOS x64, Windows x64, and Android / Termux ARM64.
 
 macOS / Linux:
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh | sh
+```
+
+Termux ARM64:
+
+```sh
+pkg install -y curl
 curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh | sh
 ```
 
@@ -27,7 +33,7 @@ If `raw.githubusercontent.com` is blocked by your network, download the Windows 
 [Releases](https://github.com/suir1/kiko/releases) and unzip `kiko.exe` into a directory on `PATH`.
 
 The installer writes to `~/.local/bin/kiko` on macOS/Linux and `~/bin/kiko.exe` on Windows. Set
-`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.2.2-alpha` to install a specific release.
+`KIKO_INSTALL_DIR` to choose another directory, or `KIKO_VERSION=v0.2.5-alpha` to install a specific release.
 Use `KIKO_INSTALL_DRY_RUN=1` to print the release asset URL without downloading it.
 Set `KIKO_ADD_TO_PATH=1` to add the install directory to your user PATH (`~/.zshrc`, `~/.bashrc`,
 `~/.profile`, or Windows User PATH). You can also use `KIKO_ADD_TO_PATH=prompt` for an interactive
@@ -44,7 +50,7 @@ if ([string]::IsNullOrWhiteSpace($script)) { throw "failed to download kiko inst
 iex $script
 ```
 
-Termux source build:
+Termux source-build fallback:
 
 ```sh
 pkg update
@@ -64,10 +70,8 @@ Or let the shell installer do the clone/build/install step:
 curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh | KIKO_BUILD_FROM_SOURCE=1 sh
 ```
 
-On Termux, `KIKO_BUILD_FROM_SOURCE=1` runs `pkg update` and installs build dependencies with `pkg install -y` by default. Set
+On Termux, the prebuilt installer writes to `$PREFIX/bin/kiko`. `KIKO_BUILD_FROM_SOURCE=1` runs `pkg update` and installs build dependencies with `pkg install -y` by default. Set
 `KIKO_INSTALL_DEPS=0` to skip that step, or `KIKO_SOURCE_REF=main` to build a branch/ref instead of the latest release tag.
-
-For a custom or future Android release asset, set `KIKO_ASSET=android-arm64` when running `scripts/install.sh`.
 
 macOS binaries are not signed yet. If Gatekeeper blocks the downloaded binary, open **System Settings** →
 **Privacy & Security** and allow `kiko`, or remove the quarantine flag:

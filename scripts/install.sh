@@ -129,7 +129,7 @@ Termux source build:
 Automatic source build:
   curl -fsSL https://raw.githubusercontent.com/suir1/kiko/main/scripts/install.sh | KIKO_BUILD_FROM_SOURCE=1 sh
 
-If you have a custom Android/Termux release asset, retry with KIKO_ASSET=android-arm64.
+The prebuilt Termux asset name is android-arm64. Use the source build above when it is unavailable for a release.
 EOF
 }
 

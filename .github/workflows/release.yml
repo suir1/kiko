@@ -208,8 +208,94 @@ jobs:
           name: kiko-linux-arm64
           path: dist/kiko-${{ env.RELEASE_TAG }}-linux-arm64.tar.gz
 
+  build-android-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Checkout Android build tools
+        uses: actions/checkout@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          sparse-checkout: cmake/triplets/arm64-android-termux.cmake
+          sparse-checkout-cone-mode: false
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf autoconf-archive automake file libtool pkg-config
+
+      - name: Select Android NDK and triplet
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-}"
+          if [ -z "$ndk" ]; then
+            ndk=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          fi
+          test -f "$ndk/build/cmake/android.toolchain.cmake"
+          triplets="$GITHUB_WORKSPACE/cmake/triplets"
+          if [ ! -f "$triplets/arm64-android-termux.cmake" ]; then
+            triplets="$GITHUB_WORKSPACE/.release-tools/cmake/triplets"
+          fi
+          test -f "$triplets/arm64-android-termux.cmake"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "VCPKG_OVERLAY_TRIPLETS=$triplets" >> "$GITHUB_ENV"
+
+      - name: Install vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git .vcpkg
+          ./.vcpkg/bootstrap-vcpkg.sh
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .vcpkg/downloads
+            .vcpkg/installed
+            build-android/vcpkg_installed
+          key: android-arm64-vcpkg-${{ hashFiles('vcpkg.json') }}
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build-android -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+          -DVCPKG_OVERLAY_TRIPLETS="$VCPKG_OVERLAY_TRIPLETS"
+          -DVCPKG_TARGET_TRIPLET=arm64-android-termux
+          -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=24 -DANDROID_STL=c++_static
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+
+      - name: Build
+        run: cmake --build build-android --target kiko
+
+      - name: Inspect Android executable
+        run: |
+          file build-android/kiko | grep -E 'ELF 64-bit.*ARM aarch64'
+          readelf="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$readelf" -l build-android/kiko | grep '/system/bin/linker64'
+          "$readelf" -d build-android/kiko
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          name="kiko-${RELEASE_TAG}-android-arm64"
+          mkdir -p "dist/${name}"
+          cp build-android/kiko "dist/${name}/"
+          cp README.md LICENSE "dist/${name}/"
+          tar -czf "dist/${name}.tar.gz" -C dist "${name}"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiko-android-arm64
+          path: dist/kiko-${{ env.RELEASE_TAG }}-android-arm64.tar.gz
+
   publish:
-    needs: [build, build-linux-arm64]
+    needs: [build, build-linux-arm64, build-android-arm64]
     runs-on: ubuntu-latest
 
     steps:
