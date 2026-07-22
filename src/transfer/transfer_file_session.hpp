@@ -16,8 +16,6 @@
 
 namespace kiko::detail {
 
-[[nodiscard]] bool is_dir_entry(const FileEntry& entry);
-
 enum class SendFileAction {
   MarkerComplete,
   SkipPayload,

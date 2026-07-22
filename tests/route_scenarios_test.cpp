@@ -274,14 +274,46 @@ int main() {
     NatProfile open;
     open.type = NatType::Open;
     AdaptivePuncher puncher;
-    PunchPlan punch;
-    apply_route_plan_to_adaptive(plan, Role::Receiver, puncher, candidates, open, NatProfile{}, punch);
+    const auto punch = build_direct_attempt_plan(plan, Role::Receiver, puncher, candidates, open, NatProfile{});
     assert_ms(punch.total_timeout, 600, "planned direct window");
     assert_ms(punch.connect_timeout, 180, "planned connect timeout");
     if (punch.candidates.empty() || punch.candidates.front().kind != "public") {
       std::cerr << "FAIL: planned direct candidate order was not applied\n";
       return 1;
     }
+  }
+
+  {
+    RoutePlan plan;
+    plan.direct_timeout = std::chrono::milliseconds(600);
+    plan.direct_connect = std::chrono::milliseconds(180);
+    plan.same_port_timeout = std::chrono::milliseconds(120);
+    plan.same_port_connect = std::chrono::milliseconds(40);
+
+    AdaptivePuncher puncher;
+    const auto punch = build_direct_attempt_plan(plan, Role::Sender, puncher, {}, NatProfile{NatType::Open},
+                                                 NatProfile{NatType::BehindNat});
+    assert_ms(punch.total_timeout, 600, "route plan clamps adaptive direct window");
+    assert_ms(punch.connect_timeout, 180, "route plan overrides adaptive connect timeout");
+    assert_ms(punch.same_port_timeout, 120, "route plan overrides same-port window");
+    assert_ms(punch.same_port_connect_timeout, 40, "route plan overrides same-port connect timeout");
+  }
+
+  {
+    RoutePlan plan;
+    plan.direct_timeout = std::chrono::milliseconds(5000);
+    plan.direct_connect = std::chrono::milliseconds(0);
+    plan.same_port_timeout = std::chrono::milliseconds(0);
+    plan.same_port_connect = std::chrono::milliseconds(0);
+
+    AdaptivePuncher puncher;
+    const auto punch = build_direct_attempt_plan(plan, Role::Sender, puncher, {}, NatProfile{NatType::Open},
+                                                 NatProfile{NatType::BehindNat});
+    assert_ms(punch.total_timeout, 3500, "route plan does not widen adaptive direct window");
+    assert_ms(punch.connect_timeout, 500, "zero route connect timeout preserves adaptive value");
+    assert_ms(punch.same_port_timeout, 500, "zero route same-port window preserves adaptive value");
+    assert_ms(punch.same_port_connect_timeout, 160,
+              "zero route same-port connect timeout preserves adaptive value");
   }
 
   {

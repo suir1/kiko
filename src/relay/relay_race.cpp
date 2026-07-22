@@ -1,5 +1,6 @@
 #include "relay_race.hpp"
 
+#include "core/cancellation.hpp"
 #include "platform/platform.hpp"
 #include "relay/relay_protocol.hpp"
 
@@ -23,20 +24,9 @@ struct ActiveRelayCandidate {
 };
 
 std::string relay_kind_for_entry(const RelayRaceEntry& entry, const Endpoint& external_relay) {
-  if (entry.endpoint.host == external_relay.host && entry.endpoint.port == external_relay.port) return "external";
+  if (entry.endpoint == external_relay) return "external";
   if (is_loopback_host(entry.endpoint.host)) return "embedded";
   return "lan";
-}
-
-bool sleep_with_cancel(std::chrono::milliseconds delay, const std::atomic_bool* cancel) {
-  auto remaining = delay;
-  while (remaining.count() > 0) {
-    if (cancel && cancel->load()) return false;
-    const auto slice = std::min<std::chrono::milliseconds>(remaining, std::chrono::milliseconds(25));
-    std::this_thread::sleep_for(slice);
-    remaining -= slice;
-  }
-  return !cancel || !cancel->load();
 }
 
 bool relay_candidate_better(const ActiveRelayCandidate& candidate, const ActiveRelayCandidate& best) {
@@ -57,7 +47,7 @@ std::optional<Endpoint> probe_punch_mapping(const Endpoint& relay, const RelayHe
                                             std::chrono::milliseconds timeout,
                                             const std::atomic_bool* cancel) {
   if (connect_options.proxy || timeout.count() <= 0) return std::nullopt;
-  if (cancel && cancel->load()) return std::nullopt;
+  if (cancellation_requested(cancel)) return std::nullopt;
 
   if (hello.listen.port == 0) return std::nullopt;
 
@@ -90,7 +80,7 @@ static std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& r
                                                                const std::optional<std::string>& relay_pass,
                                                                std::chrono::milliseconds timeout,
                                                                const std::atomic_bool* cancel) {
-  if (cancel && cancel->load()) return std::nullopt;
+  if (cancellation_requested(cancel)) return std::nullopt;
   RelayHello registration = hello;
   if (relay_pass && !relay_pass->empty()) registration.relay_pass = relay_pass;
 
@@ -119,7 +109,7 @@ static std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& r
     return close_and_fail();
   }
   bool pong_ok = false;
-  while ((!cancel || !cancel->load()) && std::chrono::steady_clock::now() < deadline) {
+  while (!cancellation_requested(cancel) && std::chrono::steady_clock::now() < deadline) {
     const int fd = socket.fd();
     if (fd < 0) break;
     auto remaining = remaining_until_deadline();
@@ -138,9 +128,9 @@ static std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& r
       return close_and_fail();
     }
   }
-  if (!pong_ok || (cancel && cancel->load())) return close_and_fail();
+  if (!pong_ok || cancellation_requested(cancel)) return close_and_fail();
 
-  if (remaining_until_deadline().count() <= 0 || (cancel && cancel->load())) return close_and_fail();
+  if (remaining_until_deadline().count() <= 0 || cancellation_requested(cancel)) return close_and_fail();
 
   try {
     send_message(socket, encode_relay_hello(registration));
@@ -169,7 +159,7 @@ std::optional<RelayPeerResult> wait_for_peer_candidates(std::vector<ActiveRelayC
     return result;
   };
 
-  while ((!cancel || !cancel->load()) && std::chrono::steady_clock::now() < deadline) {
+  while (!cancellation_requested(cancel) && std::chrono::steady_clock::now() < deadline) {
     const auto now = std::chrono::steady_clock::now();
     for (std::size_t i = 0; i < relays.size(); ++i) {
       auto& relay = relays[i];
@@ -229,7 +219,7 @@ std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>
                                                const std::optional<std::string>& relay_pass,
                                                const std::atomic_bool* cancel) {
   if (entries.empty()) return std::nullopt;
-  if (cancel && cancel->load()) return std::nullopt;
+  if (cancellation_requested(cancel)) return std::nullopt;
 
   struct ConnectOutcome {
     Endpoint endpoint;
@@ -246,7 +236,7 @@ std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>
     const auto entry = entries[order];
     futures.push_back(std::async(std::launch::async, [entry, order, hello, connect_options, relay_pass, connect_timeout, cancel]() {
       ConnectOutcome outcome{entry.endpoint, std::nullopt, entry.priority, order};
-      if (!sleep_with_cancel(entry.start_delay, cancel)) return outcome;
+      if (!wait_with_cancellation(entry.start_delay, cancel)) return outcome;
       outcome.socket =
           try_connect_relay_and_register(entry.endpoint, hello, connect_options_for_entry(entry, connect_options),
                                          relay_pass, connect_timeout, cancel);
@@ -258,7 +248,7 @@ std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>
   std::vector<ActiveRelayCandidate> relays;
   std::vector<bool> future_done(futures.size(), false);
 
-  while ((!cancel || !cancel->load()) && std::chrono::steady_clock::now() < end) {
+  while (!cancellation_requested(cancel) && std::chrono::steady_clock::now() < end) {
     for (std::size_t i = 0; i < futures.size(); ++i) {
       if (future_done[i]) continue;
       if (futures[i].wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) continue;
@@ -284,7 +274,7 @@ std::optional<RelayPeerResult> race_until_peer(const std::vector<RelayRaceEntry>
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
 
-  if (cancel && cancel->load()) return std::nullopt;
+  if (cancellation_requested(cancel)) return std::nullopt;
   if (relays.empty()) return std::nullopt;
   auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(end - std::chrono::steady_clock::now());
   if (remaining.count() <= 0) remaining = std::chrono::milliseconds(1);

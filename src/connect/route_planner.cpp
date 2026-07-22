@@ -238,12 +238,12 @@ void apply_direct_candidate_scoring(std::vector<DirectCandidate>& candidates,
   }
 }
 
-void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePuncher& puncher,
-                                  const std::vector<DirectCandidate>& candidates, const NatProfile& self,
-                                  const NatProfile& peer, PunchPlan& out) {
+PunchPlan build_direct_attempt_plan(const RoutePlan& plan, Role role, AdaptivePuncher& puncher,
+                                    const std::vector<DirectCandidate>& candidates, const NatProfile& self,
+                                    const NatProfile& peer) {
   auto ordered = candidates;
   apply_direct_candidate_scoring(ordered, plan.candidate_score_hints, plan.direct_candidate_order);
-  out = puncher.plan(role, ordered, self, peer);
+  auto out = puncher.plan(role, ordered, self, peer);
   if (plan.direct_timeout.count() > 0 && plan.direct_timeout < out.total_timeout) {
     out.total_timeout = plan.direct_timeout;
   }
@@ -253,6 +253,7 @@ void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePunc
   if (plan.same_port_timeout.count() > 0) out.same_port_timeout = plan.same_port_timeout;
   if (plan.same_port_connect.count() > 0) out.same_port_connect_timeout = plan.same_port_connect;
   tune_direct_candidate_timeouts(out);
+  return out;
 }
 
 void apply_peer_direct_policy(RoutePlan& plan, bool peer_no_direct) {

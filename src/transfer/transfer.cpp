@@ -38,8 +38,7 @@ void fill_transfer_snapshot(ConnectivitySnapshot& snapshot, const std::vector<Fi
   std::size_t regular_files = 0;
   std::size_t compressible_files = 0;
   for (const auto& entry : files) {
-    const bool directory = entry.size == 0 && !entry.relative.empty() && entry.relative.back() == '/';
-    if (directory || entry.symlink) continue;
+    if (transfer_entry_kind(entry) != TransferEntryKind::File) continue;
     ++regular_files;
     snapshot.largest_file_bytes = std::max(snapshot.largest_file_bytes, entry.size);
     if (should_compress_path(entry.absolute)) ++compressible_files;
@@ -93,12 +92,9 @@ int run_with_auto_reconnect(Config config, bool generate_code, ProgressReporter&
       if (attempt >= max_attempts || !is_retryable_transfer_error_message(error.what())) throw;
       reporter.transfer_retry(attempt + 1, max_attempts, error.what());
       reporter.transfer_retry_delay(attempt + 1, max_attempts, config.reconnect_delay);
-      auto remaining = config.reconnect_delay;
-      while (remaining.count() > 0) {
+      if (!wait_with_cancellation(config.reconnect_delay, cancellation_flag(config.cancellation),
+                                  std::chrono::milliseconds(50))) {
         throw_if_cancelled(config.cancellation);
-        const auto slice = std::min<std::chrono::milliseconds>(remaining, std::chrono::milliseconds(50));
-        std::this_thread::sleep_for(slice);
-        remaining -= slice;
       }
     }
   }

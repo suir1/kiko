@@ -56,7 +56,20 @@ int main() {
 
   {
     const Endpoint ep{"127.0.0.1", 9000};
+    const Endpoint same_ep{"127.0.0.1", 9000};
+    const Endpoint other_ep{"127.0.0.1", 9001};
+    const Endpoint empty_ep{"", 0};
+    const Endpoint ipv4_wildcard{"0.0.0.0", 0};
+    const Endpoint ipv6_wildcard{"::", 0};
+    const Endpoint bracketed_ipv6_wildcard{"[::]", 0};
     assert(ep.to_string() == "127.0.0.1:9000");
+    assert(ep == same_ep);
+    assert(ep != other_ep);
+    assert(!ep.is_unspecified());
+    assert(empty_ep.is_unspecified());
+    assert(ipv4_wildcard.is_unspecified());
+    assert(ipv6_wildcard.is_unspecified());
+    assert(bracketed_ipv6_wildcard.is_unspecified());
   }
 
   {

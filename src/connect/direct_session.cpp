@@ -46,9 +46,6 @@ void apply_relay_fallback_guard(PunchPlan& punch, const RoutePlan& route_plan) {
 
 std::vector<DirectCandidate> peer_candidates(const RelayPeerInfo& peer, const std::vector<Endpoint>& extra = {}) {
   std::vector<DirectCandidate> out;
-  auto unspecified_host = [](const std::string& host) {
-    return host == "0.0.0.0" || host == "::" || host == "[::]";
-  };
   auto classify_kind = [](const Endpoint& e, const std::string& base_kind) {
     const auto family = ip_address_family(e.host);
     const auto scope = ip_address_scope(e.host);
@@ -61,11 +58,11 @@ std::vector<DirectCandidate> peer_candidates(const RelayPeerInfo& peer, const st
     return priority;
   };
   auto push_unique = [&](Endpoint e, std::string kind, int priority, const std::string& source_reason) {
-    if (e.port == 0 || e.host.empty() || unspecified_host(e.host)) return;
+    if (e.port == 0 || e.is_unspecified()) return;
     kind = classify_kind(e, kind);
     priority = classify_priority(kind, priority);
     for (auto& existing : out) {
-      if (existing.endpoint.host != e.host || existing.endpoint.port != e.port) continue;
+      if (!(existing.endpoint == e)) continue;
       add_direct_candidate_reason(existing, source_reason);
       if (priority > existing.priority) existing.priority = priority;
       return;
@@ -188,9 +185,8 @@ std::optional<TcpSocket> attempt_direct(Role role, TcpListener& listener, const 
                                         const ConnectOptions& connect_options, ProgressReporter* reporter,
                                         const std::atomic_bool* cancel) {
   if (route_plan.skip_direct) return std::nullopt;
-  PunchPlan punch;
   auto candidates = peer_candidates(peer, lan_extra);
-  apply_route_plan_to_adaptive(route_plan, role, puncher, candidates, self, peer_nat, punch);
+  auto punch = build_direct_attempt_plan(route_plan, role, puncher, candidates, self, peer_nat);
   apply_relay_fallback_guard(punch, route_plan);
   if (reporter) reporter->status(describe_direct_plan(route_plan, punch));
   if (route_plan.udp_punch_enabled) {

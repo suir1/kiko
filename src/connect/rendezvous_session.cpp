@@ -5,7 +5,7 @@ namespace kiko {
 void push_unique_endpoint(std::vector<Endpoint>& out, const Endpoint& ep) {
   if (ep.port == 0) return;
   for (const auto& existing : out) {
-    if (existing.host == ep.host && existing.port == ep.port) return;
+    if (existing == ep) return;
   }
   out.push_back(ep);
 }
@@ -17,8 +17,7 @@ Endpoint relay_with_manual_ip(const Endpoint& relay, const std::optional<std::st
 
 std::vector<std::string> local_candidates_for_listener(const Endpoint& local_listen,
                                                        const NetworkInterfaceInventory& interfaces) {
-  if (local_listen.host.empty() || local_listen.host == "0.0.0.0" || local_listen.host == "::" ||
-      local_listen.host == "[::]") {
+  if (local_listen.is_unspecified()) {
     return interfaces.lan_candidate_addresses();
   }
   return {local_listen.host};
@@ -38,13 +37,13 @@ std::vector<RelayRaceEntry> relay_race_entries_for_recv(const std::vector<Endpoi
   entries.reserve(relay_targets.size());
   bool has_local_relay = false;
   for (const auto& target : relay_targets) {
-    if (!(target.host == external_relay.host && target.port == external_relay.port)) {
+    if (!(target == external_relay)) {
       has_local_relay = true;
       break;
     }
   }
   for (const auto& target : relay_targets) {
-    const bool external = target.host == external_relay.host && target.port == external_relay.port;
+    const bool external = target == external_relay;
     entries.push_back(RelayRaceEntry{target,
                                      external,
                                      external ? 1u : 0u,

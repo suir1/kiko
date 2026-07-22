@@ -163,8 +163,7 @@ bool bind_socket_to_interface(asio::ip::tcp::socket& socket, const asio::ip::tcp
 std::optional<asio::ip::tcp::endpoint> local_bind_endpoint_for(const asio::ip::tcp::endpoint& candidate,
                                                                const std::optional<Endpoint>& local_bind) {
   if (!local_bind) return std::nullopt;
-  if (local_bind->host.empty() || local_bind->host == "0.0.0.0" || local_bind->host == "::" ||
-      local_bind->host == "[::]") {
+  if (local_bind->is_unspecified()) {
     return asio::ip::tcp::endpoint(candidate.protocol(), local_bind->port);
   }
 

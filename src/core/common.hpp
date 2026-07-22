@@ -27,6 +27,14 @@ struct Endpoint {
   std::string host;
   std::uint16_t port = 0;
 
+  [[nodiscard]] bool operator==(const Endpoint& other) const {
+    return host == other.host && port == other.port;
+  }
+
+  [[nodiscard]] bool is_unspecified() const {
+    return host.empty() || host == "0.0.0.0" || host == "::" || host == "[::]";
+  }
+
   [[nodiscard]] std::string to_string() const {
     if (host.find(':') != std::string::npos && (host.empty() || host.front() != '[')) {
       return "[" + host + "]:" + std::to_string(port);

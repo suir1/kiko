@@ -18,18 +18,14 @@ void append_metadata_fields(Message& header, const FileEntry& entry) {
 
 }  // namespace
 
-bool is_dir_entry(const FileEntry& entry) {
-  return entry.size == 0 && !entry.relative.empty() && entry.relative.back() == '/';
-}
-
 namespace {
 
 bool should_compress_entry(const FileEntry& entry) {
-  return !is_dir_entry(entry) && !entry.symlink && should_compress_path(entry.absolute);
+  return transfer_entry_kind(entry) == TransferEntryKind::File && should_compress_path(entry.absolute);
 }
 
 Message make_file_header(const FileEntry& entry) {
-  if (entry.symlink) {
+  if (transfer_entry_kind(entry) == TransferEntryKind::Symlink) {
     return Message{"file",
                    {{"path", entry.relative},
                     {"size", "0"},
@@ -37,7 +33,7 @@ Message make_file_header(const FileEntry& entry) {
                     {"kind", "symlink"},
                     {"target", entry.link_target}}};
   }
-  if (is_dir_entry(entry)) {
+  if (transfer_entry_kind(entry) == TransferEntryKind::Directory) {
     Message header{"file", {{"path", entry.relative}, {"size", "0"}, {"compress", "none"}}};
     append_metadata_fields(header, entry);
     return header;
@@ -57,7 +53,7 @@ Message make_file_header(const FileEntry& entry) {
 SendFileSession::SendFileSession(const FileEntry& entry, TcpSocket& control, StreamCipher& cipher,
                                  ProgressReporter& reporter, TransferTiming& timing, Bytes& buffer)
     : entry_(entry), control_(control), cipher_(cipher), reporter_(reporter), timing_(timing) {
-  const bool marker = entry_.symlink || is_dir_entry(entry_);
+  const bool marker = transfer_entry_kind(entry_) != TransferEntryKind::File;
   if (!marker) {
     input_.open(entry_.absolute, std::ios::binary);
     if (!input_) throw KikoError("failed to open input file: " + entry_.absolute.string());

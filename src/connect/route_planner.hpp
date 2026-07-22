@@ -13,9 +13,9 @@ namespace kiko {
 
 [[nodiscard]] std::string describe_route_plan(const RoutePlan& plan, bool include_same_port = false);
 
-void apply_route_plan_to_adaptive(const RoutePlan& plan, Role role, AdaptivePuncher& puncher,
-                                  const std::vector<DirectCandidate>& candidates, const NatProfile& self,
-                                  const NatProfile& peer, PunchPlan& out);
+[[nodiscard]] PunchPlan build_direct_attempt_plan(const RoutePlan& plan, Role role, AdaptivePuncher& puncher,
+                                                  const std::vector<DirectCandidate>& candidates,
+                                                  const NatProfile& self, const NatProfile& peer);
 
 void apply_direct_candidate_scoring(std::vector<DirectCandidate>& candidates,
                                     const RoutePlan::DirectCandidateScoreHints& hints,

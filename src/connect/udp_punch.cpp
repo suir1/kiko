@@ -1,5 +1,6 @@
 #include "udp_punch.hpp"
 
+#include "core/cancellation.hpp"
 #include "platform/platform.hpp"
 
 #include <algorithm>
@@ -11,7 +12,7 @@ namespace {
 constexpr int kMaxUdpPackets = 32;
 constexpr const char kPunchPayload[] = "kiko-punch";
 
-bool cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
+bool cancelled(const std::atomic_bool* cancel) { return cancellation_requested(cancel); }
 
 void wait_until_punch_time(std::uint64_t punch_at_ms, const std::atomic_bool* cancel) {
   while (true) {

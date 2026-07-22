@@ -16,11 +16,12 @@ std::vector<Endpoint> local_candidates_from_message(const Message& message) {
   auto port = message_port_field(message, "listen_port");
   if (!port) return out;
   auto push = [&](const std::string& host) {
-    if (host.empty() || host == "0.0.0.0" || host == "::" || host == "[::]") return;
+    const Endpoint candidate{host, *port};
+    if (candidate.is_unspecified()) return;
     for (const auto& existing : out) {
-      if (existing.host == host && existing.port == *port) return;
+      if (existing == candidate) return;
     }
-    out.push_back(Endpoint{host, *port});
+    out.push_back(candidate);
   };
   for (const auto& host : split_csv(message.get("local_candidates"))) {
     push(host);

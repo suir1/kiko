@@ -28,6 +28,27 @@ int main() {
     }
   }
 
+  {
+    std::atomic_bool cancel{false};
+    if (cancellation_requested(&cancel)) {
+      std::cerr << "FAIL: cancellation query reported a false request\n";
+      return 1;
+    }
+    if (!wait_with_cancellation(1ms, &cancel, 1ms)) {
+      std::cerr << "FAIL: cancellation wait did not complete\n";
+      return 1;
+    }
+    cancel.store(true);
+    if (!cancellation_requested(&cancel)) {
+      std::cerr << "FAIL: cancellation query missed a request\n";
+      return 1;
+    }
+    if (wait_with_cancellation(20ms, &cancel, 1ms)) {
+      std::cerr << "FAIL: cancellation wait ignored cancellation\n";
+      return 1;
+    }
+  }
+
   auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
   TcpSocket client;
   std::thread connector([&] { client = connect_tcp(listener.local_endpoint(), 2s); });

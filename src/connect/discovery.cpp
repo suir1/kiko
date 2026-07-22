@@ -103,7 +103,7 @@ std::vector<Endpoint> lan_discover(std::chrono::milliseconds timeout) {
       if (!port) continue;
       Endpoint ep{from.address().to_string(), *port};
       if (std::find_if(out.begin(), out.end(), [&](const Endpoint& e) {
-            return e.host == ep.host && e.port == ep.port;
+            return e == ep;
           }) == out.end()) {
         out.push_back(ep);
       }

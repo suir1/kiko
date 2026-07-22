@@ -56,6 +56,32 @@ struct FileEntry {
   std::string link_target;
 };
 
+enum class TransferEntryKind {
+  File,
+  Directory,
+  Symlink,
+};
+
+[[nodiscard]] inline TransferEntryKind transfer_entry_kind(const FileEntry& entry) {
+  if (entry.symlink) return TransferEntryKind::Symlink;
+  if (entry.size == 0 && !entry.relative.empty() && entry.relative.back() == '/') {
+    return TransferEntryKind::Directory;
+  }
+  return TransferEntryKind::File;
+}
+
+[[nodiscard]] inline const char* transfer_entry_kind_name(TransferEntryKind kind) {
+  switch (kind) {
+    case TransferEntryKind::File:
+      return "file";
+    case TransferEntryKind::Directory:
+      return "dir";
+    case TransferEntryKind::Symlink:
+      return "symlink";
+  }
+  return "file";
+}
+
 struct CollectOptions {
   bool use_gitignore = true;
   SymlinkMode symlink_mode = SymlinkMode::Follow;

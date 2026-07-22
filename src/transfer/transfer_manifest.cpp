@@ -1,7 +1,6 @@
 #include "transfer_manifest.hpp"
 
 #include "core/common.hpp"
-#include "transfer_file_session.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -9,12 +8,6 @@
 
 namespace kiko::detail {
 namespace {
-
-std::string manifest_kind(const FileEntry& entry) {
-  if (entry.symlink) return "symlink";
-  if (is_dir_entry(entry)) return "dir";
-  return "file";
-}
 
 std::string manifest_string_field(const nlohmann::json& object, const char* key, const std::string& fallback = {}) {
   if (!object.contains(key)) return fallback;
@@ -65,14 +58,16 @@ std::string encode_transfer_manifest(const std::vector<FileEntry>& files) {
   for (const auto& entry : files) {
     nlohmann::json item = nlohmann::json::object();
     item["path"] = entry.relative;
-    item["kind"] = manifest_kind(entry);
+    item["kind"] = transfer_entry_kind_name(transfer_entry_kind(entry));
     item["size"] = entry.size;
     if (!entry.imohash.empty()) item["imohash"] = entry.imohash;
     if (!entry.link_target.empty()) item["target"] = entry.link_target;
     if (entry.mtime_ms > 0) item["mtime_ms"] = entry.mtime_ms;
     if (entry.mode > 0) item["mode"] = entry.mode;
     root["entries"].push_back(std::move(item));
-    if (!is_dir_entry(entry) && !entry.symlink) add_manifest_size(total_size, entry.size, entry.relative);
+    if (transfer_entry_kind(entry) == TransferEntryKind::File) {
+      add_manifest_size(total_size, entry.size, entry.relative);
+    }
   }
 
   root["count"] = files.size();

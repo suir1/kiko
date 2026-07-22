@@ -1,6 +1,7 @@
 #include "connectivity.hpp"
 
 #include "core/adaptive.hpp"
+#include "core/cancellation.hpp"
 #include "core/protocol.hpp"
 #include "core/socket.hpp"
 
@@ -15,7 +16,7 @@ namespace {
 constexpr auto kDirectPreflightTimeout = std::chrono::milliseconds(1500);
 constexpr auto kSyncSamePortConnectWindow = std::chrono::milliseconds(160);
 
-bool direct_cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
+bool direct_cancelled(const std::atomic_bool* cancel) { return cancellation_requested(cancel); }
 
 }  // namespace
 
