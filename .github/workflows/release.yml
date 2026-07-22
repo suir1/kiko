@@ -279,6 +279,12 @@ jobs:
           "$readelf" -l build-android/kiko | grep '/system/bin/linker64'
           "$readelf" -d build-android/kiko
 
+      - name: Strip Android executable
+        run: |
+          strip="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          "$strip" build-android/kiko
+          file build-android/kiko | grep 'stripped'
+
       - name: Package
         run: |
           set -euo pipefail
