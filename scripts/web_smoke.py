@@ -77,6 +77,8 @@ def main() -> None:
             fail("config API missing expected fields")
         if "shortcuts" not in config or not isinstance(config["shortcuts"], list):
             fail("config API missing browser shortcuts")
+        if not isinstance(config.get("browser_file_picker"), bool):
+            fail("config API missing browser file picker capability")
 
         status, body = fetch(base + "/api/fs?path=.&mode=file_or_dir&sort=name&" + query)
         if status != 200:

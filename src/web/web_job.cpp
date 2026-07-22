@@ -15,6 +15,25 @@ struct WebNoteRuntime {
   std::shared_ptr<NoteSession> session;
 };
 
+struct StagedFileCleanup {
+  std::filesystem::path path;
+
+  StagedFileCleanup() = default;
+  explicit StagedFileCleanup(std::filesystem::path value) : path(std::move(value)) {}
+  StagedFileCleanup(const StagedFileCleanup&) = delete;
+  StagedFileCleanup& operator=(const StagedFileCleanup&) = delete;
+  StagedFileCleanup(StagedFileCleanup&& other) noexcept : path(std::move(other.path)) { other.path.clear(); }
+  StagedFileCleanup& operator=(StagedFileCleanup&&) = delete;
+
+  ~StagedFileCleanup() {
+    if (path.empty()) return;
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    ec.clear();
+    std::filesystem::remove(path.parent_path(), ec);
+  }
+};
+
 }  // namespace
 
 struct WebJobStore::Impl {
@@ -112,12 +131,14 @@ struct WebJobStore::Access {
 
   template <typename Config>
   static bool start_transfer(WebJobStore& store, const char* kind, const char* activity, Config config,
-                             int (*run)(const Config&, ProgressReporter&), std::string& error) {
+                             int (*run)(const Config&, ProgressReporter&), std::string& error,
+                             std::filesystem::path cleanup_path = {}) {
     auto cancellation = std::make_shared<TransferCancellation>();
     config.cancellation = cancellation;
     return start_task(
         store, kind, std::move(cancellation), [] {},
-        [&store, config = std::move(config), activity = std::string(activity), run]() mutable {
+        [&store, config = std::move(config), activity = std::string(activity), run,
+         cleanup = StagedFileCleanup{std::move(cleanup_path)}]() mutable {
           WebReporter reporter(store);
           const int rc = run(config, reporter);
           if (rc != 0) throw KikoError(activity + " exited with code " + std::to_string(rc));
@@ -150,12 +171,13 @@ struct WebJobStore::Access {
   }
 };
 
-bool WebJobStore::start_send(SendConfig config, std::string& error) {
+bool WebJobStore::start_send(SendConfig config, std::string& error, std::filesystem::path cleanup_path) {
   if (config.file.empty()) {
     error = "send path is required";
     return false;
   }
-  return Access::start_transfer(*this, "send", "send", std::move(config), run_send, error);
+  return Access::start_transfer(*this, "send", "send", std::move(config), run_send, error,
+                                std::move(cleanup_path));
 }
 
 bool WebJobStore::start_recv(RecvConfig config, std::string& error) {

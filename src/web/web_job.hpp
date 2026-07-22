@@ -7,6 +7,7 @@
 #include "transfer/transfer.hpp"
 
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -40,7 +41,8 @@ class WebJobStore {
   ~WebJobStore();
 
   [[nodiscard]] WebJobSnapshot snapshot() const;
-  [[nodiscard]] bool start_send(SendConfig config, std::string& error);
+  [[nodiscard]] bool start_send(SendConfig config, std::string& error,
+                                std::filesystem::path cleanup_path = {});
   [[nodiscard]] bool start_recv(RecvConfig config, std::string& error);
   [[nodiscard]] bool start_doctor(DoctorOptions options, std::string& error);
   [[nodiscard]] bool start_note(PeerSessionConfig config, std::string& error);

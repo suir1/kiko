@@ -20,7 +20,7 @@ boundaries instead of reintroducing cross-layer feature files.
 - `tui`: FTXUI menu/progress screens, path browser UI, transfer actions, doctor modal, and notepad UI.
 - `web`: loopback-only Web console, embedded assets, local filesystem browser API, Web reporter,
   HTTP adapters, and single-task job orchestration for transfer, doctor, and notepad.
-- `platform`: runtime user config, shared filesystem browser model, and platform shims.
+- `platform`: runtime user config, shared filesystem browser model, native path picker, and platform shims.
 - `diagnostics`: doctor, network probes, outbound relay path probing, and BYOK AI route advice.
 - `release`: GitHub Actions release packaging and installer smoke tests.
 
@@ -31,11 +31,13 @@ That is acceptable for now; production code should remain in the layer directory
 
 ### Web modules
 
-Web responsibilities now have three modules:
+Web responsibilities now have four modules:
 
 - `src/web/web.cpp`: loopback HTTP parsing, token checks, JSON/config mapping, and API responses.
 - `src/web/web_job.*`: task admission, cancellation, snapshots, reporter events, and worker ownership.
 - `src/web/web_assets.*`: embedded HTML/CSS/JavaScript.
+- `src/web/web_upload.*`: token-gated browser upload staging, ordered chunk validation, and temporary-file
+  ownership for the Android/Termux document picker path.
 
 Notepad transport/workspace state lives in `src/note/*`, and filesystem listing/filtering/sorting lives
 in `src/platform/path_browser.*`. This split is deep enough for the current local console. Avoid
@@ -158,6 +160,8 @@ file policies in `transfer/*`; do not move manifest, conflict, resume, or transf
 
 - `src/platform/path_browser.*` owns directory normalization, listing, file/directory selection modes,
   case-insensitive filtering, name/modified-time sorting, and special parent/select-folder entries.
+- `src/platform/native_picker.*` owns best-effort host OS file/directory dialogs; Web falls back to `/api/fs`
+  when no desktop picker is available.
 - `src/tui/tui_browser.*` owns FTXUI navigation, cached filtering, selection, and cancel behavior.
 - `src/web/*` owns query parsing and JSON serialization for `/api/fs`.
 

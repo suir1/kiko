@@ -16,8 +16,9 @@ std::string_view web_index_html() {
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
-    header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); }
-    h1 { margin: 0; font-size: 18px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+    h1 { flex: 0 0 auto; margin: 0; font-size: 18px; }
+    #server { min-width: 0; overflow-wrap: anywhere; text-align: right; }
     main { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; max-width: 1260px; margin: 0 auto; }
     section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
     h2 { margin: 0 0 10px; font-size: 15px; }
@@ -33,6 +34,9 @@ std::string_view web_index_html() {
     .tabs button { background: transparent; color: var(--text); border-color: var(--line); }
     .tabs button.active { background: var(--accent); color: white; border-color: var(--accent); }
     .row { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: end; }
+    .path-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; }
+    .path-row.directory { grid-template-columns: minmax(0, 1fr) auto auto; }
+    .path-row.browser-upload { grid-template-columns: minmax(0, 1fr) auto auto; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
     .actions button { width: auto; }
     .note-pads { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
@@ -68,6 +72,7 @@ std::string_view web_index_html() {
     .qr-box { display: grid; place-items: center; padding: 12px; background: #fff; border-radius: 8px; margin: 10px 0; }
     .qr-box svg { width: min(320px, 80vw); height: auto; display: block; }
     @media (max-width: 820px) { main { grid-template-columns: 1fr; } .status-grid { grid-template-columns: 1fr 1fr; } .browser-head { grid-template-columns: 1fr 96px; } }
+    @media (max-width: 520px) { .path-row, .path-row.directory { grid-template-columns: repeat(3, minmax(0, 1fr)); } .path-row input { grid-column: 1 / -1; } .path-row.directory, .path-row.browser-upload { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   </style>
 </head>
 <body>
@@ -87,7 +92,13 @@ std::string_view web_index_html() {
       <div id="panel-send">
         <h2>Send</h2>
         <label>Path</label>
-        <div class="row"><input id="send-path"><button class="secondary" onclick="browse('send-path','file_or_dir')">Browse</button></div>
+        <div class="path-row">
+          <input id="send-path" oninput="forgetSendUpload()">
+          <button id="send-pick-file" class="secondary inline" type="button" onclick="pickSendFile()">File...</button>
+          <button id="send-pick-folder" class="secondary inline" type="button" onclick="nativeBrowse('send-path','dir')">Folder...</button>
+          <button id="send-browse-paths" class="secondary inline" type="button" onclick="browse('send-path','file_or_dir')">Paths</button>
+        </div>
+        <input id="send-device-file" class="hidden" type="file" onchange="uploadSelectedFile()">
         <label>Code</label><input id="send-code" placeholder="leave empty to generate">
         <label>Relay</label><input id="send-relay">
         <details>
@@ -106,7 +117,11 @@ std::string_view web_index_html() {
         <h2>Receive</h2>
         <label>Code</label><input id="recv-code">
         <label>Output directory</label>
-        <div class="row"><input id="recv-out"><button class="secondary" onclick="browse('recv-out','dir')">Browse</button></div>
+        <div class="path-row directory">
+          <input id="recv-out">
+          <button id="recv-pick-folder" class="secondary inline" type="button" onclick="nativeBrowse('recv-out','dir')">Folder...</button>
+          <button id="recv-browse-paths" class="secondary inline" type="button" onclick="browse('recv-out','dir')">Paths</button>
+        </div>
         <label>Relay</label><input id="recv-relay">
         <label>Conflict policy</label>
         <select id="recv-conflict"><option>overwrite</option><option>skip</option><option>rename</option></select>
@@ -221,7 +236,12 @@ std::string_view web_index_html() {
     let noteEditGeneration = 0;
     let noteRole = 'host';
     let noteActivePad = 'main';
+    let sendUploadId = '';
+    let sendUploadPath = '';
+    let activeUploadId = '';
+    let uploadAbortController = null;
     const noteQrMaxBytes = 1200;
+    const uploadChunkBytes = 512 * 1024;
 
     function api(path, options = {}) {
       const url = path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
@@ -289,6 +309,8 @@ std::string_view web_index_html() {
     }
     function setRunningButtons(running) {
       for (const id of ['send-start', 'recv-start', 'doctor-start', 'note-start']) qs(id).disabled = running;
+      const lockSendPath = running || !!uploadAbortController;
+      for (const id of ['send-path', 'send-pick-file', 'send-pick-folder', 'send-browse-paths']) qs(id).disabled = lockSendPath;
     }
     function showTab(name) {
       for (const n of ['send','recv','note','doctor']) {
@@ -315,22 +337,125 @@ std::string_view web_index_html() {
         qs('note-no-direct').checked = c.network ? !!c.network.no_direct : false;
         qs('note-udp-probe').checked = c.network ? !!c.network.udp_probe : false;
         qs('note-avoid-vpn').checked = c.network ? !!c.network.avoid_vpn : false;
+        qs('send-pick-folder').classList.toggle('hidden', !!c.browser_file_picker);
+        qs('send-path').parentElement.classList.toggle('browser-upload', !!c.browser_file_picker);
         renderShortcuts();
       }).catch(showError);
     }
+    function discardSendUpload() {
+      const id = sendUploadId;
+      sendUploadId = '';
+      sendUploadPath = '';
+      if (id) api('/api/upload/cancel', {method:'POST', body: JSON.stringify({upload_id:id})}).catch(() => {});
+    }
+    function forgetSendUpload() {
+      if (sendUploadId && qs('send-path').value !== sendUploadPath) discardSendUpload();
+    }
+    function useBrowserFilePicker() {
+      return !!webConfig.browser_file_picker || /Android/i.test(navigator.userAgent);
+    }
+    function pickSendFile() {
+      if (useBrowserFilePicker()) {
+        qs('send-device-file').click();
+        return;
+      }
+      nativeBrowse('send-path', 'file');
+    }
+    function setUploadBusy(busy) {
+      for (const id of ['send-path', 'send-pick-file', 'send-pick-folder', 'send-browse-paths', 'send-start']) {
+        qs(id).disabled = busy;
+      }
+      qs('cancel').disabled = !busy || !activeUploadId;
+      qs('cancel').textContent = busy ? 'Cancel upload' : 'Cancel';
+    }
+    function renderUploadProgress(name, done, total) {
+      qs('m-kind').textContent = 'upload';
+      qs('m-activity').textContent = done >= total ? 'staged' : 'uploading';
+      qs('overall').max = Math.max(1, total);
+      qs('overall').value = done;
+      qs('progress-text').textContent = bytes(done) + ' / ' + bytes(total);
+      qs('current-file').textContent = name;
+    }
+    async function uploadSelectedFile() {
+      const input = qs('send-device-file');
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      discardSendUpload();
+      clearHint();
+      qs('send-path').value = '';
+      uploadAbortController = new AbortController();
+      setUploadBusy(true);
+      renderUploadProgress(file.name, 0, file.size);
+      qs('result-text').textContent = 'Staging ' + file.name + '...';
+      try {
+        const started = await api('/api/upload/start', {
+          method:'POST', body: JSON.stringify({name:file.name, size:file.size}), signal:uploadAbortController.signal
+        });
+        activeUploadId = started.upload_id;
+        qs('cancel').disabled = false;
+        let offset = 0;
+        while (offset < file.size) {
+          const end = Math.min(file.size, offset + uploadChunkBytes);
+          const query = '?upload_id=' + encodeURIComponent(activeUploadId) + '&offset=' + offset;
+          await api('/api/upload/chunk' + query, {
+            method:'POST', headers:{'content-type':'application/octet-stream'}, body:file.slice(offset, end),
+            signal:uploadAbortController.signal
+          });
+          offset = end;
+          renderUploadProgress(file.name, offset, file.size);
+        }
+        const completed = await api('/api/upload/finish', {
+          method:'POST', body: JSON.stringify({upload_id:activeUploadId}), signal:uploadAbortController.signal
+        });
+        sendUploadId = activeUploadId;
+        sendUploadPath = completed.path;
+        activeUploadId = '';
+        qs('send-path').value = completed.path;
+        renderUploadProgress(file.name, file.size, file.size);
+        qs('result-text').textContent = 'Ready to send: ' + file.name;
+      } catch (e) {
+        const canceled = e && e.name === 'AbortError';
+        if (activeUploadId) {
+          api('/api/upload/cancel', {method:'POST', body: JSON.stringify({upload_id:activeUploadId})}).catch(() => {});
+        }
+        activeUploadId = '';
+        if (canceled) {
+          qs('m-activity').textContent = 'canceled';
+          qs('result-text').textContent = 'Upload canceled.';
+        } else {
+          qs('m-activity').textContent = 'failed';
+          showError(e);
+        }
+      } finally {
+        uploadAbortController = null;
+        setUploadBusy(false);
+      }
+    }
+    addEventListener('pagehide', () => {
+      const id = sendUploadId || activeUploadId;
+      if (!id || !navigator.sendBeacon) return;
+      const url = '/api/upload/cancel?token=' + encodeURIComponent(token);
+      navigator.sendBeacon(url, new Blob([JSON.stringify({upload_id:id})], {type:'application/json'}));
+    });
     function startSend() {
       clearHint();
       if (!qs('send-path').value.trim()) {
         showHint('Choose a file or folder before starting send.');
         return;
       }
-      rememberPath('send-path', qs('send-path').value.trim());
+      const uploadId = qs('send-path').value === sendUploadPath ? sendUploadId : '';
+      if (!uploadId) rememberPath('send-path', qs('send-path').value.trim());
       const body = {
         path: qs('send-path').value, code: qs('send-code').value, relay: qs('send-relay').value,
         no_direct: qs('send-no-direct').checked, udp_probe: qs('send-udp-probe').checked,
-        avoid_vpn: qs('send-avoid-vpn').checked, auto_connections: qs('send-auto-connections').checked
+        avoid_vpn: qs('send-avoid-vpn').checked, auto_connections: qs('send-auto-connections').checked,
+        upload_id: uploadId
       };
-      api('/api/send', {method:'POST', body: JSON.stringify(body)}).then(startPolling).catch(showError);
+      api('/api/send', {method:'POST', body: JSON.stringify(body)}).then(() => {
+        if (uploadId) { sendUploadId = ''; sendUploadPath = ''; }
+        startPolling();
+      }).catch(showError);
     }
     function startRecv() {
       clearHint();
@@ -486,6 +611,12 @@ std::string_view web_index_html() {
       qs('qr-meta').textContent = '';
     }
     function cancelJob() {
+      if (uploadAbortController) {
+        qs('cancel').disabled = true;
+        qs('cancel').textContent = 'Canceling...';
+        uploadAbortController.abort();
+        return;
+      }
       qs('cancel').disabled = true;
       qs('cancel').textContent = 'Canceling...';
       qs('m-activity').textContent = 'cancel requested';
@@ -571,6 +702,19 @@ std::string_view web_index_html() {
       return 'Complete: ' + bytes(j.overall_done || 0) + (files ? ' across ' + files + ' file(s)' : '') +
              ' in ' + duration(j.elapsed_ms || 0) + (speed ? ' · avg ' + bytes(speed) + '/s' : '') + '.';
     }
+    function nativeBrowse(target, mode) {
+      clearHint();
+      api('/api/fs/pick', {method:'POST', body: JSON.stringify({mode})}).then(result => {
+        if (!result.selected || !result.path) return;
+        if (target === 'send-path') discardSendUpload();
+        rememberPath(target, result.path);
+        if (mode === 'dir') rememberBrowserPath(target, result.path);
+        qs('browser').classList.add('hidden');
+      }).catch(() => {
+        browse(target, mode === 'dir' ? 'dir' : 'file_or_dir');
+        showHint('System picker is unavailable. Use the path browser below.');
+      });
+    }
     function browse(target, mode) {
       browseTarget = target;
       browseMode = mode;
@@ -626,6 +770,7 @@ std::string_view web_index_html() {
               return;
             }
             if (e.selectable) {
+              if (browseTarget === 'send-path') discardSendUpload();
               rememberPath(browseTarget, e.path);
               rememberBrowserPath(browseTarget, e.is_dir ? e.path : browsePath);
               qs('browser').classList.add('hidden');

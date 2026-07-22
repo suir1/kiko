@@ -3,10 +3,12 @@
 #include "core/qrcode_print.hpp"
 #include "diagnostics/doctor.hpp"
 #include "note/notepad.hpp"
+#include "platform/native_picker.hpp"
 #include "platform/path_browser.hpp"
 #include "transfer/transfer.hpp"
 #include "web_assets.hpp"
 #include "web_job.hpp"
+#include "web_upload.hpp"
 
 #include <asio.hpp>
 #include <nlohmann/json.hpp>
@@ -93,6 +95,30 @@ int json_int(const json& body, const char* key, int fallback) {
   if (it == body.end() || it->is_null()) return fallback;
   if (!it->is_number_integer()) return fallback;
   return it->get<int>();
+}
+
+std::optional<std::uint64_t> json_u64(const json& body, const char* key) {
+  const auto it = body.find(key);
+  if (it == body.end() || it->is_null()) return std::nullopt;
+  if (it->is_number_unsigned()) return it->get<std::uint64_t>();
+  if (!it->is_number_integer()) return std::nullopt;
+  const auto value = it->get<std::int64_t>();
+  return value < 0 ? std::nullopt : std::optional<std::uint64_t>(static_cast<std::uint64_t>(value));
+}
+
+bool is_termux_runtime() {
+  if (const char* termux = std::getenv("TERMUX_VERSION")) {
+    if (*termux) return true;
+  }
+  if (const char* prefix = std::getenv("PREFIX")) {
+    return std::string_view(prefix).find("com.termux") != std::string_view::npos;
+  }
+  return false;
+}
+
+bool browser_file_picker_enabled() {
+  if (const char* test = std::getenv("KIKO_TEST_BROWSER_FILE_PICKER")) return std::string_view(test) == "1";
+  return is_termux_runtime();
 }
 
 std::string defaulted_relay(const json& body, const WebOptions& options) {
@@ -409,7 +435,8 @@ void open_browser_best_effort(const std::string& url) {
 #elif defined(__APPLE__)
   const std::string command = "open \"" + url + "\" >/dev/null 2>&1 &";
 #else
-  const std::string command = "xdg-open \"" + url + "\" >/dev/null 2>&1 &";
+  const std::string command = (is_termux_runtime() ? "termux-open-url \"" : "xdg-open \"") + url +
+                              "\" >/dev/null 2>&1 &";
 #endif
   (void)std::system(command.c_str());
 }
@@ -485,9 +512,75 @@ class WebServer {
       send_json(socket, 200, "OK", directory_to_json(absolute, entries));
       return;
     }
+    if (req.method == "POST" && req.path == "/api/upload/start") {
+      const auto body = parse_body_json(req);
+      const auto size = json_u64(body, "size");
+      if (!size) {
+        send_json(socket, 400, "Bad Request", error_json("upload size must be a non-negative integer"));
+        return;
+      }
+      std::string error;
+      const auto id = uploads_.start(json_string(body, "name"), *size, error);
+      if (!id) {
+        send_json(socket, 400, "Bad Request", error_json(error));
+        return;
+      }
+      send_json(socket, 200, "OK", json{{"upload_id", *id}});
+      return;
+    }
+    if (req.method == "POST" && req.path == "/api/upload/chunk") {
+      const auto id = query_value(req.query, "upload_id");
+      const auto offset = parse_u64_strict(query_value(req.query, "offset"));
+      if (id.empty() || !offset) {
+        send_json(socket, 400, "Bad Request", error_json("upload id and offset are required"));
+        return;
+      }
+      return respond_to_api_action(socket, [&](std::string& error) {
+        return uploads_.append(id, *offset, req.body, error);
+      });
+    }
+    if (req.method == "POST" && req.path == "/api/upload/finish") {
+      const auto body = parse_body_json(req);
+      std::string error;
+      const auto upload = uploads_.finish(json_string(body, "upload_id"), error);
+      if (!upload) {
+        send_json(socket, 400, "Bad Request", error_json(error));
+        return;
+      }
+      send_json(socket, 200, "OK",
+                json{{"upload_id", upload->id}, {"path", upload->path.string()}, {"size", upload->size}});
+      return;
+    }
+    if (req.method == "POST" && req.path == "/api/upload/cancel") {
+      const auto body = parse_body_json(req);
+      uploads_.cancel(json_string(body, "upload_id"));
+      send_json(socket, 200, "OK", json{{"ok", true}});
+      return;
+    }
     if (req.method == "POST" && req.path == "/api/job/cancel") {
       jobs_.cancel();
       send_json(socket, 200, "OK", json{{"ok", true}});
+      return;
+    }
+    if (req.method == "POST" && req.path == "/api/fs/pick") {
+      const auto body = parse_body_json(req);
+      const auto mode_text = json_string(body, "mode");
+      if (mode_text != "file" && mode_text != "dir") {
+        send_json(socket, 400, "Bad Request", error_json("picker mode must be file or dir"));
+        return;
+      }
+      const auto result = pick_native_path(mode_text == "dir" ? NativePickMode::Directory : NativePickMode::File);
+      if (result.status == NativePickStatus::Selected) {
+        send_json(socket, 200, "OK", json{{"selected", true}, {"path", result.path.string()}});
+        return;
+      }
+      if (result.status == NativePickStatus::Canceled) {
+        send_json(socket, 200, "OK", json{{"selected", false}});
+        return;
+      }
+      send_json(socket, result.status == NativePickStatus::Unavailable ? 501 : 500,
+                result.status == NativePickStatus::Unavailable ? "Not Implemented" : "Internal Server Error",
+                error_json(result.error.empty() ? "system picker unavailable" : result.error));
       return;
     }
     if (req.method == "POST" && req.path == "/api/qr") {
@@ -515,7 +608,17 @@ class WebServer {
          req.path == "/api/note/pad/create" || req.path == "/api/note/pad/select")) {
       const auto body = parse_body_json(req);
       return respond_to_api_action(socket, [&](std::string& error) {
-        if (req.path == "/api/send") return jobs_.start_send(parse_send_config(body, options_), error);
+        if (req.path == "/api/send") {
+          auto config = parse_send_config(body, options_);
+          const auto upload_id = json_string(body, "upload_id");
+          if (upload_id.empty()) return jobs_.start_send(std::move(config), error);
+          const auto staged_path = uploads_.completed_path(upload_id, error);
+          if (!staged_path) return false;
+          config.file = *staged_path;
+          if (!jobs_.start_send(std::move(config), error, *staged_path)) return false;
+          uploads_.release(upload_id);
+          return true;
+        }
         if (req.path == "/api/recv") return jobs_.start_recv(parse_recv_config(body, options_), error);
         if (req.path == "/api/doctor") return jobs_.start_doctor(parse_doctor_options(body, options_), error);
         if (req.path == "/api/note/start") return jobs_.start_note(parse_note_config(body, options_), error);
@@ -535,6 +638,7 @@ class WebServer {
     out["has_relay_pass"] = options_.relay_pass.has_value();
     out["last_send_path"] = options_.user_config.last_send_path;
     out["last_recv_out_dir"] = options_.user_config.last_recv_out_dir.empty() ? "." : options_.user_config.last_recv_out_dir;
+    out["browser_file_picker"] = browser_file_picker_enabled();
     out["shortcuts"] = browser_shortcuts(options_.user_config);
     const auto& network = options_.user_config.network;
     out["network"] = {{"lan_discover", network.lan_discover},
@@ -550,6 +654,7 @@ class WebServer {
 
   WebOptions options_;
   std::string token_;
+  WebUploadStore uploads_;
   WebJobStore jobs_;
   std::string url_;
 };

@@ -6,9 +6,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -110,6 +112,11 @@ def main() -> None:
     kiko = Path(sys.argv[1])
     relayd = Path(sys.argv[2])
     relay_addr = f"127.0.0.1:{free_tcp_port()}"
+    picker_root = Path(tempfile.mkdtemp(prefix="kiko-web-picker-"))
+    picker_file = picker_root / "picked.txt"
+    picker_dir = picker_root / "picked-dir"
+    picker_file.write_bytes(b"picker smoke\n" * 60000)
+    picker_dir.mkdir()
     relay = subprocess.Popen(
         [str(relayd), "--listen", relay_addr],
         stdout=subprocess.PIPE,
@@ -125,6 +132,10 @@ def main() -> None:
         if relay.poll() is not None:
             fail("kiko-relayd exited early")
 
+        web_env = os.environ.copy()
+        web_env["KIKO_TEST_NATIVE_PICK_FILE"] = str(picker_file)
+        web_env["KIKO_TEST_NATIVE_PICK_DIR"] = str(picker_dir)
+        web_env["KIKO_TEST_BROWSER_FILE_PICKER"] = "1"
         web = subprocess.Popen(
             [
                 str(kiko),
@@ -138,8 +149,10 @@ def main() -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            env=web_env,
         )
         url = read_url(web)
+        send_bodies: list[dict] = []
         start_bodies: list[dict] = []
         qr_bodies: list[dict] = []
         page_errors: list[str] = []
@@ -158,7 +171,9 @@ def main() -> None:
                     def capture_request(request) -> None:
                         if request.method != "POST":
                             return
-                        if "/api/note/start" in request.url:
+                        if "/api/send" in request.url:
+                            send_bodies.append(json.loads(request.post_data or "{}"))
+                        elif "/api/note/start" in request.url:
                             start_bodies.append(json.loads(request.post_data or "{}"))
                         elif "/api/qr" in request.url:
                             qr_bodies.append(json.loads(request.post_data or "{}"))
@@ -174,6 +189,40 @@ def main() -> None:
 
                     assert_visible(page, "#tab-send", "send tab should be visible")
 
+                    stage = "browser device file picker"
+                    with page.expect_file_chooser(timeout=3000) as chooser_info:
+                        page.click("#send-pick-file")
+                    chooser_info.value.set_files(str(picker_file))
+                    page.wait_for_function(
+                        "name => document.getElementById('send-path').value.endsWith(name)",
+                        arg=picker_file.name,
+                        timeout=8000,
+                    )
+                    staged_file = Path(page.locator("#send-path").input_value())
+                    if staged_file == picker_file or staged_file.read_bytes() != picker_file.read_bytes():
+                        fail("browser picker did not stage an exact local copy")
+                    stage = "uploaded file send admission"
+                    page.click("#send-start")
+                    page.wait_for_function(
+                        "() => !document.getElementById('cancel').disabled",
+                        timeout=5000,
+                    )
+                    if not send_bodies or not send_bodies[-1].get("upload_id"):
+                        fail(f"staged send did not submit its upload id: {send_bodies!r}")
+                    page.click("#cancel")
+                    wait_for_idle(page)
+                    cleanup_deadline = time.time() + 3
+                    while staged_file.exists() and time.time() < cleanup_deadline:
+                        time.sleep(0.05)
+                    if staged_file.exists():
+                        fail("finishing an uploaded send did not clean its staged copy")
+
+                    stage = "embedded path browser fallback"
+                    page.fill("#send-path", str(picker_dir))
+                    page.click("#send-browse-paths")
+                    assert_visible(page, "#browser", "embedded path browser should remain available")
+                    page.click("#browser .browser-head button:last-child")
+
                     page.fill("#send-path", "")
                     if page.locator("#send-path").input_value() != "":
                         fail("send path should be empty before validation")
@@ -181,6 +230,13 @@ def main() -> None:
                     page.wait_for_selector("text=Choose a file or folder before starting send.", timeout=3000)
 
                     page.click("#tab-recv")
+                    stage = "native receive folder picker"
+                    page.click("#recv-pick-folder")
+                    page.wait_for_function(
+                        "path => document.getElementById('recv-out').value === path",
+                        arg=str(picker_dir),
+                        timeout=3000,
+                    )
                     page.click("#recv-start")
                     page.wait_for_selector("text=Enter the pairing code shown on the other device.", timeout=3000)
 
@@ -363,6 +419,7 @@ def main() -> None:
         if web is not None:
             terminate(web)
         terminate(relay)
+        shutil.rmtree(picker_root, ignore_errors=True)
     print("web browser smoke passed")
 
 

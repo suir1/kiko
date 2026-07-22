@@ -3,6 +3,7 @@
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <thread>
 
@@ -83,8 +84,13 @@ int main() {
   assert(snapshot.error.find("not a file or directory") != std::string::npos);
   store.join_finished_worker();
 
+  const auto staged_root = std::filesystem::temp_directory_path() /
+                           ("kiko-web-job-staged-" + std::to_string(missing_suffix));
+  const auto staged_file = staged_root / "picked.txt";
+  std::filesystem::create_directories(staged_root);
+  std::ofstream(staged_file) << "staged\n";
   error.clear();
-  assert(store.start_send(missing_send, error));
+  assert(store.start_send(missing_send, error, staged_file));
   const auto second_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
   while (store.snapshot().running && std::chrono::steady_clock::now() < second_deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -93,6 +99,8 @@ int main() {
   assert(!snapshot.running);
   assert(snapshot.failed);
   store.join_finished_worker();
+  assert(!std::filesystem::exists(staged_file));
+  assert(!std::filesystem::exists(staged_root));
 
   for (int i = 0; i < 130; ++i) reporter.status("line " + std::to_string(i));
   snapshot = store.snapshot();

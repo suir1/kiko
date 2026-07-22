@@ -38,6 +38,14 @@ int main() {
   assert(html.find("generation === noteEditGeneration") != std::string::npos);
   assert(html.find("kiko.web.path.") != std::string::npos);
   assert(html.find("kiko.web.browser.") != std::string::npos);
+  assert(html.find("send-pick-file") != std::string::npos);
+  assert(html.find("send-pick-folder") != std::string::npos);
+  assert(html.find("send-browse-paths") != std::string::npos);
+  assert(html.find("recv-pick-folder") != std::string::npos);
+  assert(html.find("/api/fs/pick") != std::string::npos);
+  assert(html.find("send-device-file") != std::string::npos);
+  assert(html.find("/api/upload/start") != std::string::npos);
+  assert(html.find("browser_file_picker") != std::string::npos);
   assert(html.find("terminalActivity") != std::string::npos);
   assert(html.find("Canceling...") != std::string::npos);
   std::cout << "web_test ok\n";

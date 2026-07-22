@@ -172,6 +172,10 @@ Local browser UI:
 ```
 
 `kiko web` prints a one-time tokenized local URL and only accepts loopback listeners in this version.
+On desktop, the File and Folder buttons open the host operating system picker. In Termux, File opens the
+Android browser document picker for one file and stages it over loopback until the send finishes. Paths keeps
+the embedded filesystem browser available for folders and as a fallback; staged files are removed automatically.
+`kiko web` uses `termux-open-url` to open the tokenized loopback URL in the Android browser.
 The Web Notepad tab uses the same pairing code and encrypted direct/relay path as `kiko note`; it is plaintext,
 temporary, and kept only in memory.
 

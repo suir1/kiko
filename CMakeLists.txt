@@ -34,6 +34,7 @@ set(KIKO_CORE_LAYER_SOURCES
 )
 
 set(KIKO_PLATFORM_LAYER_SOURCES
+  src/platform/native_picker.cpp
   src/platform/path_browser.cpp
   src/platform/user_config.cpp
 )
@@ -215,6 +216,7 @@ set(KIKO_APP_SOURCES
   src/web/web.cpp
   src/web/web_assets.cpp
   src/web/web_job.cpp
+  src/web/web_upload.cpp
 )
 
 add_executable(kiko ${KIKO_APP_SOURCES})
@@ -271,6 +273,7 @@ kiko_add_core_test(progress_state tests/progress_state_test.cpp)
 kiko_add_core_test(profile tests/profile_test.cpp)
 kiko_add_core_test(user_config tests/user_config_test.cpp)
 kiko_add_core_test(path_browser tests/path_browser_test.cpp)
+kiko_add_core_test(native_picker tests/native_picker_test.cpp)
 kiko_add_core_test(cancellation tests/cancellation_test.cpp)
 kiko_add_core_test(tui_advanced tests/tui_advanced_test.cpp)
 add_executable(kiko_tui_menu_state_test tests/tui_menu_state_test.cpp src/tui/tui_menu_state.cpp src/tui/tui_transfer_view.cpp)
@@ -288,10 +291,15 @@ target_link_libraries(kiko_tui_failure_hint_test PRIVATE kiko_core)
 kiko_enable_test_assertions(kiko_tui_failure_hint_test)
 add_test(NAME tui_failure_hint COMMAND kiko_tui_failure_hint_test)
 
-add_executable(kiko_web_test tests/web_test.cpp src/web/web.cpp src/web/web_assets.cpp src/web/web_job.cpp)
+add_executable(kiko_web_test tests/web_test.cpp src/web/web.cpp src/web/web_assets.cpp src/web/web_job.cpp
+               src/web/web_upload.cpp)
 target_link_libraries(kiko_web_test PRIVATE kiko_core)
 kiko_enable_test_assertions(kiko_web_test)
 add_test(NAME web COMMAND kiko_web_test)
+add_executable(kiko_web_upload_test tests/web_upload_test.cpp src/web/web_upload.cpp)
+target_link_libraries(kiko_web_upload_test PRIVATE kiko_core)
+kiko_enable_test_assertions(kiko_web_upload_test)
+add_test(NAME web_upload COMMAND kiko_web_upload_test)
 add_executable(kiko_web_job_test tests/web_job_test.cpp src/web/web_job.cpp)
 target_link_libraries(kiko_web_job_test PRIVATE kiko_core)
 kiko_enable_test_assertions(kiko_web_job_test)
