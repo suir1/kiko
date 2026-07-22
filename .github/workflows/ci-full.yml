@@ -164,3 +164,55 @@ jobs:
         run: python3 scripts/relay_transfer_smoke.py ./build/kiko --relay "${{ vars.KIKO_RELAY_SMOKE }}"
         env:
           KIKO_RELAY_PASS: ${{ secrets.KIKO_RELAY_PASS }}
+
+  android-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf autoconf-archive automake file libtool pkg-config
+
+      - name: Select Android NDK
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-}"
+          if [ -z "$ndk" ]; then
+            ndk=$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          fi
+          test -f "$ndk/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+
+      - name: Install vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git .vcpkg
+          ./.vcpkg/bootstrap-vcpkg.sh
+
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .vcpkg/downloads
+            .vcpkg/installed
+            build-android/vcpkg_installed
+          key: android-arm64-vcpkg-${{ hashFiles('vcpkg.json', 'cmake/triplets/arm64-android-termux.cmake') }}
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build-android -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_OVERLAY_TRIPLETS="$GITHUB_WORKSPACE/cmake/triplets"
+          -DVCPKG_TARGET_TRIPLET=arm64-android-termux
+          -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=24 -DANDROID_STL=c++_static
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+
+      - name: Build
+        run: cmake --build build-android --target kiko
+
+      - name: Inspect Android executable
+        run: |
+          file build-android/kiko | grep -E 'ELF 64-bit.*ARM aarch64'
+          readelf="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$readelf" -l build-android/kiko | grep '/system/bin/linker64'
+          "$readelf" -d build-android/kiko
