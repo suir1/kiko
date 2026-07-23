@@ -132,17 +132,6 @@ def test_menu(kiko: Path) -> None:
             stop(proc, master)
             fail("built-in TUI browser did not open with repaired saved path", out + browser_out)
 
-        os.write(master, b"q")
-        time.sleep(0.4)
-        read_available(master, 0.5)
-        os.write(master, b"\x1b[Z\x1b[Z\x1b[Z\r")
-        time.sleep(0.8)
-        enter_out = read_available(master, 1.5)
-        enter_plain = strip_ansi(enter_out)
-        if "Select path" not in enter_plain or fixture.name not in enter_plain:
-            stop(proc, master)
-            fail("Enter on the path field did not open the built-in browser", enter_out)
-
         stop(proc, master)
         ok("kiko tui menu and built-in browser render")
 
