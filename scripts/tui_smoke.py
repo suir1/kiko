@@ -135,7 +135,7 @@ def test_menu(kiko: Path) -> None:
         os.write(master, b"q")
         time.sleep(0.4)
         read_available(master, 0.5)
-        os.write(master, b"\x1b[<0;30;7M\x1b[<0;30;7m\r")
+        os.write(master, b"\x1b[Z\x1b[Z\x1b[Z\r")
         time.sleep(0.8)
         enter_out = read_available(master, 1.5)
         enter_plain = strip_ansi(enter_out)
