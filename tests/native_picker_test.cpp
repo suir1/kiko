@@ -1,4 +1,5 @@
 #include "platform/native_picker.hpp"
+#include "tui/tui_native_picker.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -52,6 +53,16 @@ int main() {
   const auto picked_dir = pick_native_path(NativePickMode::Directory);
   assert(picked_dir.status == NativePickStatus::Selected);
   assert(picked_dir.path == dir);
+
+  std::string tui_path = "unchanged";
+  std::string tui_error = "old error";
+  assert(pick_tui_native_path(tui_path, NativePickMode::File, tui_error));
+  assert(tui_path == file.string());
+  assert(tui_error.empty());
+
+  assert(pick_tui_native_path(tui_path, NativePickMode::Directory, tui_error));
+  assert(tui_path == dir.string());
+  assert(tui_error.empty());
 
   set_env("KIKO_TEST_NATIVE_PICK_FILE", dir.string());
   const auto wrong_type = pick_native_path(NativePickMode::File);

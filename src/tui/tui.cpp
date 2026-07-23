@@ -8,6 +8,7 @@
 #include "tui_failure_hint.hpp"
 #include "tui_menu_state.hpp"
 #include "tui_menu_view.hpp"
+#include "tui_native_picker.hpp"
 #include "tui_note.hpp"
 #include "tui_session.hpp"
 #include "tui_transfer_actions.hpp"
@@ -140,12 +141,24 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
   auto screen = ScreenInteractive::Fullscreen();
   auto wake = [&] { screen.PostEvent(Event::Custom); };
 
+  auto pick_send_file = [&] {
+    (void)pick_tui_native_path(menu.path, NativePickMode::File, menu_error);
+  };
+
+  auto pick_send_directory = [&] {
+    (void)pick_tui_native_path(menu.path, NativePickMode::Directory, menu_error);
+  };
+
   auto browse_send_path = [&] {
     const auto start_path = menu.path.empty() ? std::filesystem::current_path() : std::filesystem::path(menu.path);
     if (auto picked = run_tui_path_picker(start_path, PathPickMode::FileOrDirectory)) {
       menu.path = picked->string();
       menu_error.clear();
     }
+  };
+
+  auto pick_output_directory = [&] {
+    (void)pick_tui_native_path(menu.output_dir, NativePickMode::Directory, menu_error);
   };
 
   auto browse_output_dir = [&] {
@@ -253,7 +266,9 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
       [&] { return_to_menu(); }, [&] { screen.Exit(); }, wake);
 
   auto menu_view = make_tui_menu_view(menu, default_relay, menu_error,
-                                      {browse_send_path, browse_output_dir, network_check, start_action, wake});
+                                      {pick_send_file, pick_send_directory, browse_send_path,
+                                       pick_output_directory, browse_output_dir, network_check,
+                                       start_action, wake});
 
   auto transfer_layout = Container::Vertical({transfer_actions});
 

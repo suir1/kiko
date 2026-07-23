@@ -163,6 +163,9 @@ Shared notepad:
 The note is temporary and kept only in memory. Edits are sent after a 250 ms pause, and the status changes to
 `synced` after the peer acknowledges applying that revision. `Esc` returns to the main menu when launched from
 `kiko tui`.
+The Send and Receive screens keep the built-in `Paths...` browser and also expose native `File...` / `Folder...`
+pickers on macOS, Windows, and graphical Linux desktops. Linux uses `zenity` or `kdialog`; when a native picker is
+unavailable (including headless Linux and Termux TUI), `Paths...` remains available.
 
 Local browser UI:
 

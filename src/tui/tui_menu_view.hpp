@@ -11,7 +11,10 @@
 namespace kiko {
 
 struct TuiMenuCallbacks {
+  std::function<void()> pick_send_file;
+  std::function<void()> pick_send_directory;
   std::function<void()> browse_send_path;
+  std::function<void()> pick_output_directory;
   std::function<void()> browse_output_dir;
   std::function<void()> network_check;
   std::function<void()> start_transfer;

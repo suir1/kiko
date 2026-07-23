@@ -97,6 +97,7 @@ set(KIKO_DIAGNOSTICS_LAYER_SOURCES
 
 set(KIKO_TUI_LAYER_SOURCES
   src/tui/tui_advanced.cpp
+  src/tui/tui_native_picker.cpp
 )
 
 set(KIKO_CORE_SOURCES
