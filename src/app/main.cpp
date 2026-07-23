@@ -120,11 +120,13 @@ int main(int argc, char** argv) {
   std::string web_relay_pass;
   std::string web_listen = "127.0.0.1:0";
   bool web_no_open = false;
+  bool web_no_wake_lock = false;
   auto* web_cmd = app.add_subcommand("web", "Local browser UI");
   web_cmd->add_option("--relay", web_relay, "Default relay address");
   web_cmd->add_option("--relay-pass", web_relay_pass, "Relay password");
   web_cmd->add_option("--listen", web_listen, "Loopback listen address");
   web_cmd->add_flag("--no-open", web_no_open, "Print the URL without opening a browser");
+  web_cmd->add_flag("--no-wake-lock", web_no_wake_lock, "Do not keep Termux awake while serving Web UI");
 
   std::string relay_listen = "[::]:9000";
   std::string relay_pass;
@@ -257,6 +259,7 @@ int main(int argc, char** argv) {
       opts.relay = kiko::parse_endpoint(web_relay, 9000);
       apply_relay_pass_cli(opts.relay_pass, web_relay_pass, user_config);
       opts.open_browser = !web_no_open;
+      opts.termux_wake_lock = !web_no_wake_lock;
       opts.user_config = user_config;
       return kiko::run_web_console(opts);
     }

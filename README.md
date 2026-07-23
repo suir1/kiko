@@ -176,6 +176,9 @@ On desktop, the File and Folder buttons open the host operating system picker. I
 Android browser document picker for one file and stages it over loopback until the send finishes. Paths keeps
 the embedded filesystem browser available for folders and as a fallback; staged files are removed automatically.
 `kiko web` uses `termux-open-url` to open the tokenized loopback URL in the Android browser.
+It also holds a Termux wake lock until the Web process exits so Android is less likely to suspend the loopback
+server after switching to the browser. Use `--no-wake-lock` if you manage the wake lock yourself. Vendor battery
+savers can still kill background apps; set Termux battery usage to unrestricted if the page remains unreachable.
 The Web Notepad tab uses the same pairing code and encrypted direct/relay path as `kiko note`; it is plaintext,
 temporary, and kept only in memory.
 

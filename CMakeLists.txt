@@ -343,6 +343,9 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 if(NOT WIN32 AND Python3_Interpreter_FOUND)
+  add_test(NAME web_termux_lifecycle_smoke COMMAND ${Python3_EXECUTABLE}
+           ${CMAKE_SOURCE_DIR}/scripts/web_termux_lifecycle_smoke.py $<TARGET_FILE:kiko>)
+  set_tests_properties(web_termux_lifecycle_smoke PROPERTIES DEPENDS kiko TIMEOUT 20)
   add_test(NAME tui_smoke COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/tui_smoke.py $<TARGET_FILE:kiko>)
   set_tests_properties(tui_smoke PROPERTIES DEPENDS kiko)
 endif()

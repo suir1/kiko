@@ -15,10 +15,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <random>
 #include <sstream>
@@ -32,6 +34,31 @@ using json = nlohmann::json;
 constexpr std::size_t kMaxBodyBytes = 1024 * 1024;
 constexpr std::size_t kMaxQrTextBytes = 1200;
 constexpr int kDefaultPairTimeoutSec = static_cast<int>(kDefaultPairTimeout.count());
+volatile std::sig_atomic_t web_stop_requested = 0;
+
+void request_web_stop(int) { web_stop_requested = 1; }
+
+class WebSignalHandlers {
+ public:
+  WebSignalHandlers()
+      : previous_interrupt_(std::signal(SIGINT, request_web_stop)),
+        previous_terminate_(std::signal(SIGTERM, request_web_stop)) {
+    web_stop_requested = 0;
+  }
+
+  WebSignalHandlers(const WebSignalHandlers&) = delete;
+  WebSignalHandlers& operator=(const WebSignalHandlers&) = delete;
+
+  ~WebSignalHandlers() {
+    if (previous_interrupt_ != SIG_ERR) std::signal(SIGINT, previous_interrupt_);
+    if (previous_terminate_ != SIG_ERR) std::signal(SIGTERM, previous_terminate_);
+  }
+
+ private:
+  using Handler = void (*)(int);
+  Handler previous_interrupt_;
+  Handler previous_terminate_;
+};
 
 std::string url_decode(const std::string& value) {
   std::string out;
@@ -120,6 +147,33 @@ bool browser_file_picker_enabled() {
   if (const char* test = std::getenv("KIKO_TEST_BROWSER_FILE_PICKER")) return std::string_view(test) == "1";
   return is_termux_runtime();
 }
+
+int run_quiet_command(const std::string& command) {
+  return std::system((command + " >/dev/null 2>&1").c_str());
+}
+
+class TermuxWakeLock {
+ public:
+  explicit TermuxWakeLock(bool enabled) {
+    if (!enabled || !is_termux_runtime()) return;
+    acquired_ = run_quiet_command("termux-wake-lock") == 0;
+    if (acquired_) {
+      std::cout << "Termux wake lock acquired while kiko web is running\n" << std::flush;
+    } else {
+      std::cerr << "warning: termux-wake-lock failed; Android may suspend kiko in the background\n";
+    }
+  }
+
+  TermuxWakeLock(const TermuxWakeLock&) = delete;
+  TermuxWakeLock& operator=(const TermuxWakeLock&) = delete;
+
+  ~TermuxWakeLock() {
+    if (acquired_) (void)run_quiet_command("termux-wake-unlock");
+  }
+
+ private:
+  bool acquired_ = false;
+};
 
 std::string defaulted_relay(const json& body, const WebOptions& options) {
   const auto relay = json_string(body, "relay");
@@ -430,18 +484,21 @@ void respond_to_api_action(TcpSocket& socket, Action&& action, bool catch_action
 }
 
 void open_browser_best_effort(const std::string& url) {
+  if (is_termux_runtime()) {
+    (void)run_quiet_command("termux-open-url \"" + url + "\"");
+    return;
+  }
 #ifdef _WIN32
   const std::string command = "start \"\" \"" + url + "\"";
 #elif defined(__APPLE__)
   const std::string command = "open \"" + url + "\" >/dev/null 2>&1 &";
 #else
-  const std::string command = (is_termux_runtime() ? "termux-open-url \"" : "xdg-open \"") + url +
-                              "\" >/dev/null 2>&1 &";
+  const std::string command = "xdg-open \"" + url + "\" >/dev/null 2>&1 &";
 #endif
   (void)std::system(command.c_str());
 }
 
-class WebServer {
+class WebServer : public std::enable_shared_from_this<WebServer> {
  public:
   WebServer(WebOptions options, std::string token)
       : options_(std::move(options)), token_(std::move(token)) {}
@@ -452,6 +509,7 @@ class WebServer {
     }
 
     auto listener = TcpListener::bind(options_.listen);
+    TermuxWakeLock wake_lock(options_.termux_wake_lock);
     const auto local = listener.local_endpoint();
     url_ = "http://" +
            (ip_address_family(local.host) == IpAddressFamily::IPv6 ? ("[" + local.host + "]") : local.host) + ":" +
@@ -459,12 +517,15 @@ class WebServer {
     std::cout << "kiko web listening on " << url_ << "\n" << std::flush;
     if (options_.open_browser) open_browser_best_effort(url_);
 
-    while (true) {
+    while (!web_stop_requested) {
       auto client = listener.accept(std::chrono::milliseconds(1000));
       jobs_.join_finished_worker();
       if (!client.valid()) continue;
-      std::thread([this, client = std::move(client)]() mutable { handle_client(client); }).detach();
+      std::thread([self = shared_from_this(), client = std::move(client)]() mutable {
+        self->handle_client(client);
+      }).detach();
     }
+    return 0;
   }
 
  private:
@@ -670,8 +731,9 @@ std::string generate_web_token() {
 }
 
 int run_web_console(const WebOptions& options) {
-  WebServer server(options, generate_web_token());
-  return server.run();
+  WebSignalHandlers signal_handlers;
+  auto server = std::make_shared<WebServer>(options, generate_web_token());
+  return server->run();
 }
 
 }  // namespace kiko

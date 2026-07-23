@@ -13,6 +13,7 @@ struct WebOptions {
   Endpoint relay;
   std::optional<std::string> relay_pass;
   bool open_browser = true;
+  bool termux_wake_lock = true;
   UserConfig user_config;
 };
 
