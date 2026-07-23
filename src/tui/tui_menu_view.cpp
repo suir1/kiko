@@ -55,13 +55,13 @@ ftxui::Component make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_
   auto send_folder_button = Button("Folder...", [pick = std::move(pick_send_directory)] {
     if (pick) pick();
   });
-  auto send_paths_button = Button("Paths...", [browse = std::move(browse_send_path)] {
+  auto send_paths_button = Button("Browse...", [browse = std::move(browse_send_path)] {
     if (browse) browse();
   });
   auto output_folder_button = Button("Folder...", [pick = std::move(pick_output_directory)] {
     if (pick) pick();
   });
-  auto output_paths_button = Button("Paths...", [browse = std::move(browse_output_dir)] {
+  auto output_paths_button = Button("Browse...", [browse = std::move(browse_output_dir)] {
     if (browse) browse();
   });
   auto send_picker_controls =

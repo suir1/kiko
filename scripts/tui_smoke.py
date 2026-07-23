@@ -102,7 +102,7 @@ def test_menu(kiko: Path) -> None:
     if "kiko" not in plain.lower() or "Start" not in plain:
         stop(proc, master)
         fail("kiko tui menu did not render", out)
-    for label in ("File...", "Folder...", "Paths..."):
+    for label in ("File...", "Folder...", "Browse..."):
         if label not in plain:
             stop(proc, master)
             fail(f"kiko tui menu missing {label} picker", out)
