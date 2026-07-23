@@ -166,6 +166,7 @@ The note is temporary and kept only in memory. Edits are sent after a 250 ms pau
 The Send and Receive screens keep the built-in `Browse...` browser and also expose native `File...` / `Folder...`
 pickers on macOS, Windows, and graphical Linux desktops. Linux uses `zenity` or `kdialog`; when a native picker is
 unavailable (including headless Linux and Termux TUI), `Browse...` remains available.
+Pressing Enter while the send path or receive output field is focused also opens the built-in browser.
 
 Local browser UI:
 

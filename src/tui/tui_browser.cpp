@@ -15,10 +15,13 @@ namespace kiko {
 namespace {
 
 std::vector<PathBrowserEntry> list_entries(const std::filesystem::path& dir, PathPickMode mode,
-                                           PathBrowserSort sort) {
+                                           PathBrowserSort sort, std::string& error) {
   try {
-    return list_browser_directory(dir, mode, sort);
-  } catch (const KikoError&) {
+    auto result = list_browser_directory(dir, mode, sort);
+    error.clear();
+    return result;
+  } catch (const KikoError& exception) {
+    error = exception.what();
     return {};
   }
 }
@@ -29,8 +32,13 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
   using namespace ftxui;
 
   std::filesystem::path current = normalize_browser_directory(start);
+  std::error_code current_ec;
+  if (!std::filesystem::is_directory(current, current_ec)) {
+    current = std::filesystem::current_path(current_ec);
+  }
   PathBrowserSort sort_mode = PathBrowserSort::Name;
-  std::vector<PathBrowserEntry> all_entries = list_entries(current, mode, sort_mode);
+  std::string browser_error;
+  std::vector<PathBrowserEntry> all_entries = list_entries(current, mode, sort_mode, browser_error);
   std::vector<PathBrowserEntry> entries;
   std::vector<std::string> labels;
   std::string filter;
@@ -59,7 +67,7 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
   };
 
   auto reload_entries = [&]() {
-    all_entries = list_entries(current, mode, sort_mode);
+    all_entries = list_entries(current, mode, sort_mode, browser_error);
     synced_filter.clear();
     synced_dir.clear();
     selected = 0;
@@ -100,6 +108,10 @@ std::optional<std::filesystem::path> run_tui_path_picker(const std::filesystem::
                          text(sort_mode == PathBrowserSort::Name ? "  current=name" : "  current=modified desc") |
                              dim}));
     rows.push_back(separator());
+
+    if (!browser_error.empty()) {
+      rows.push_back(text(browser_error) | color(Color::Red));
+    }
 
     std::size_t match_count = 0;
     for (const auto& entry : entries) {

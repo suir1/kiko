@@ -98,12 +98,14 @@ int main() {
     auto state = base_menu();
     state.mode = 0;
     state.path = send_path.string();
+    state.path.insert(3, "\n");
     state.connections_text = "8";
     state.network.no_direct = true;
 
     const auto prepared = prepare_tui_transfer(state);
     if (!prepared.error.empty() || prepared.title != "kiko send" || prepared.spec.mode != 0 ||
-        prepared.spec.path != send_path.string() || prepared.spec.relay.host != "127.0.0.1" ||
+        prepared.spec.path != send_path.string() || state.path != send_path.string() ||
+        prepared.spec.relay.host != "127.0.0.1" ||
         prepared.spec.relay.port != 9000 || prepared.spec.network.connections != 8 ||
         !prepared.spec.network.no_direct) {
       std::cerr << "FAIL: send transfer spec was not prepared correctly\n";

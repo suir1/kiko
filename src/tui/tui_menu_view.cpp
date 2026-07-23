@@ -40,9 +40,19 @@ ftxui::Component make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_
   pass_opt.multiline = false;
   auto relay_pass_input = Input(&menu.relay_pass, "relay password (optional)", pass_opt);
 
-  auto path_input = Input(&menu.path, "file or directory to send");
-  auto code_input = Input(&menu.code, "pairing code");
-  auto out_input = Input(&menu.output_dir, "output directory");
+  InputOption path_opt;
+  path_opt.multiline = false;
+  path_opt.on_enter = callbacks.browse_send_path;
+  auto path_input = Input(&menu.path, "file or directory to send", path_opt);
+
+  InputOption single_line_opt;
+  single_line_opt.multiline = false;
+  auto code_input = Input(&menu.code, "pairing code", single_line_opt);
+
+  InputOption out_opt;
+  out_opt.multiline = false;
+  out_opt.on_enter = callbacks.browse_output_dir;
+  auto out_input = Input(&menu.output_dir, "output directory", out_opt);
 
   auto pick_send_file = std::move(callbacks.pick_send_file);
   auto pick_send_directory = std::move(callbacks.pick_send_directory);
@@ -81,12 +91,12 @@ ftxui::Component make_tui_menu_view(TuiMenuState& menu, const Endpoint& default_
   auto cb_no_direct = Checkbox("Skip direct connect (--no-direct)", &menu.network.no_direct);
   auto cb_udp_probe = Checkbox("UDP / STUN probe (--udp-probe)", &menu.network.udp_probe);
   auto cb_avoid_vpn = Checkbox("Avoid VPN interface (--avoid-vpn)", &menu.network.avoid_vpn);
-  auto ip_input = Input(&menu.network.manual_ip, "manual IP (--ip)");
-  auto bind_input = Input(&menu.network.bind_interface, "bind interface (e.g. en0)");
-  auto proxy_input = Input(&menu.network.proxy_url, "proxy URL (http:// or socks5://)");
+  auto ip_input = Input(&menu.network.manual_ip, "manual IP (--ip)", single_line_opt);
+  auto bind_input = Input(&menu.network.bind_interface, "bind interface (e.g. en0)", single_line_opt);
+  auto proxy_input = Input(&menu.network.proxy_url, "proxy URL (http:// or socks5://)", single_line_opt);
   auto cb_gitignore = Checkbox("Respect .gitignore when sending", &menu.network.use_gitignore);
   auto cb_auto_conn = Checkbox("Auto connection count (--auto-connections)", &menu.network.auto_connections);
-  auto connections_input = Input(&menu.connections_text, "parallel connections (--connections)");
+  auto connections_input = Input(&menu.connections_text, "parallel connections (--connections)", single_line_opt);
   auto cb_note_custom_host = Checkbox("Custom code host", &menu.note_custom_host);
 
   auto gitignore_maybe = Maybe(cb_gitignore, [&] { return menu.mode == 0; });

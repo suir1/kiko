@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import pty
 import re
@@ -11,6 +12,7 @@ import select
 import struct
 import subprocess
 import sys
+import tempfile
 import termios
 import time
 from pathlib import Path
@@ -47,7 +49,7 @@ def read_available(fd: int, timeout: float = 2.0) -> bytes:
     return out
 
 
-def spawn(argv: list[str]) -> tuple[subprocess.Popen[bytes], int]:
+def spawn(argv: list[str], env: dict[str, str] | None = None) -> tuple[subprocess.Popen[bytes], int]:
     master, slave = pty.openpty()
     set_winsize(slave, 45, 130)
     proc = subprocess.Popen(
@@ -56,6 +58,7 @@ def spawn(argv: list[str]) -> tuple[subprocess.Popen[bytes], int]:
         stdout=slave,
         stderr=slave,
         cwd=ROOT,
+        env=env,
         close_fds=True,
     )
     os.close(slave)
@@ -95,21 +98,53 @@ def ok(msg: str) -> None:
 
 
 def test_menu(kiko: Path) -> None:
-    proc, master = spawn([str(kiko), "tui"])
-    time.sleep(1.2)
-    out = read_available(master, 1.5)
-    plain = strip_ansi(out)
-    if "kiko" not in plain.lower() or "Start" not in plain:
-        stop(proc, master)
-        fail("kiko tui menu did not render", out)
-    for label in ("File...", "Folder...", "Browse..."):
-        if label not in plain:
+    with tempfile.TemporaryDirectory(prefix="kiko_tui_smoke_") as temp:
+        browse_dir = Path(temp) / "browse"
+        browse_dir.mkdir()
+        fixture = browse_dir / "browser-visible.txt"
+        fixture.write_text("visible\n", encoding="utf-8")
+        clean_path = str(fixture)
+        broken_path = clean_path[:3] + "\n" + clean_path[3:]
+        config = Path(temp) / "config.json"
+        config.write_text(json.dumps({"last_mode": 0, "last_send_path": broken_path}), encoding="utf-8")
+        env = os.environ.copy()
+        env["KIKO_CONFIG_PATH"] = str(config)
+
+        proc, master = spawn([str(kiko), "tui"], env=env)
+        time.sleep(1.2)
+        out = read_available(master, 1.5)
+        plain = strip_ansi(out)
+        if "kiko" not in plain.lower() or "Start" not in plain:
             stop(proc, master)
-            fail(f"kiko tui menu missing {label} picker", out)
-    if proc.poll() is not None:
-        fail("kiko tui exited before quit", out)
-    stop(proc, master)
-    ok("kiko tui menu renders")
+            fail("kiko tui menu did not render", out)
+        for label in ("File...", "Folder...", "Browse..."):
+            if label not in plain:
+                stop(proc, master)
+                fail(f"kiko tui menu missing {label} picker", out)
+        if proc.poll() is not None:
+            fail("kiko tui exited before quit", out)
+
+        os.write(master, b"\x1b[<0;32;10M\x1b[<0;32;10m")
+        time.sleep(0.8)
+        browser_out = read_available(master, 1.5)
+        browser_plain = strip_ansi(browser_out)
+        if "Select path" not in browser_plain or fixture.name not in browser_plain:
+            stop(proc, master)
+            fail("built-in TUI browser did not open with repaired saved path", out + browser_out)
+
+        os.write(master, b"q")
+        time.sleep(0.4)
+        read_available(master, 0.5)
+        os.write(master, b"\x1b[<0;30;7M\x1b[<0;30;7m\r")
+        time.sleep(0.8)
+        enter_out = read_available(master, 1.5)
+        enter_plain = strip_ansi(enter_out)
+        if "Select path" not in enter_plain or fixture.name not in enter_plain:
+            stop(proc, master)
+            fail("Enter on the path field did not open the built-in browser", enter_out)
+
+        stop(proc, master)
+        ok("kiko tui menu and built-in browser render")
 
 
 def test_send_tui(kiko: Path) -> None:

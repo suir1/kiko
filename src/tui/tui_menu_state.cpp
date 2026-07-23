@@ -3,10 +3,33 @@
 #include "tui_transfer_view.hpp"
 #include "platform/user_config.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <utility>
 
 namespace kiko {
+namespace {
+
+std::string remove_line_breaks(std::string value) {
+  value.erase(std::remove_if(value.begin(), value.end(), [](char c) { return c == '\r' || c == '\n'; }),
+              value.end());
+  return value;
+}
+
+void sanitize_single_line_fields(TuiMenuState& state) {
+  state.relay = remove_line_breaks(std::move(state.relay));
+  state.relay_pass = remove_line_breaks(std::move(state.relay_pass));
+  state.path = remove_line_breaks(std::move(state.path));
+  state.code = remove_line_breaks(std::move(state.code));
+  state.output_dir = remove_line_breaks(std::move(state.output_dir));
+  state.network.manual_ip = remove_line_breaks(std::move(state.network.manual_ip));
+  state.network.bind_interface = remove_line_breaks(std::move(state.network.bind_interface));
+  state.network.proxy_url = remove_line_breaks(std::move(state.network.proxy_url));
+  state.connections_text = remove_line_breaks(std::move(state.connections_text));
+}
+
+}  // namespace
 
 TuiMenuState load_tui_menu_state(const Endpoint& default_relay) {
   TuiMenuState state;
@@ -22,11 +45,13 @@ TuiMenuState load_tui_menu_state(const Endpoint& default_relay) {
   state.network = saved.network;
   if (state.network.connections < 1) state.network.connections = 4;
   state.connections_text = std::to_string(state.network.connections);
+  sanitize_single_line_fields(state);
   return state;
 }
 
 void save_tui_menu_state(const TuiMenuState& state) {
   TuiMenuState copy = state;
+  sanitize_single_line_fields(copy);
   (void)apply_connections_text(copy);
 
   UserConfig prefs = load_user_config();
@@ -50,6 +75,7 @@ std::optional<std::string> apply_connections_text(TuiMenuState& state) {
 }
 
 TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
+  sanitize_single_line_fields(state);
   if (state.mode != 0 && state.mode != 1) {
     return {.error = "select Send or Receive for a file transfer"};
   }
@@ -94,6 +120,7 @@ TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
 }
 
 TuiPreparedNote prepare_tui_note(TuiMenuState& state) {
+  sanitize_single_line_fields(state);
   if (state.mode != 2) return {.error = "select Notepad first"};
   const auto code = normalize_pairing_code(state.code);
   const bool join = !code.empty() && !state.note_custom_host;
