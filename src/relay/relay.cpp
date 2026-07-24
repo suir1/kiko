@@ -9,17 +9,17 @@
 
 namespace kiko {
 
-int run_relay(const Endpoint& listen, const RelayServerConfig& config) {
+int run_relay(const Endpoint& listen, const RelayServerConfig& config, bool announce_lan) {
   BackgroundRelay relay;
   relay.start(listen, config);
   const auto bound = relay.local_endpoint();
   std::cout << "relay listening on " << bound.to_string();
   if (!config.password.empty()) std::cout << " (password required)";
-  std::cout << "\n";
+  std::cout << "\n" << std::flush;
 
   std::atomic<bool> stop_lan{false};
   std::thread lan_thread;
-  if (bound.port > 0) {
+  if (announce_lan && bound.port > 0) {
     lan_thread = std::thread([&]() { lan_announce(bound.port, stop_lan); });
   }
 

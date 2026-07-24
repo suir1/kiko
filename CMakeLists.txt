@@ -225,10 +225,12 @@ target_link_libraries(kiko PRIVATE kiko_core ftxui::component CLI11::CLI11)
 
 set(KIKO_RELAYD_SOURCES
   src/app/relayd_main.cpp
+  src/connect/discovery.cpp
   src/core/adaptive.cpp
   src/core/common.cpp
   src/core/protocol.cpp
   src/core/proxy.cpp
+  src/relay/relay.cpp
   src/relay/relay_protocol.cpp
   src/relay/relay_room_state.cpp
   src/relay/relay_route_state.cpp

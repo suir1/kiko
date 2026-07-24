@@ -1,11 +1,10 @@
 #include "core/common.hpp"
-#include "relay/relay_server.hpp"
+#include "relay/relay.hpp"
 
 #include <chrono>
 #include <exception>
 #include <iostream>
 #include <string>
-#include <thread>
 
 namespace {
 
@@ -60,15 +59,7 @@ int main(int argc, char** argv) {
       }
     }
 
-    kiko::BackgroundRelay relay;
-    relay.start(kiko::parse_bind_endpoint(listen, 9000), config);
-    std::cout << "relay listening on " << relay.local_endpoint().to_string();
-    if (!config.password.empty()) std::cout << " (password required)";
-    std::cout << "\n" << std::flush;
-    while (relay.running()) {
-      std::this_thread::sleep_for(std::chrono::hours(1));
-    }
-    return 0;
+    return kiko::run_relay(kiko::parse_bind_endpoint(listen, 9000), config, /*announce_lan=*/false);
   } catch (const std::exception& error) {
     std::cerr << "error: " << error.what() << "\n";
     return 1;

@@ -5,6 +5,6 @@
 
 namespace kiko {
 
-int run_relay(const Endpoint& listen, const RelayServerConfig& config = {});
+int run_relay(const Endpoint& listen, const RelayServerConfig& config = {}, bool announce_lan = true);
 
 }  // namespace kiko
