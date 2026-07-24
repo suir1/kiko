@@ -10,11 +10,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <span>
 #include <vector>
 
 namespace kiko::detail {
+
+class SendFileSession;
 
 constexpr std::size_t kPlainChunk = 128 * 1024;
 constexpr std::size_t kMuxChunk = 256 * 1024;
@@ -54,5 +57,11 @@ void send_tagged_timed(TcpSocket& socket, StreamCipher& cipher, StreamTag tag,
                        std::span<const std::uint8_t> payload, TransferTiming& timing);
 void send_tagged_text_timed(TcpSocket& socket, StreamCipher& cipher, StreamTag tag, const std::string& text,
                             TransferTiming& timing);
+
+using SendPayloadFn = std::function<void(SendFileSession&, Bytes&)>;
+
+void send_transfer_files(TcpSocket& control, StreamCipher& cipher, const std::vector<FileEntry>& files,
+                         ProgressReporter& reporter, TransferTiming& timing, Bytes& buffer,
+                         const SendPayloadFn& send_payload);
 
 }  // namespace kiko::detail

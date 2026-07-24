@@ -36,50 +36,36 @@ void send_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, con
   for (std::size_t k = 0; k < n; ++k) ciphers.emplace_back(key, true, static_cast<std::uint8_t>(k));
 
   Bytes buffer(kMuxChunk);
-  std::uint64_t grand_total = 0;
   TransferTiming timing;
   timing.mode = "mux_send";
   timing.mux_channels = n;
-  send_transfer_manifest(channels[0], ciphers[0], files);
+  send_transfer_files(channels[0], ciphers[0], files, reporter, timing, buffer,
+                      [&](SendFileSession& file, Bytes& payload_buffer) {
+                        if (file.action() == SendFileAction::SkipPayload) {
+                          for (std::size_t k = 0; k < n; ++k) {
+                            send_tagged_timed(channels[k], ciphers[k], StreamTag::ChunkEnd, {}, timing);
+                          }
+                          return;
+                        }
 
-  for (const auto& entry : files) {
-    SendFileSession file(entry, channels[0], ciphers[0], reporter, timing, buffer);
-    const auto action = file.action();
-    if (action == SendFileAction::MarkerComplete) continue;
-    if (action == SendFileAction::SkipPayload) {
-      for (std::size_t k = 0; k < n; ++k) {
-        send_tagged_timed(channels[k], ciphers[k], StreamTag::ChunkEnd, std::span<const std::uint8_t>(), timing);
-      }
-      grand_total += file.complete_skipped();
-      continue;
-    }
-
-    MuxSendScheduler scheduler(channels, ciphers, reporter, timing);
-    while (auto chunk = file.read_next(buffer)) {
-      Bytes payload;
-      payload.reserve(12 + chunk->bytes.size());
-      put_u64(payload, chunk->offset);
-      put_u32(payload, static_cast<std::uint32_t>(chunk->bytes.size()));
-      if (file.use_zstd()) {
-        const auto compress_start = TransferClock::now();
-        auto compressed = zstd_compress_block(chunk->bytes);
-        add_transfer_elapsed(timing.compress_ms, compress_start);
-        payload.insert(payload.end(), compressed.begin(), compressed.end());
-      } else {
-        payload.insert(payload.end(), chunk->bytes.begin(), chunk->bytes.end());
-      }
-      scheduler.enqueue(std::move(payload), chunk->bytes.size());
-    }
-
-    scheduler.finish();
-    grand_total += file.complete();
-  }
-
-  send_tagged_timed(channels[0], ciphers[0], StreamTag::Done, std::span<const std::uint8_t>(), timing);
-  auto ack = recv_tagged(channels[0], ciphers[0]);
-  if (!ack || ack->tag != StreamTag::Ack) throw KikoError("expected transfer ack");
-  reporter.transfer_timing(timing);
-  reporter.transfer_complete(files.size(), grand_total);
+                        MuxSendScheduler scheduler(channels, ciphers, reporter, timing);
+                        while (auto chunk = file.read_next(payload_buffer)) {
+                          Bytes payload;
+                          payload.reserve(12 + chunk->bytes.size());
+                          put_u64(payload, chunk->offset);
+                          put_u32(payload, static_cast<std::uint32_t>(chunk->bytes.size()));
+                          if (file.use_zstd()) {
+                            const auto compress_start = TransferClock::now();
+                            auto compressed = zstd_compress_block(chunk->bytes);
+                            add_transfer_elapsed(timing.compress_ms, compress_start);
+                            payload.insert(payload.end(), compressed.begin(), compressed.end());
+                          } else {
+                            payload.insert(payload.end(), chunk->bytes.begin(), chunk->bytes.end());
+                          }
+                          scheduler.enqueue(std::move(payload), chunk->bytes.size());
+                        }
+                        scheduler.finish();
+                      });
 }
 
 void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, const std::filesystem::path& output_dir,

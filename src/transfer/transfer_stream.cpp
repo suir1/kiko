@@ -76,6 +76,25 @@ void send_tagged_text_timed(TcpSocket& socket, StreamCipher& cipher, StreamTag t
                     timing);
 }
 
+void send_transfer_files(TcpSocket& control, StreamCipher& cipher, const std::vector<FileEntry>& files,
+                         ProgressReporter& reporter, TransferTiming& timing, Bytes& buffer,
+                         const SendPayloadFn& send_payload) {
+  std::uint64_t grand_total = 0;
+  send_transfer_manifest(control, cipher, files);
+  for (const auto& entry : files) {
+    SendFileSession file(entry, control, cipher, reporter, timing, buffer);
+    if (file.action() == SendFileAction::MarkerComplete) continue;
+    send_payload(file, buffer);
+    grand_total += file.action() == SendFileAction::SkipPayload ? file.complete_skipped() : file.complete();
+  }
+
+  send_tagged_timed(control, cipher, StreamTag::Done, std::span<const std::uint8_t>(), timing);
+  auto ack = recv_tagged(control, cipher);
+  if (!ack || ack->tag != StreamTag::Ack) throw KikoError("expected transfer ack");
+  reporter.transfer_timing(timing);
+  reporter.transfer_complete(files.size(), grand_total);
+}
+
 }  // namespace kiko::detail
 
 namespace kiko {
@@ -86,48 +105,33 @@ void send_files(TcpSocket& channel, const SessionKey& key, const std::vector<Fil
                 ProgressReporter& reporter) {
   StreamCipher cipher(key, /*sender_originates=*/true);
   Bytes buffer(kPlainChunk);
-  std::uint64_t grand_total = 0;
   TransferTiming timing;
   timing.mode = "stream_send";
-  send_transfer_manifest(channel, cipher, files);
+  send_transfer_files(channel, cipher, files, reporter, timing, buffer,
+                      [&](SendFileSession& file, Bytes& payload_buffer) {
+                        if (file.action() == SendFileAction::SkipPayload) return;
 
-  for (const auto& entry : files) {
-    SendFileSession file(entry, channel, cipher, reporter, timing, buffer);
-    const auto action = file.action();
-    if (action == SendFileAction::MarkerComplete) continue;
-    if (action == SendFileAction::SkipPayload) {
-      grand_total += file.complete_skipped();
-      continue;
-    }
-
-    std::optional<ZstdStreamCompressor> compressor;
-    if (file.use_zstd()) compressor.emplace(3);
-    while (auto chunk = file.read_next(buffer)) {
-      if (file.use_zstd()) {
-        const auto compress_start = TransferClock::now();
-        auto compressed = compressor->compress(chunk->bytes, false);
-        add_transfer_elapsed(timing.compress_ms, compress_start);
-        if (!compressed.empty()) send_tagged_timed(channel, cipher, StreamTag::Data, compressed, timing);
-      } else {
-        send_tagged_timed(channel, cipher, StreamTag::Data, chunk->bytes, timing);
-      }
-      reporter.file_advance(chunk->bytes.size());
-    }
-    if (file.use_zstd()) {
-      const auto compress_start = TransferClock::now();
-      auto trailer = compressor->compress(std::span<const std::uint8_t>(), true);
-      add_transfer_elapsed(timing.compress_ms, compress_start);
-      if (!trailer.empty()) send_tagged_timed(channel, cipher, StreamTag::Data, trailer, timing);
-    }
-
-    grand_total += file.complete();
-  }
-
-  send_tagged_timed(channel, cipher, StreamTag::Done, std::span<const std::uint8_t>(), timing);
-  auto ack = recv_tagged(channel, cipher);
-  if (!ack || ack->tag != StreamTag::Ack) throw KikoError("expected transfer ack");
-  reporter.transfer_timing(timing);
-  reporter.transfer_complete(files.size(), grand_total);
+                        std::optional<ZstdStreamCompressor> compressor;
+                        if (file.use_zstd()) compressor.emplace(3);
+                        while (auto chunk = file.read_next(payload_buffer)) {
+                          if (file.use_zstd()) {
+                            const auto compress_start = TransferClock::now();
+                            auto compressed = compressor->compress(chunk->bytes, false);
+                            add_transfer_elapsed(timing.compress_ms, compress_start);
+                            if (!compressed.empty())
+                              send_tagged_timed(channel, cipher, StreamTag::Data, compressed, timing);
+                          } else {
+                            send_tagged_timed(channel, cipher, StreamTag::Data, chunk->bytes, timing);
+                          }
+                          reporter.file_advance(chunk->bytes.size());
+                        }
+                        if (file.use_zstd()) {
+                          const auto compress_start = TransferClock::now();
+                          auto trailer = compressor->compress(std::span<const std::uint8_t>(), true);
+                          add_transfer_elapsed(timing.compress_ms, compress_start);
+                          if (!trailer.empty()) send_tagged_timed(channel, cipher, StreamTag::Data, trailer, timing);
+                        }
+                      });
 }
 
 void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesystem::path& output_dir,
