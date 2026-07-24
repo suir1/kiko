@@ -109,13 +109,23 @@ TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state) {
 
   TuiPreparedTransfer prepared;
   prepared.title = state.mode == 0 ? "kiko send" : "kiko receive";
-  prepared.spec.mode = state.mode;
-  prepared.spec.path = state.path;
-  prepared.spec.code = code;
-  prepared.spec.output_dir = state.output_dir;
-  prepared.spec.relay = relay_ep;
-  prepared.spec.relay_pass = resolve_relay_pass(state.relay_pass);
-  prepared.spec.network = state.network;
+  if (state.mode == 0) {
+    SendConfig config;
+    config.file = state.path;
+    config.code = code;
+    config.relay = relay_ep;
+    config.relay_pass = resolve_relay_pass(state.relay_pass);
+    apply_network_options_to_send(config, state.network);
+    prepared.config = std::move(config);
+  } else {
+    RecvConfig config;
+    config.code = code;
+    config.output_dir = state.output_dir;
+    config.relay = relay_ep;
+    config.relay_pass = resolve_relay_pass(state.relay_pass);
+    apply_network_options_to_peer(config, state.network);
+    prepared.config = std::move(config);
+  }
   return prepared;
 }
 

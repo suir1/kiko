@@ -3,7 +3,7 @@
 #include "core/common.hpp"
 #include "note/notepad.hpp"
 #include "tui_advanced.hpp"
-#include "tui_transfer_spec.hpp"
+#include "tui_transfer_config.hpp"
 
 #include <optional>
 #include <string>
@@ -25,7 +25,7 @@ struct TuiMenuState {
 struct TuiPreparedTransfer {
   std::string error;
   std::string title;
-  TuiTransferSpec spec;
+  TuiTransferConfig config;
 };
 
 struct TuiPreparedNote {

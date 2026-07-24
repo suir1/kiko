@@ -1,7 +1,6 @@
 #include "tui_session.hpp"
 
 #include "core/cancellation.hpp"
-#include "tui_advanced.hpp"
 
 #include <optional>
 
@@ -43,30 +42,18 @@ std::thread start_tui_task(TuiTask task, TuiState& state, std::function<void()> 
   });
 }
 
-std::thread start_tui_transfer(TuiTransferSpec spec, TuiState& state, std::function<void()> wake,
+std::thread start_tui_transfer(TuiTransferConfig config, TuiState& state, std::function<void()> wake,
                                std::shared_ptr<TransferCancellation> cancellation) {
   return start_tui_task(
-      [spec = std::move(spec)](ProgressReporter& reporter,
-                               const std::shared_ptr<TransferCancellation>& cancellation) mutable {
-        if (spec.mode == 0) {
-          SendConfig config;
-          config.file = spec.path;
-          config.relay = spec.relay;
-          config.code = spec.code;
-          config.relay_pass = spec.relay_pass;
-          config.show_qrcode = true;
-          config.cancellation = cancellation;
-          apply_network_options_to_send(config, spec.network);
-          run_send(config, reporter);
+      [config = std::move(config)](ProgressReporter& reporter,
+                                   const std::shared_ptr<TransferCancellation>& cancellation) mutable {
+        if (auto* send = std::get_if<SendConfig>(&config)) {
+          send->cancellation = cancellation;
+          run_send(*send, reporter);
         } else {
-          RecvConfig config;
-          config.code = spec.code;
-          config.relay = spec.relay;
-          config.output_dir = spec.output_dir;
-          config.relay_pass = spec.relay_pass;
-          config.cancellation = cancellation;
-          apply_network_options_to_peer(config, spec.network);
-          run_recv(config, reporter);
+          auto& recv = std::get<RecvConfig>(config);
+          recv.cancellation = cancellation;
+          run_recv(recv, reporter);
         }
       },
       state, std::move(wake), std::move(cancellation));

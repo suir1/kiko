@@ -191,8 +191,12 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
 
     join_worker_if_needed();
 
-    last_transfer_relay = prepared.spec.relay;
-    last_transfer_relay_pass = prepared.spec.relay_pass;
+    std::visit(
+        [&](const auto& config) {
+          last_transfer_relay = config.relay;
+          last_transfer_relay_pass = config.relay_pass;
+        },
+        prepared.config);
 
     transfer_state.title = prepared.title;
     reset_transfer_state(transfer_state);
@@ -200,7 +204,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
     quit_confirm_pending = false;
     transfer_cancellation = std::make_shared<TransferCancellation>();
 
-    worker = start_tui_transfer(std::move(prepared.spec), transfer_state, wake, transfer_cancellation);
+    worker = start_tui_transfer(std::move(prepared.config), transfer_state, wake, transfer_cancellation);
     worker_started = true;
     screen_tab = 1;
     save_prefs_from_menu();

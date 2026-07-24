@@ -103,12 +103,12 @@ int main() {
     state.network.no_direct = true;
 
     const auto prepared = prepare_tui_transfer(state);
-    if (!prepared.error.empty() || prepared.title != "kiko send" || prepared.spec.mode != 0 ||
-        prepared.spec.path != send_path.string() || state.path != send_path.string() ||
-        prepared.spec.relay.host != "127.0.0.1" ||
-        prepared.spec.relay.port != 9000 || prepared.spec.network.connections != 8 ||
-        !prepared.spec.network.no_direct) {
-      std::cerr << "FAIL: send transfer spec was not prepared correctly\n";
+    const auto* config = std::get_if<SendConfig>(&prepared.config);
+    if (!prepared.error.empty() || prepared.title != "kiko send" || config == nullptr ||
+        config->file != send_path || state.path != send_path.string() ||
+        config->relay.host != "127.0.0.1" || config->relay.port != 9000 ||
+        config->connections != 8 || !config->no_direct) {
+      std::cerr << "FAIL: send transfer config was not prepared correctly\n";
       fs::remove(send_path);
       return 1;
     }
@@ -158,7 +158,8 @@ int main() {
     state.mode = 1;
     state.code = " R561 \n";
     const auto prepared = prepare_tui_transfer(state);
-    if (!prepared.error.empty() || prepared.spec.code != "r561") {
+    const auto* config = std::get_if<RecvConfig>(&prepared.config);
+    if (!prepared.error.empty() || config == nullptr || config->code != "r561") {
       std::cerr << "FAIL: receive should normalize alphanumeric pairing code R561\n";
       fs::remove(send_path);
       return 1;
@@ -186,11 +187,12 @@ int main() {
     state.relay_pass = "secret";
 
     const auto prepared = prepare_tui_transfer(state);
-    if (!prepared.error.empty() || prepared.title != "kiko receive" || prepared.spec.mode != 1 ||
-        prepared.spec.code != "abc234" || prepared.spec.output_dir != "/tmp/kiko-out" ||
-        prepared.spec.relay.host != "relay.example" || prepared.spec.relay.port != 9000 ||
-        !prepared.spec.relay_pass || *prepared.spec.relay_pass != "secret") {
-      std::cerr << "FAIL: receive transfer spec was not prepared correctly\n";
+    const auto* config = std::get_if<RecvConfig>(&prepared.config);
+    if (!prepared.error.empty() || prepared.title != "kiko receive" || config == nullptr ||
+        config->code != "abc234" || config->output_dir != "/tmp/kiko-out" ||
+        config->relay.host != "relay.example" || config->relay.port != 9000 ||
+        !config->relay_pass || *config->relay_pass != "secret") {
+      std::cerr << "FAIL: receive transfer config was not prepared correctly\n";
       fs::remove(send_path);
       return 1;
     }

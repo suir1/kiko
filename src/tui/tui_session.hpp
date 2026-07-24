@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tui_transfer_spec.hpp"
+#include "tui_transfer_config.hpp"
 #include "tui_transfer_view.hpp"
 
 #include <functional>
@@ -17,7 +17,7 @@ using TuiTask =
 [[nodiscard]] std::thread start_tui_task(TuiTask task, TuiState& state, std::function<void()> wake,
                                          std::shared_ptr<TransferCancellation> cancellation);
 
-[[nodiscard]] std::thread start_tui_transfer(TuiTransferSpec spec, TuiState& state, std::function<void()> wake,
+[[nodiscard]] std::thread start_tui_transfer(TuiTransferConfig config, TuiState& state, std::function<void()> wake,
                                              std::shared_ptr<TransferCancellation> cancellation);
 
 }  // namespace kiko

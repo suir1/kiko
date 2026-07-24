@@ -14,20 +14,19 @@ namespace fs = std::filesystem;
 int main() {
   using namespace kiko;
 
-  TuiTransferSpec spec;
-  spec.mode = 0;
-  spec.path =
+  SendConfig config;
+  config.file =
       (fs::temp_directory_path() / ("kiko_tui_session_missing_" +
                                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
           .string();
-  spec.relay = Endpoint{"127.0.0.1", 9000};
+  config.relay = Endpoint{"127.0.0.1", 9000};
 
   TuiState state;
   int wakes = 0;
   const auto cancellation = std::make_shared<TransferCancellation>();
 
   const auto start = std::chrono::steady_clock::now();
-  auto worker = start_tui_transfer(spec, state, [&] { ++wakes; }, cancellation);
+  auto worker = start_tui_transfer(TuiTransferConfig{std::move(config)}, state, [&] { ++wakes; }, cancellation);
   worker.join();
   const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
 
