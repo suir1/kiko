@@ -143,7 +143,7 @@ jobs:
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
             autoconf autoconf-archive automake binutils build-essential ca-certificates cmake curl git \
-            libtool ninja-build pkg-config tar unzip zip
+            libtool ninja-build passwd pkg-config tar unzip util-linux zip
 
       - uses: actions/checkout@v4
         with:
@@ -186,7 +186,11 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: |
+          useradd --create-home --shell /bin/bash kiko-test
+          chown -R kiko-test:kiko-test build
+          runuser --user kiko-test -- env HOME=/home/kiko-test \
+            ctest --test-dir build -C Release --output-on-failure
 
       - name: Check Linux ABI baseline
         run: bash "$ABI_CHECK_SCRIPT" build/kiko build/kiko-relayd
