@@ -55,9 +55,22 @@ std::vector<FileEntry> collect_files(const std::filesystem::path& path, const Co
         ec.clear();
         continue;
       }
+      const bool is_directory = !is_symlink && it->is_directory(ec);
+      if (ec) {
+        ec.clear();
+        continue;
+      }
+      if (options.use_gitignore && gitignore.ignored(it->path(), is_directory)) {
+        if (is_directory) it.disable_recursion_pending();
+        continue;
+      }
+      if (options.use_gitignore && is_directory) {
+        const auto nested_ignore = it->path() / ".gitignore";
+        if (std::filesystem::is_regular_file(nested_ignore, ec) && !ec) gitignore.add_file(nested_ignore);
+        ec.clear();
+      }
       if (options.symlink_mode == SymlinkMode::Preserve && is_symlink) {
         auto rel = relative_lexical(it->path(), base);
-        if (options.use_gitignore && gitignore.ignored(rel)) continue;
         entries.push_back(make_symlink_entry(it->path(), base));
       } else if ((is_symlink && std::filesystem::is_regular_file(it->path(), ec)) ||
                  (!is_symlink && it->is_regular_file(ec))) {
@@ -66,7 +79,6 @@ std::vector<FileEntry> collect_files(const std::filesystem::path& path, const Co
           continue;
         }
         auto rel = relative_lexical(it->path(), base);
-        if (options.use_gitignore && gitignore.ignored(rel)) continue;
         const auto size = std::filesystem::file_size(it->path(), ec);
         if (ec) {
           ec.clear();
@@ -80,15 +92,10 @@ std::vector<FileEntry> collect_files(const std::filesystem::path& path, const Co
         entry.mtime_ms = detail::file_mtime_ms(entry.absolute);
         entry.mode = detail::file_mode_bits(entry.absolute);
         entries.push_back(std::move(entry));
-      } else if (!is_symlink && it->is_directory(ec)) {
-        if (ec) {
-          ec.clear();
-          continue;
-        }
+      } else if (is_directory) {
         std::filesystem::directory_iterator dir_it(it->path(), ec);
         if (ec || dir_it != std::filesystem::directory_iterator()) continue;
         auto rel = relative_lexical(it->path(), base) + "/";
-        if (options.use_gitignore && gitignore.ignored(rel.substr(0, rel.size() - 1))) continue;
         FileEntry entry;
         entry.absolute = it->path();
         entry.relative = rel;
