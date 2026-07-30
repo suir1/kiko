@@ -22,7 +22,7 @@ struct NoteWorkspaceSnapshot {
 
 class NoteWorkspace {
  public:
-  NoteWorkspace();
+  explicit NoteWorkspace(std::string writer_id = {});
 
   [[nodiscard]] NoteFrame update_active(std::string text);
   [[nodiscard]] NoteFrame clear_active();
@@ -45,6 +45,7 @@ class NoteWorkspace {
   std::map<std::string, NoteDocument> documents_;
   std::map<std::string, std::uint64_t> local_revisions_;
   std::map<std::string, std::uint64_t> acked_revisions_;
+  std::string writer_id_;
   std::string active_pad_ = "main";
   int next_pad_number_ = 2;
 };

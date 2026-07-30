@@ -1,5 +1,7 @@
 #include "note/note_workspace.hpp"
 
+#include "core/common.hpp"
+
 #include <algorithm>
 #include <utility>
 
@@ -22,21 +24,23 @@ bool pad_before(const NoteDocument& a, const NoteDocument& b) {
 
 }  // namespace
 
-NoteWorkspace::NoteWorkspace() {
+NoteWorkspace::NoteWorkspace(std::string writer_id)
+    : writer_id_(writer_id.empty() ? random_code(8) : std::move(writer_id)) {
   (void)ensure_pad_locked("main", "Note 1");
 }
 
 NoteFrame NoteWorkspace::update_active(std::string text) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto& document = ensure_pad_locked(active_pad_);
-  return apply_local_locked(
-      document, make_note_update(document.pad_id, document.revision + 1, std::move(text), document.title));
+  return apply_local_locked(document, make_note_update(document.pad_id, document.revision + 1, std::move(text),
+                                                       document.title, writer_id_));
 }
 
 NoteFrame NoteWorkspace::clear_active() {
   std::lock_guard<std::mutex> lock(mutex_);
   auto& document = ensure_pad_locked(active_pad_);
-  return apply_local_locked(document, make_note_clear(document.pad_id, document.revision + 1, document.title));
+  return apply_local_locked(
+      document, make_note_clear(document.pad_id, document.revision + 1, document.title, writer_id_));
 }
 
 NoteFrame NoteWorkspace::create_pad() {
@@ -51,8 +55,8 @@ NoteFrame NoteWorkspace::create_pad() {
   const auto title = "Note " + std::to_string(number);
   auto& document = ensure_pad_locked(pad_id, title);
   active_pad_ = pad_id;
-  return apply_local_locked(
-      document, make_note_update(document.pad_id, document.revision + 1, document.text, document.title));
+  return apply_local_locked(document, make_note_update(document.pad_id, document.revision + 1, document.text,
+                                                       document.title, writer_id_));
 }
 
 bool NoteWorkspace::select_pad(const std::string& pad_id) {

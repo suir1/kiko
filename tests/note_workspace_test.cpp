@@ -7,7 +7,7 @@
 using namespace kiko;
 
 int main() {
-  NoteWorkspace workspace;
+  NoteWorkspace workspace("workspace-writer");
   auto initial = workspace.snapshot();
   assert(initial.active_pad == "main");
   assert(initial.documents.size() == 1);
@@ -17,6 +17,8 @@ int main() {
   auto main_update = workspace.update_active("hello");
   assert(main_update.pad_id == "main");
   assert(main_update.revision == 1);
+  assert(main_update.writer_id == "workspace-writer");
+  assert(workspace.active_document().writer_id == "workspace-writer");
   assert(workspace.active_document().text == "hello");
   assert(!workspace.snapshot().synced);
 
@@ -47,6 +49,18 @@ int main() {
   const auto final = workspace.snapshot();
   assert(final.documents.size() == 3);
   assert(final.documents[0].pad_id == "main");
+
+  NoteWorkspace generated_writer;
+  assert(!generated_writer.update_active("generated").writer_id.empty());
+
+  NoteWorkspace concurrent_left("writer-a");
+  NoteWorkspace concurrent_right("writer-b");
+  const auto left_frame = decode_note_frame(encode_note_frame(concurrent_left.update_active("left")));
+  const auto right_frame = decode_note_frame(encode_note_frame(concurrent_right.update_active("right")));
+  assert(concurrent_left.apply_remote(right_frame));
+  assert(!concurrent_right.apply_remote(left_frame));
+  assert(concurrent_left.active_document().text == "right");
+  assert(concurrent_right.active_document().text == "right");
 
   ProgressReporter reporter;
   NoteSession session(PeerSessionConfig{}, reporter);

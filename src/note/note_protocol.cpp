@@ -3,6 +3,7 @@
 #include "core/common.hpp"
 #include "core/protocol.hpp"
 
+#include <tuple>
 #include <utility>
 
 namespace kiko {
@@ -28,12 +29,15 @@ NoteFrameType parse_note_frame_type(const std::string& value) {
   throw KikoError("unknown note frame kind: " + value);
 }
 
+}  // namespace
+
 std::string encode_note_frame(const NoteFrame& frame) {
   if (frame.text.size() > kNoteMaxBytes) throw KikoError("note text exceeds 1 MiB limit");
   Message msg{"note",
               {{"kind", note_frame_type_name(frame.type)},
                {"revision", std::to_string(frame.revision)},
                {"timestamp_ms", std::to_string(frame.timestamp_ms)},
+               {"writer_id", frame.writer_id},
                {"pad_id", frame.pad_id.empty() ? "main" : frame.pad_id},
                {"title", frame.title},
                {"text", frame.text}}};
@@ -48,6 +52,7 @@ NoteFrame decode_note_frame(const std::string& payload) {
   frame.type = parse_note_frame_type(msg.get("kind"));
   frame.revision = msg.get_u64("revision", 0);
   frame.timestamp_ms = msg.get_u64("timestamp_ms", 0);
+  frame.writer_id = msg.get("writer_id");
   frame.pad_id = msg.get("pad_id", "main");
   if (frame.pad_id.empty()) frame.pad_id = "main";
   frame.title = msg.get("title");
@@ -56,8 +61,6 @@ NoteFrame decode_note_frame(const std::string& payload) {
   return frame;
 }
 
-}  // namespace
-
 NoteFrame make_note_hello() {
   NoteFrame frame;
   frame.type = NoteFrameType::Hello;
@@ -65,20 +68,22 @@ NoteFrame make_note_hello() {
   return frame;
 }
 
-NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::string text, std::string title) {
+NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::string text, std::string title,
+                           std::string writer_id) {
   if (text.size() > kNoteMaxBytes) throw KikoError("note text exceeds 1 MiB limit");
   NoteFrame frame;
   frame.type = NoteFrameType::Update;
   frame.revision = revision;
   frame.timestamp_ms = now_ms();
+  frame.writer_id = std::move(writer_id);
   frame.pad_id = pad_id.empty() ? "main" : std::move(pad_id);
   frame.title = std::move(title);
   frame.text = std::move(text);
   return frame;
 }
 
-NoteFrame make_note_clear(std::string pad_id, std::uint64_t revision, std::string title) {
-  auto frame = make_note_update(std::move(pad_id), revision, {}, std::move(title));
+NoteFrame make_note_clear(std::string pad_id, std::uint64_t revision, std::string title, std::string writer_id) {
+  auto frame = make_note_update(std::move(pad_id), revision, {}, std::move(title), std::move(writer_id));
   frame.type = NoteFrameType::Clear;
   return frame;
 }
@@ -95,12 +100,18 @@ NoteFrame make_note_ack(std::string pad_id, std::uint64_t revision) {
 bool apply_note_update(NoteDocument& document, const NoteFrame& frame) {
   if (frame.type != NoteFrameType::Update && frame.type != NoteFrameType::Clear) return false;
   if (frame.revision < document.revision) return false;
-  if (frame.revision == document.revision && frame.timestamp_ms <= document.timestamp_ms) return false;
+  const auto incoming_text = frame.type == NoteFrameType::Clear ? std::string{} : frame.text;
+  if (frame.revision == document.revision &&
+      std::tie(frame.writer_id, frame.timestamp_ms, incoming_text) <=
+          std::tie(document.writer_id, document.timestamp_ms, document.text)) {
+    return false;
+  }
   document.revision = frame.revision;
   document.timestamp_ms = frame.timestamp_ms;
+  document.writer_id = frame.writer_id;
   document.pad_id = frame.pad_id.empty() ? "main" : frame.pad_id;
   if (!frame.title.empty()) document.title = frame.title;
-  document.text = frame.type == NoteFrameType::Clear ? std::string{} : frame.text;
+  document.text = incoming_text;
   return true;
 }
 

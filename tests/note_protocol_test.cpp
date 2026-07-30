@@ -13,7 +13,7 @@ int main() {
   assert(document.revision == 1);
 
   auto stale = make_note_update("main", 1, "stale");
-  stale.timestamp_ms = first.timestamp_ms;
+  stale.timestamp_ms = first.timestamp_ms - 1;
   assert(!apply_note_update(document, stale));
   assert(document.text == "hello");
 
@@ -39,6 +39,41 @@ int main() {
   assert(second_pad.text == "second note");
   auto second_ack = make_note_ack("pad-2", second_pad.revision);
   assert(second_ack.pad_id == "pad-2");
+
+  NoteDocument concurrent_left;
+  NoteDocument concurrent_right;
+  auto left_update = make_note_update("main", 1, "left", {}, "writer-a");
+  auto right_update = make_note_update("main", 1, "right", {}, "writer-b");
+  left_update.timestamp_ms = 1234;
+  right_update.timestamp_ms = 1234;
+  const auto round_trip = decode_note_frame(encode_note_frame(right_update));
+  assert(round_trip.writer_id == "writer-b");
+  assert(round_trip.timestamp_ms == 1234);
+  assert(round_trip.text == "right");
+  assert(apply_note_update(concurrent_left, left_update));
+  assert(apply_note_update(concurrent_right, right_update));
+  (void)apply_note_update(concurrent_left, right_update);
+  (void)apply_note_update(concurrent_right, left_update);
+  if (concurrent_left.text != "right" || concurrent_right.text != "right" ||
+      concurrent_left.writer_id != "writer-b" || concurrent_right.writer_id != "writer-b") {
+    std::cerr << "FAIL: equal-time concurrent note updates did not converge\n";
+    return 1;
+  }
+
+  NoteDocument legacy_left;
+  NoteDocument legacy_right;
+  auto legacy_alpha = make_note_update("main", 1, "alpha");
+  auto legacy_omega = make_note_update("main", 1, "omega");
+  legacy_alpha.timestamp_ms = 5678;
+  legacy_omega.timestamp_ms = 5678;
+  assert(apply_note_update(legacy_left, legacy_alpha));
+  assert(apply_note_update(legacy_right, legacy_omega));
+  (void)apply_note_update(legacy_left, legacy_omega);
+  (void)apply_note_update(legacy_right, legacy_alpha);
+  if (legacy_left.text != "omega" || legacy_right.text != "omega") {
+    std::cerr << "FAIL: legacy concurrent note updates did not converge\n";
+    return 1;
+  }
 
   bool oversized = false;
   try {

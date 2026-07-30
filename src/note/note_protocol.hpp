@@ -26,6 +26,7 @@ struct NoteFrame {
   NoteFrameType type = NoteFrameType::Update;
   std::uint64_t revision = 0;
   std::uint64_t timestamp_ms = 0;
+  std::string writer_id;
   std::string pad_id = "main";
   std::string title;
   std::string text;
@@ -34,15 +35,19 @@ struct NoteFrame {
 struct NoteDocument {
   std::uint64_t revision = 0;
   std::uint64_t timestamp_ms = 0;
+  std::string writer_id;
   std::string pad_id = "main";
   std::string title;
   std::string text;
 };
 
+[[nodiscard]] std::string encode_note_frame(const NoteFrame& frame);
+[[nodiscard]] NoteFrame decode_note_frame(const std::string& payload);
 [[nodiscard]] NoteFrame make_note_hello();
 [[nodiscard]] NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::string text,
-                                         std::string title = {});
-[[nodiscard]] NoteFrame make_note_clear(std::string pad_id, std::uint64_t revision, std::string title = {});
+                                         std::string title = {}, std::string writer_id = {});
+[[nodiscard]] NoteFrame make_note_clear(std::string pad_id, std::uint64_t revision, std::string title = {},
+                                        std::string writer_id = {});
 [[nodiscard]] NoteFrame make_note_ack(std::string pad_id, std::uint64_t revision);
 [[nodiscard]] bool apply_note_update(NoteDocument& document, const NoteFrame& frame);
 
