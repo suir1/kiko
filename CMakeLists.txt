@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(kiko VERSION 0.2.10 LANGUAGES CXX)
+project(kiko VERSION 0.2.11 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,6 +34,7 @@ set(KIKO_CORE_LAYER_SOURCES
 )
 
 set(KIKO_PLATFORM_LAYER_SOURCES
+  src/platform/atomic_file.cpp
   src/platform/native_picker.cpp
   src/platform/path_browser.cpp
   src/platform/user_config.cpp
@@ -184,6 +185,9 @@ else()
   target_link_libraries(kiko_core PUBLIC asio::asio nlohmann_json::nlohmann_json)
   target_compile_definitions(kiko_core PUBLIC ASIO_STANDALONE)
 endif()
+
+find_package(CURL REQUIRED)
+target_link_libraries(kiko_core PUBLIC CURL::libcurl)
 
 if(APPLE)
   target_compile_definitions(kiko_core PUBLIC _DARWIN_C_SOURCE)

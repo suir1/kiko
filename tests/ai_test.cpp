@@ -1,10 +1,59 @@
 #include "diagnostics/ai_advisor.hpp"
 #include "diagnostics/ai_client.hpp"
+#include "core/socket.hpp"
 
+#include <array>
 #include <cassert>
 #include <chrono>
+#include <exception>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <thread>
+
+namespace {
+
+kiko::AiChatResult run_http_case(const std::string& response) {
+  using namespace std::chrono_literals;
+  using namespace kiko;
+
+  auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+  const auto endpoint = listener.local_endpoint();
+  std::exception_ptr server_error;
+  std::thread server([&] {
+    try {
+      auto socket = listener.accept(2s);
+      if (!socket.valid()) throw std::runtime_error("AI test server accept failed");
+      std::array<char, 4096> buffer{};
+      std::string request;
+      while (request.find("\r\n\r\n") == std::string::npos ||
+             request.size() < request.find("\r\n\r\n") + 6) {
+        const auto received = socket.recv_some_timeout(buffer.data(), buffer.size(), 2s);
+        if (!received) throw std::runtime_error("AI test server request ended early");
+        request.append(buffer.data(), *received);
+      }
+      socket.send_all(response.data(), response.size());
+    } catch (...) {
+      server_error = std::current_exception();
+    }
+  });
+
+  AiHttpConfig config;
+  config.base_url = "http://127.0.0.1:" + std::to_string(endpoint.port) + "/v1";
+  config.api_key = "test-key";
+  config.timeout = 2s;
+  auto result = ai_chat_completion(config, "{}");
+  server.join();
+  if (server_error) std::rethrow_exception(server_error);
+  return result;
+}
+
+std::string http_response(int status, const std::string& reason, const std::string& body) {
+  return "HTTP/1.1 " + std::to_string(status) + " " + reason + "\r\nContent-Type: application/json\r\nContent-Length: " +
+         std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
+}
+
+}  // namespace
 
 int main() {
   using namespace kiko;
@@ -158,6 +207,64 @@ int main() {
     result = ai_chat_completion(cfg, "{}");
     if (result.error.find("invalid AI base_url host") == std::string::npos) {
       std::cerr << "FAIL: AI base_url accepted junk after bracketed IPv6 host\n";
+      return 1;
+    }
+
+    cfg.base_url = "http://127.0.0.1:1";
+    cfg.api_key = "bad\nkey";
+    result = ai_chat_completion(cfg, "{}");
+    if (result.error.find("invalid line break") == std::string::npos) {
+      std::cerr << "FAIL: AI client accepted a header-injecting API key\n";
+      return 1;
+    }
+  }
+
+  {
+    const std::string body = R"({"choices":[{"message":{"content":"plain-ok"}}]})";
+    const auto result = run_http_case(http_response(200, "OK", body));
+    if (!result.ok || result.content != "plain-ok") {
+      std::cerr << "FAIL: AI client rejected a valid content-length response: " << result.error << "\n";
+      return 1;
+    }
+  }
+
+  {
+    const std::string body = R"({"choices":[{"message":{"content":"chunked-ok"}}]})";
+    std::ostringstream chunked;
+    chunked << "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+            << std::hex << body.size() << "\r\n" << body << "\r\n0\r\n\r\n";
+    const auto result = run_http_case(chunked.str());
+    if (!result.ok || result.content != "chunked-ok") {
+      std::cerr << "FAIL: AI client rejected a valid chunked response: " << result.error << "\n";
+      return 1;
+    }
+  }
+
+  {
+    const auto result = run_http_case(http_response(401, "Unauthorized", R"({"error":{"message":"denied"}})"));
+    if (result.ok || result.error.find("AI HTTP 401") == std::string::npos ||
+        result.error.find("denied") == std::string::npos) {
+      std::cerr << "FAIL: AI client did not preserve HTTP error status and body: " << result.error << "\n";
+      return 1;
+    }
+  }
+
+  {
+    const std::string response =
+        "HTTP/1.1 200 OK\r\nContent-Length: 2097153\r\nConnection: close\r\n\r\n";
+    const auto result = run_http_case(response);
+    if (result.ok || result.error.find("byte limit") == std::string::npos) {
+      std::cerr << "FAIL: AI client accepted an oversized response: " << result.error << "\n";
+      return 1;
+    }
+  }
+
+  {
+    const std::string response =
+        "HTTP/1.1 200 OK\r\nContent-Length: 20\r\nConnection: close\r\n\r\nshort";
+    const auto result = run_http_case(response);
+    if (result.ok || result.error.find("AI request failed") == std::string::npos) {
+      std::cerr << "FAIL: AI client accepted a truncated response: " << result.error << "\n";
       return 1;
     }
   }

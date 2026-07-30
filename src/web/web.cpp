@@ -14,6 +14,8 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -32,7 +34,10 @@ namespace {
 using json = nlohmann::json;
 
 constexpr std::size_t kMaxBodyBytes = 1024 * 1024;
+constexpr std::size_t kMaxHeaderBytes = 32 * 1024;
+constexpr std::size_t kMaxRequestWorkers = 32;
 constexpr std::size_t kMaxQrTextBytes = 1200;
+constexpr auto kHttpReadTimeout = std::chrono::seconds(15);
 constexpr int kDefaultPairTimeoutSec = static_cast<int>(kDefaultPairTimeout.count());
 volatile std::sig_atomic_t web_stop_requested = 0;
 
@@ -379,12 +384,19 @@ struct HttpRequest {
 
 std::optional<HttpRequest> read_http_request(TcpSocket& socket) {
   std::string data;
-  asio::error_code ec;
-  asio::read_until(socket.asio_socket(), asio::dynamic_buffer(data), "\r\n\r\n", ec);
-  if (ec) return std::nullopt;
-
-  const auto header_end = data.find("\r\n\r\n");
-  if (header_end == std::string::npos) return std::nullopt;
+  std::array<char, 4096> buffer{};
+  const auto deadline = std::chrono::steady_clock::now() + kHttpReadTimeout;
+  std::size_t header_end = std::string::npos;
+  while ((header_end = data.find("\r\n\r\n")) == std::string::npos) {
+    if (data.size() >= kMaxHeaderBytes) throw KikoError("request headers too large");
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+    if (remaining.count() <= 0) return std::nullopt;
+    const auto capacity = std::min(buffer.size(), kMaxHeaderBytes - data.size());
+    const auto count = socket.recv_some_timeout(buffer.data(), capacity, remaining);
+    if (!count) return std::nullopt;
+    data.append(buffer.data(), *count);
+  }
 
   std::istringstream headers(data.substr(0, header_end));
   std::string request_line;
@@ -414,16 +426,22 @@ std::optional<HttpRequest> read_http_request(TcpSocket& socket) {
 
   std::size_t content_length = 0;
   if (const auto it = req.headers.find("content-length"); it != req.headers.end()) {
-    content_length = static_cast<std::size_t>(std::stoull(it->second));
-    if (content_length > kMaxBodyBytes) throw KikoError("request body too large");
+    const auto parsed = parse_u64_strict(it->second);
+    if (!parsed) throw KikoError("invalid content length");
+    if (*parsed > kMaxBodyBytes) throw KikoError("request body too large");
+    content_length = static_cast<std::size_t>(*parsed);
   }
 
   req.body = data.substr(header_end + 4);
   if (req.body.size() < content_length) {
-    asio::read(socket.asio_socket(), asio::dynamic_buffer(data),
-               asio::transfer_exactly(content_length - req.body.size()), ec);
-    if (ec) return std::nullopt;
-    req.body = data.substr(header_end + 4);
+    const auto received = req.body.size();
+    req.body.resize(content_length);
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+    if (remaining.count() <= 0 ||
+        !socket.recv_exact_timeout(req.body.data() + received, content_length - received, remaining)) {
+      return std::nullopt;
+    }
   }
   if (req.body.size() > content_length) req.body.resize(content_length);
   return req;
@@ -520,18 +538,39 @@ class WebServer : public std::enable_shared_from_this<WebServer> {
     while (!web_stop_requested) {
       auto client = listener.accept(std::chrono::milliseconds(1000));
       jobs_.join_finished_worker();
+      uploads_.purge_expired();
       if (!client.valid()) continue;
-      std::thread([self = shared_from_this(), client = std::move(client)]() mutable {
-        self->handle_client(client);
-      }).detach();
+      if (request_workers_.fetch_add(1, std::memory_order_acq_rel) >= kMaxRequestWorkers) {
+        request_workers_.fetch_sub(1, std::memory_order_acq_rel);
+        send_json(client, 503, "Service Unavailable", error_json("web server busy"));
+        continue;
+      }
+      try {
+        std::thread([self = shared_from_this(), client = std::move(client)]() mutable {
+          try {
+            self->handle_client(client);
+          } catch (...) {
+          }
+          self->request_workers_.fetch_sub(1, std::memory_order_acq_rel);
+        }).detach();
+      } catch (...) {
+        request_workers_.fetch_sub(1, std::memory_order_acq_rel);
+        throw;
+      }
     }
     return 0;
   }
 
  private:
   void handle_client(TcpSocket& socket) {
+    std::optional<HttpRequest> maybe_req;
     try {
-      auto maybe_req = read_http_request(socket);
+      maybe_req = read_http_request(socket);
+    } catch (const std::exception& e) {
+      send_json(socket, 400, "Bad Request", error_json(e.what()));
+      return;
+    }
+    try {
       if (!maybe_req) return;
       const auto& req = *maybe_req;
       if (req.path == "/" || req.path == "/index.html") {
@@ -718,6 +757,7 @@ class WebServer : public std::enable_shared_from_this<WebServer> {
   WebUploadStore uploads_;
   WebJobStore jobs_;
   std::string url_;
+  std::atomic_size_t request_workers_{0};
 };
 
 }  // namespace

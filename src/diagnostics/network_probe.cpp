@@ -19,13 +19,15 @@ std::optional<Endpoint> stun_binding(const std::string& host, std::uint16_t port
   addrinfo* res = nullptr;
   if (getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0 || !res) return std::nullopt;
 
-  int fd = -1;
+  NativeSocketHandle fd = kInvalidNativeSocket;
+  const addrinfo* selected = nullptr;
   for (auto* ai = res; ai != nullptr; ai = ai->ai_next) {
-    fd = static_cast<int>(socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol));
-    if (fd < 0) continue;
+    fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (!net_socket_valid(fd)) continue;
+    selected = ai;
     break;
   }
-  if (fd < 0) {
+  if (!net_socket_valid(fd) || !selected) {
     freeaddrinfo(res);
     return std::nullopt;
   }
@@ -41,7 +43,8 @@ std::optional<Endpoint> stun_binding(const std::string& host, std::uint16_t port
   for (int i = 8; i < 20; ++i) req[i] = static_cast<std::uint8_t>(i);
 
   const auto* req_buf = reinterpret_cast<const char*>(req);
-  const auto sent = sendto(fd, req_buf, sizeof(req), 0, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen));
+  const auto sent = sendto(fd, req_buf, static_cast<int>(sizeof(req)), 0, selected->ai_addr,
+                           static_cast<socklen_t>(selected->ai_addrlen));
   if (sent < 0 || static_cast<std::size_t>(sent) != sizeof(req)) {
     net_close(fd);
     freeaddrinfo(res);
@@ -55,9 +58,8 @@ std::optional<Endpoint> stun_binding(const std::string& host, std::uint16_t port
     if (remaining.count() <= 0) break;
     if (net_poll(fd, true, false, static_cast<int>(std::min<std::int64_t>(remaining.count(), 50))) <= 0) continue;
 
-    socklen_t from_len = 0;
     auto* recv_buf = reinterpret_cast<char*>(buf);
-    auto n = recvfrom(fd, recv_buf, sizeof(buf), 0, nullptr, &from_len);
+    auto n = recvfrom(fd, recv_buf, static_cast<int>(sizeof(buf)), 0, nullptr, nullptr);
     if (n < 20) continue;
 
     const std::uint16_t msg_type = static_cast<std::uint16_t>((buf[0] << 8) | buf[1]);

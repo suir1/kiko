@@ -133,8 +133,8 @@ RouteSelection finalize_route_selection(RouteSelection selection, ProgressReport
 }
 
 std::optional<Message> recv_relay_control_if_ready(TcpSocket& relay, std::chrono::milliseconds poll_timeout) {
-  const int fd = relay.fd();
-  if (fd < 0) return std::nullopt;
+  const auto fd = relay.native_handle();
+  if (!net_socket_valid(fd)) return std::nullopt;
   const int poll_ms = static_cast<int>(std::max<std::int64_t>(0, poll_timeout.count()));
   if (net_poll(fd, /*want_read=*/true, /*want_write=*/false, poll_ms) <= 0) return std::nullopt;
   return recv_message_timeout(relay, std::chrono::milliseconds(250));

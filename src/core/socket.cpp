@@ -10,13 +10,12 @@
 #include <asio/write.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <mutex>
 #include <vector>
 
 namespace kiko {
 namespace {
-
-using NativeSocketHandle = asio::ip::tcp::socket::native_handle_type;
 
 bool operation_cancelled(const std::atomic_bool* cancel) { return cancel && cancel->load(); }
 
@@ -24,24 +23,8 @@ Endpoint from_asio_endpoint(const asio::ip::tcp::endpoint& endpoint) {
   return Endpoint{endpoint.address().to_string(), endpoint.port()};
 }
 
-NativeSocketHandle invalid_native_socket() {
-#ifdef _WIN32
-  return INVALID_SOCKET;
-#else
-  return -1;
-#endif
-}
-
-bool native_socket_valid(NativeSocketHandle handle) {
-#ifdef _WIN32
-  return handle != INVALID_SOCKET;
-#else
-  return handle >= 0;
-#endif
-}
-
 void interrupt_native_socket(NativeSocketHandle handle) {
-  if (!native_socket_valid(handle)) return;
+  if (!net_socket_valid(handle)) return;
 #ifdef _WIN32
   (void)::shutdown(handle, SD_BOTH);
 #else
@@ -51,7 +34,8 @@ void interrupt_native_socket(NativeSocketHandle handle) {
 
 std::int64_t recv_native(NativeSocketHandle handle, void* data, std::size_t size) {
 #ifdef _WIN32
-  return ::recv(handle, static_cast<char*>(data), static_cast<int>(size), 0);
+  const auto chunk = std::min(size, static_cast<std::size_t>(std::numeric_limits<int>::max()));
+  return ::recv(handle, static_cast<char*>(data), static_cast<int>(chunk), 0);
 #else
   return ::recv(handle, data, size, 0);
 #endif
@@ -74,21 +58,19 @@ std::vector<asio::ip::tcp::endpoint> resolve_endpoints(const Endpoint& endpoint,
     }
     return out;
   }
+  if (endpoint.host.empty()) throw KikoError("cannot resolve an empty host");
 
   asio::error_code ec;
-  if (!endpoint.host.empty()) {
-    auto address = asio::ip::make_address(endpoint.host, ec);
-    if (!ec) {
-      out.emplace_back(address, endpoint.port);
-      return out;
-    }
+  auto address = asio::ip::make_address(endpoint.host, ec);
+  if (!ec) {
+    out.emplace_back(address, endpoint.port);
+    return out;
   }
 
   asio::ip::tcp::resolver resolver(io_context());
-  const char* host = endpoint.host.empty() ? nullptr : endpoint.host.c_str();
   auto port = std::to_string(endpoint.port);
   ec.clear();
-  auto results = resolver.resolve(host, port, ec);
+  auto results = resolver.resolve(endpoint.host, port, ec);
   if (ec) throw KikoError("resolve failed: " + ec.message());
   for (const auto& entry : results) out.push_back(entry.endpoint());
 
@@ -103,7 +85,7 @@ void configure_socket(asio::ip::tcp::socket& socket) {
   socket.set_option(asio::ip::tcp::no_delay(true), ec);
 }
 
-void set_reuse_port_native(int fd) {
+void set_reuse_port_native(NativeSocketHandle fd) {
 #if !defined(_WIN32) && defined(SO_REUSEPORT)
   int enabled = 1;
   (void)setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &enabled, sizeof(enabled));
@@ -115,13 +97,13 @@ void set_reuse_port_native(int fd) {
 void set_reuse_options(asio::ip::tcp::socket& socket) {
   asio::error_code ec;
   socket.set_option(asio::ip::tcp::acceptor::reuse_address(true), ec);
-  set_reuse_port_native(static_cast<int>(socket.native_handle()));
+  set_reuse_port_native(socket.native_handle());
 }
 
 void set_reuse_options(asio::ip::tcp::acceptor& acceptor) {
   asio::error_code ec;
   acceptor.set_option(asio::ip::tcp::acceptor::reuse_address(true), ec);
-  set_reuse_port_native(static_cast<int>(acceptor.native_handle()));
+  set_reuse_port_native(acceptor.native_handle());
 }
 
 bool bind_socket_to_interface(asio::ip::tcp::socket& socket, const asio::ip::tcp::endpoint& candidate,
@@ -129,6 +111,7 @@ bool bind_socket_to_interface(asio::ip::tcp::socket& socket, const asio::ip::tcp
   if (interface_name.empty() || candidate.address().is_loopback()) return true;
 
 #ifdef _WIN32
+  (void)socket;
   error = "interface binding is unsupported on Windows";
   return false;
 #else
@@ -137,7 +120,7 @@ bool bind_socket_to_interface(asio::ip::tcp::socket& socket, const asio::ip::tcp
     error = "unknown interface " + interface_name;
     return false;
   }
-  const int fd = static_cast<int>(socket.native_handle());
+  const auto fd = socket.native_handle();
 #ifdef __APPLE__
   const int level = candidate.address().is_v6() ? IPPROTO_IPV6 : IPPROTO_IP;
   const int option = candidate.address().is_v6() ? IPV6_BOUND_IF : IP_BOUND_IF;
@@ -203,7 +186,7 @@ bool bind_socket_to_local_endpoint(asio::ip::tcp::socket& socket, const asio::ip
 
 struct SocketInterruptHandle::State {
   std::mutex mutex;
-  NativeSocketHandle native_handle = invalid_native_socket();
+  NativeSocketHandle native_handle = kInvalidNativeSocket;
 };
 
 SocketInterruptHandle::SocketInterruptHandle(std::weak_ptr<State> state) : state_(std::move(state)) {}
@@ -240,9 +223,9 @@ TcpSocket::~TcpSocket() { close(); }
 
 bool TcpSocket::valid() const { return socket_ && socket_->is_open(); }
 
-int TcpSocket::fd() const {
-  if (!valid()) return -1;
-  return static_cast<int>(socket_->native_handle());
+NativeSocketHandle TcpSocket::native_handle() const {
+  if (!valid()) return kInvalidNativeSocket;
+  return static_cast<NativeSocketHandle>(socket_->native_handle());
 }
 
 asio::ip::tcp::socket& TcpSocket::asio_socket() { return *socket_; }
@@ -255,7 +238,7 @@ void TcpSocket::close() {
   std::unique_lock<std::mutex> interrupt_lock;
   if (interrupt_state_) {
     interrupt_lock = std::unique_lock<std::mutex>(interrupt_state_->mutex);
-    interrupt_state_->native_handle = invalid_native_socket();
+    interrupt_state_->native_handle = kInvalidNativeSocket;
   }
   asio::error_code ec;
   if (socket_->is_open()) {
@@ -283,53 +266,66 @@ bool TcpSocket::recv_exact(void* data, std::size_t size) {
   return true;
 }
 
-bool TcpSocket::recv_exact_timeout(void* data, std::size_t size, std::chrono::milliseconds timeout,
-                                   const std::atomic_bool* cancel) {
-  if (size == 0) return true;
-  if (operation_cancelled(cancel)) return false;
+std::optional<std::size_t> TcpSocket::recv_some_timeout(void* data, std::size_t size,
+                                                        std::chrono::milliseconds timeout,
+                                                        const std::atomic_bool* cancel) {
+  if (size == 0) return std::size_t{0};
+  if (operation_cancelled(cancel)) return std::nullopt;
 
-  NativeSocketHandle handle = invalid_native_socket();
+  NativeSocketHandle handle = kInvalidNativeSocket;
   if (interrupt_state_) {
     std::lock_guard<std::mutex> lock(interrupt_state_->mutex);
     handle = interrupt_state_->native_handle;
   }
-  if (!native_socket_valid(handle)) return false;
+  if (!net_socket_valid(handle)) return std::nullopt;
 
-  auto* ptr = static_cast<std::uint8_t*>(data);
-  std::size_t received = 0;
   const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while (received < size) {
-    if (operation_cancelled(cancel)) return false;
+  while (true) {
+    if (operation_cancelled(cancel)) return std::nullopt;
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+    if (remaining.count() <= 0) return std::nullopt;
 
-    auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
-    if (remaining.count() <= 0) return false;
     const auto slice = cancel ? std::chrono::milliseconds(25) : std::chrono::milliseconds(50);
     const int poll_ms = static_cast<int>(std::min<std::int64_t>(remaining.count(), slice.count()));
     const int poll_result =
-        net_poll(static_cast<int>(handle), /*want_read=*/true, /*want_write=*/false, poll_ms);
+        net_poll(handle, /*want_read=*/true, /*want_write=*/false, poll_ms);
     if (poll_result == 0) continue;
     if (poll_result < 0) {
       if (net_last_error() == kErrIntr) continue;
-      return false;
+      return std::nullopt;
     }
 
-    const auto n = recv_native(handle, ptr + received, size - received);
-    if (n > 0) {
-      received += static_cast<std::size_t>(n);
-      continue;
-    }
-    if (n == 0) {
+    const auto count = recv_native(handle, data, size);
+    if (count > 0) return static_cast<std::size_t>(count);
+    if (count == 0) {
       close();
-      return false;
+      return std::nullopt;
     }
 
     const int error = net_last_error();
     if (error == kErrIntr || error == kErrWouldBlock) continue;
     if (native_recv_closed(error)) {
       close();
-      return false;
+      return std::nullopt;
     }
     throw KikoError("recv failed: " + net_error_string(error));
+  }
+}
+
+bool TcpSocket::recv_exact_timeout(void* data, std::size_t size, std::chrono::milliseconds timeout,
+                                   const std::atomic_bool* cancel) {
+  if (size == 0) return true;
+  auto* ptr = static_cast<std::uint8_t*>(data);
+  std::size_t received = 0;
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (received < size) {
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+    if (remaining.count() <= 0) return false;
+    const auto count = recv_some_timeout(ptr + received, size - received, remaining, cancel);
+    if (!count) return false;
+    received += *count;
   }
   return true;
 }
@@ -401,7 +397,7 @@ TcpSocket TcpListener::accept(std::chrono::milliseconds timeout) {
     }
     auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
     if (remaining.count() <= 0) break;
-    if (net_poll(static_cast<int>(acceptor_->native_handle()), /*want_read=*/true, /*want_write=*/false,
+    if (net_poll(acceptor_->native_handle(), /*want_read=*/true, /*want_write=*/false,
                  static_cast<int>(remaining.count())) <= 0) {
       continue;
     }
@@ -476,10 +472,10 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
     if (ec) continue;
 
 #ifdef _WIN32
-    const int rc = ::connect(static_cast<SOCKET>(socket.native_handle()), candidate.data(),
+    const int rc = ::connect(socket.native_handle(), candidate.data(),
                              static_cast<int>(candidate.size()));
 #else
-    const int rc = ::connect(static_cast<int>(socket.native_handle()), candidate.data(),
+    const int rc = ::connect(socket.native_handle(), candidate.data(),
                              static_cast<socklen_t>(candidate.size()));
 #endif
     if (rc == 0) {
@@ -497,7 +493,7 @@ TcpSocket connect_tcp(const Endpoint& endpoint, std::chrono::milliseconds timeou
       auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
       if (remaining.count() <= 0) break;
       const auto slice = cancel ? std::chrono::milliseconds(25) : remaining;
-      if (net_poll(static_cast<int>(socket.native_handle()), /*want_read=*/false, /*want_write=*/true,
+      if (net_poll(socket.native_handle(), /*want_read=*/false, /*want_write=*/true,
                    static_cast<int>(std::min(remaining, slice).count())) <= 0) {
         continue;
       }

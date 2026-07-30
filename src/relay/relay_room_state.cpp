@@ -3,26 +3,28 @@
 #include "platform/platform.hpp"
 #include "core/protocol.hpp"
 
+#ifndef _WIN32
+#include <sys/ioctl.h>
+#endif
+
 namespace kiko {
 namespace {
 
 bool socket_is_dead(TcpSocket& socket) {
-  const int fd = socket.fd();
-  if (fd < 0) return true;
+  const auto fd = socket.native_handle();
+  if (!net_socket_valid(fd)) return true;
   const int poll = net_poll(fd, true, false, 0);
   if (poll < 0) return true;
   if (poll == 0) return false;
 
-  char byte = 0;
 #ifdef _WIN32
-  const int rc = recv(static_cast<SOCKET>(fd), &byte, 1, MSG_PEEK);
+  u_long available = 0;
+  if (ioctlsocket(fd, FIONREAD, &available) != 0) return true;
 #else
-  const ssize_t rc = recv(fd, &byte, 1, MSG_PEEK);
+  int available = 0;
+  if (ioctl(fd, FIONREAD, &available) != 0) return true;
 #endif
-  if (rc == 0) return true;
-  if (rc > 0) return false;
-  const int err = net_last_error();
-  return err != kErrWouldBlock && err != kErrIntr;
+  return available == 0;
 }
 
 }  // namespace
@@ -48,6 +50,12 @@ RelayRoomPairing RelayRoomState::pair_or_wait(const std::string& match_key, cons
 
   auto it = waiting_.find(match_key);
   if (it == waiting_.end()) {
+    if (waiting_.size() >= config_.max_waiting_peers) {
+      RelayRoomPairing result;
+      result.kind = RelayRoomPairing::Kind::CapacityFull;
+      result.self = std::move(self);
+      return result;
+    }
     waiting_.emplace(match_key, std::move(self));
     return {};
   }
@@ -97,7 +105,7 @@ void RelayRoomState::purge_stale_waiting() {
       const bool expired = config_.room_ttl.count() > 0 && now - it->second.registered_at > config_.room_ttl;
       const bool dead = socket_is_dead(it->second.socket);
       if (expired || dead) {
-        if (it->second.socket.fd() >= 0) to_close.push_back(std::move(it->second.socket));
+        if (net_socket_valid(it->second.socket.native_handle())) to_close.push_back(std::move(it->second.socket));
         it = waiting_.erase(it);
       } else {
         ++it;

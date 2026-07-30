@@ -2,9 +2,11 @@
 
 #include <array>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <random>
+#include <utility>
 
 namespace kiko {
 namespace {
@@ -42,14 +44,50 @@ struct WebUploadStore::Impl {
     std::uint64_t expected = 0;
     std::uint64_t received = 0;
     bool finished = false;
+    std::chrono::steady_clock::time_point updated_at = std::chrono::steady_clock::now();
   };
 
   mutable std::mutex mutex;
   std::filesystem::path root;
   std::map<std::string, Upload> uploads;
+  WebUploadLimits limits;
+
+  explicit Impl(WebUploadLimits value) : limits(std::move(value)) {}
+
+  void erase_upload(std::map<std::string, Upload>::iterator it) {
+    std::error_code ec;
+    std::filesystem::remove(it->second.path, ec);
+    ec.clear();
+    std::filesystem::remove(it->second.path.parent_path(), ec);
+    uploads.erase(it);
+  }
+
+  void purge_expired(std::chrono::steady_clock::time_point now) {
+    for (auto it = uploads.begin(); it != uploads.end();) {
+      if (limits.idle_ttl.count() > 0 && now - it->second.updated_at <= limits.idle_ttl) {
+        ++it;
+        continue;
+      }
+      auto expired = it++;
+      erase_upload(expired);
+    }
+  }
+
+  std::uint64_t reserved_remaining_bytes() const {
+    std::uint64_t total = 0;
+    for (const auto &[_, upload] : uploads) {
+      const auto remaining = upload.expected - upload.received;
+      if (remaining > std::numeric_limits<std::uint64_t>::max() - total) {
+        return std::numeric_limits<std::uint64_t>::max();
+      }
+      total += remaining;
+    }
+    return total;
+  }
 };
 
-WebUploadStore::WebUploadStore() : impl_(std::make_unique<Impl>()) {
+WebUploadStore::WebUploadStore(WebUploadLimits limits)
+    : impl_(std::make_unique<Impl>(std::move(limits))) {
   impl_->root = std::filesystem::temp_directory_path() /
                 ("kiko-web-uploads-" + random_id());
   std::filesystem::create_directories(impl_->root);
@@ -70,11 +108,25 @@ std::optional<std::string> WebUploadStore::start(std::string filename,
   }
 
   std::lock_guard<std::mutex> lock(impl_->mutex);
+  impl_->purge_expired(std::chrono::steady_clock::now());
+  if (impl_->uploads.size() >= impl_->limits.max_active_uploads) {
+    error = "too many active browser uploads";
+    return std::nullopt;
+  }
   std::error_code ec;
   const auto space = std::filesystem::space(impl_->root, ec);
-  if (!ec && size > space.available) {
-    error = "not enough free space to stage selected file";
+  if (ec) {
+    error = "could not inspect free space for browser upload";
     return std::nullopt;
+  }
+  if (size > 0) {
+    const auto reserve = static_cast<std::uintmax_t>(impl_->limits.free_space_reserve_bytes);
+    const auto usable = space.available > reserve ? space.available - reserve : 0;
+    const auto reserved = static_cast<std::uintmax_t>(impl_->reserved_remaining_bytes());
+    if (static_cast<std::uintmax_t>(size) > usable || reserved > usable - static_cast<std::uintmax_t>(size)) {
+      error = "not enough unreserved space to stage selected file";
+      return std::nullopt;
+    }
   }
   std::string id;
   do {
@@ -96,7 +148,7 @@ std::optional<std::string> WebUploadStore::start(std::string filename,
     return std::nullopt;
   }
   file.close();
-  impl_->uploads.emplace(id, Impl::Upload{path, size, 0, false});
+  impl_->uploads.emplace(id, Impl::Upload{path, size, 0, false, std::chrono::steady_clock::now()});
   return id;
 }
 
@@ -126,17 +178,30 @@ bool WebUploadStore::append(const std::string &id, std::uint64_t offset,
     return false;
   }
 
+  std::error_code size_error;
+  const auto staged_size = std::filesystem::file_size(upload.path, size_error);
+  if (size_error || staged_size != upload.received) {
+    error = "staged upload size no longer matches confirmed offset";
+    return false;
+  }
+
   std::ofstream file(upload.path, std::ios::binary | std::ios::app);
   if (!file) {
     error = "could not open staged upload file";
     return false;
   }
   file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  file.flush();
   if (!file) {
+    file.close();
+    std::error_code rollback_error;
+    std::filesystem::resize_file(upload.path, upload.received, rollback_error);
     error = "could not write staged upload file";
+    if (rollback_error) error += "; partial upload could not be rolled back";
     return false;
   }
   upload.received += static_cast<std::uint64_t>(bytes.size());
+  upload.updated_at = std::chrono::steady_clock::now();
   return true;
 }
 
@@ -154,18 +219,21 @@ std::optional<CompletedWebUpload> WebUploadStore::finish(const std::string &id,
     return std::nullopt;
   }
   upload.finished = true;
+  upload.updated_at = std::chrono::steady_clock::now();
   return CompletedWebUpload{id, upload.path, upload.expected};
 }
 
 std::optional<std::filesystem::path>
 WebUploadStore::completed_path(const std::string &id,
-                               std::string &error) const {
+                               std::string &error) {
   std::lock_guard<std::mutex> lock(impl_->mutex);
+  impl_->purge_expired(std::chrono::steady_clock::now());
   const auto it = impl_->uploads.find(id);
   if (it == impl_->uploads.end() || !it->second.finished) {
     error = "completed upload not found";
     return std::nullopt;
   }
+  it->second.updated_at = std::chrono::steady_clock::now();
   return it->second.path;
 }
 
@@ -179,11 +247,12 @@ void WebUploadStore::cancel(const std::string &id) {
   const auto it = impl_->uploads.find(id);
   if (it == impl_->uploads.end())
     return;
-  std::error_code ec;
-  std::filesystem::remove(it->second.path, ec);
-  ec.clear();
-  std::filesystem::remove(it->second.path.parent_path(), ec);
-  impl_->uploads.erase(it);
+  impl_->erase_upload(it);
+}
+
+void WebUploadStore::purge_expired(std::chrono::steady_clock::time_point now) {
+  std::lock_guard<std::mutex> lock(impl_->mutex);
+  impl_->purge_expired(now);
 }
 
 } // namespace kiko

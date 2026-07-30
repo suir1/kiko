@@ -33,12 +33,18 @@ struct UserConfig {
   NetworkPreferences network;
 };
 
+struct UserConfigLoadResult {
+  UserConfig config;
+  std::optional<std::string> warning;
+};
+
 [[nodiscard]] std::filesystem::path user_config_path();
 
 // Loads config.json; migrates legacy tui.json when present.
 [[nodiscard]] UserConfig load_user_config();
+[[nodiscard]] UserConfigLoadResult load_user_config_with_status();
 
-void save_user_config(const UserConfig& config);
+[[nodiscard]] std::optional<std::string> save_user_config(const UserConfig& config);
 
 // Priority: KIKO_RELAY env → saved relay → compile-time default.
 [[nodiscard]] std::string resolve_relay_default(const UserConfig& config);
@@ -46,9 +52,9 @@ void save_user_config(const UserConfig& config);
 // Priority: KIKO_RELAY_PASS env → saved relay_pass → nullopt.
 [[nodiscard]] std::optional<std::string> resolve_relay_pass_default(const UserConfig& config);
 
-void remember_send_settings(const std::string& relay, const std::optional<std::string>& relay_pass,
-                            const std::string& send_path);
-void remember_recv_settings(const std::string& relay, const std::optional<std::string>& relay_pass,
-                            const std::string& output_dir);
+[[nodiscard]] std::optional<std::string> remember_send_settings(
+    const std::string& relay, const std::optional<std::string>& relay_pass, const std::string& send_path);
+[[nodiscard]] std::optional<std::string> remember_recv_settings(
+    const std::string& relay, const std::optional<std::string>& relay_pass, const std::string& output_dir);
 
 }  // namespace kiko

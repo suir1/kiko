@@ -31,7 +31,7 @@ struct RelayWaitingPeer {
 };
 
 struct RelayRoomPairing {
-  enum class Kind { Waiting, Matched, RoomFull };
+  enum class Kind { Waiting, Matched, RoomFull, CapacityFull };
 
   Kind kind = Kind::Waiting;
   std::optional<RelayWaitingPeer> self;

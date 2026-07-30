@@ -117,7 +117,7 @@ termux_source_hint() {
   cat >&2 <<'EOF'
 Termux source build:
   pkg update
-  pkg install -y git clang cmake ninja pkg-config libsodium zstd
+  pkg install -y git clang cmake ninja pkg-config libsodium zstd curl
   git clone https://github.com/suir1/kiko.git
   cd kiko
   cmake --preset system-deps
@@ -138,7 +138,7 @@ source_build() {
     need pkg
     echo "Installing Termux build dependencies..."
     pkg update
-    pkg install -y git clang cmake ninja pkg-config libsodium zstd
+    pkg install -y git clang cmake ninja pkg-config libsodium zstd curl
   fi
 
   need git

@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from pathlib import Path
 
 
@@ -40,6 +42,13 @@ def fetch(url: str) -> tuple[int, str]:
             return response.status, response.read().decode("utf-8")
     except urllib.error.HTTPError as error:
         return error.code, error.read().decode("utf-8")
+
+
+def raw_request(host: str, port: int, request: bytes) -> bytes:
+    with socket.create_connection((host, port), timeout=2) as client:
+        client.settimeout(2)
+        client.sendall(request)
+        return client.recv(4096)
 
 
 def main() -> None:
@@ -93,6 +102,29 @@ def main() -> None:
         job = json.loads(body)
         if job.get("running") is not False:
             fail("initial job should be idle")
+
+        endpoint = urlsplit(base)
+        host = endpoint.hostname or "127.0.0.1"
+        port = endpoint.port or 80
+        oversized = b"GET / HTTP/1.1\r\nHost: localhost\r\nX-Large: " + b"a" * (33 * 1024)
+        response = raw_request(host, port, oversized)
+        if b"400 Bad Request" not in response:
+            fail("oversized HTTP headers were not rejected")
+
+        time.sleep(0.2)
+        blockers: list[socket.socket] = []
+        try:
+            for _ in range(32):
+                client = socket.create_connection((host, port), timeout=2)
+                client.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\nX-Stall: ")
+                blockers.append(client)
+            time.sleep(0.3)
+            response = raw_request(host, port, b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            if b"503 Service Unavailable" not in response:
+                fail("HTTP worker limit did not reject excess slow clients")
+        finally:
+            for client in blockers:
+                client.close()
     finally:
         proc.terminate()
         try:

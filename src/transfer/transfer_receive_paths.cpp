@@ -1,5 +1,7 @@
 #include "transfer_receive_paths.hpp"
 
+#include "platform/atomic_file.hpp"
+
 #include <fstream>
 #include <span>
 
@@ -14,6 +16,32 @@ bool is_safe_relative_symlink_target(const std::filesystem::path& target) {
 }
 
 namespace {
+
+struct TemporaryPathCleanup {
+  std::filesystem::path path;
+
+  ~TemporaryPathCleanup() {
+    if (path.empty()) return;
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+  }
+};
+
+bool path_has_prefix(const std::filesystem::path& base, const std::filesystem::path& path) {
+  auto base_it = base.begin();
+  auto path_it = path.begin();
+  for (; base_it != base.end(); ++base_it, ++path_it) {
+    if (path_it == path.end() || *base_it != *path_it) return false;
+  }
+  return true;
+}
+
+std::filesystem::path absolute_normalized(const std::filesystem::path& path, const std::string& relative) {
+  std::error_code ec;
+  auto absolute = std::filesystem::absolute(path, ec);
+  if (ec) throw KikoError("failed to resolve receive path for " + relative + ": " + ec.message());
+  return absolute.lexically_normal();
+}
 
 std::string sha256_file_hex(const std::filesystem::path& path, Bytes& buffer) {
   std::ifstream input(path, std::ios::binary);
@@ -80,6 +108,15 @@ void verify_received_digest(const std::filesystem::path& part_path, const std::s
     throw KikoError("received " + std::to_string(received_size) + " bytes for " + relative + ", expected " +
                     std::to_string(declared_size));
   }
+  std::error_code size_ec;
+  const auto stored_size = std::filesystem::file_size(part_path, size_ec);
+  if (size_ec || stored_size != static_cast<std::uintmax_t>(declared_size)) {
+    std::error_code remove_ec;
+    std::filesystem::remove(part_path, remove_ec);
+    const auto actual_size = size_ec ? std::string("unknown") : std::to_string(stored_size);
+    throw KikoError("received file size mismatch for " + relative + " (stored " + actual_size + ", expected " +
+                    std::to_string(declared_size) + ")");
+  }
   if (actual_sha256 != expected_sha256) {
     std::error_code ec;
     std::filesystem::remove(part_path, ec);
@@ -104,18 +141,17 @@ void verify_part_file_digest(const std::filesystem::path& part_path, const std::
 }
 
 void finalize_part_file(const std::filesystem::path& part_path, const std::filesystem::path& current_path) {
-  std::error_code ec;
-  std::filesystem::rename(part_path, current_path, ec);
-  if (ec) {
-    std::filesystem::remove(current_path, ec);
-    std::filesystem::rename(part_path, current_path, ec);
-    if (ec) throw KikoError("failed to finalize file: " + current_path.string());
+  if (auto error = atomic_replace_file(part_path, current_path)) {
+    throw KikoError("failed to finalize file " + current_path.string() + ": " + *error);
   }
 }
 
 void validate_safe_symlink_target(const std::string& relative, const std::string& target) {
   if (relative.empty() || relative.back() == '/') {
     throw KikoError("refusing invalid symlink path: " + relative);
+  }
+  if (target.find('\0') != std::string::npos) {
+    throw KikoError("refusing null byte in symlink target for " + relative);
   }
   const std::filesystem::path link_target(target);
   if (!is_safe_relative_symlink_target(link_target)) {
@@ -129,19 +165,81 @@ void create_safe_symlink(const std::filesystem::path& current_path, const std::s
   const std::filesystem::path link_target(target);
   std::error_code ec;
   if (current_path.has_parent_path()) std::filesystem::create_directories(current_path.parent_path());
-  std::filesystem::remove(current_path, ec);
-  ec.clear();
-  std::filesystem::create_symlink(link_target, current_path, ec);
-  if (ec) throw KikoError("failed to create symlink: " + current_path.string());
+  auto temporary = current_path;
+  temporary += ".linktmp-" + random_code(12);
+  TemporaryPathCleanup cleanup{temporary};
+  std::filesystem::create_symlink(link_target, temporary, ec);
+  if (ec) throw KikoError("failed to create temporary symlink for " + current_path.string() + ": " + ec.message());
+  if (auto error = atomic_replace_file(temporary, current_path)) {
+    throw KikoError("failed to finalize symlink " + current_path.string() + ": " + *error);
+  }
+  cleanup.path.clear();
 }
 
 std::filesystem::path safe_join(const std::filesystem::path& base, const std::string& relative) {
+  if (relative.find('\0') != std::string::npos) {
+    throw KikoError("refusing null byte in transfer path");
+  }
   std::filesystem::path rel(relative);
   if (rel.is_absolute()) throw KikoError("refusing absolute path in transfer: " + relative);
   for (const auto& part : rel) {
     if (part == "..") throw KikoError("refusing path traversal in transfer: " + relative);
   }
   return base / rel;
+}
+
+void validate_receive_target_parent(const std::filesystem::path& output_dir,
+                                    const std::filesystem::path& target_path,
+                                    const std::string& relative) {
+  const auto root = absolute_normalized(output_dir, relative);
+  const auto target = absolute_normalized(target_path, relative);
+  if (!path_has_prefix(root, target)) {
+    throw KikoError("refusing receive target outside output directory: " + relative);
+  }
+
+  const auto parent = target.parent_path();
+  std::error_code ec;
+  const auto resolved_root = std::filesystem::weakly_canonical(root, ec);
+  if (ec) throw KikoError("failed to resolve receive root for " + relative + ": " + ec.message());
+  ec.clear();
+  const auto resolved_parent = std::filesystem::weakly_canonical(parent, ec);
+  if (ec || !path_has_prefix(resolved_root, resolved_parent)) {
+    throw KikoError("refusing receive path through a symbolic link outside output directory: " + relative);
+  }
+
+  auto relative_parent = parent.lexically_relative(root);
+  auto current = root;
+  for (const auto& part : relative_parent) {
+    if (part == ".") continue;
+    if (part == "..") throw KikoError("refusing receive parent traversal: " + relative);
+    current /= part;
+    ec.clear();
+    const auto status = std::filesystem::symlink_status(current, ec);
+    if (ec) {
+      if (ec == std::errc::no_such_file_or_directory) continue;
+      throw KikoError("failed to inspect receive parent for " + relative + ": " + ec.message());
+    }
+    if (!std::filesystem::exists(status)) continue;
+    if (std::filesystem::is_symlink(status)) {
+      throw KikoError("refusing symbolic link in receive parent path: " + relative);
+    }
+    if (!std::filesystem::is_directory(status)) {
+      throw KikoError("receive parent is not a directory for " + relative + ": " + current.string());
+    }
+  }
+}
+
+void validate_receive_part_path(const std::filesystem::path& part_path, const std::string& relative) {
+  std::error_code ec;
+  const auto status = std::filesystem::symlink_status(part_path, ec);
+  if (ec) {
+    if (ec == std::errc::no_such_file_or_directory) return;
+    throw KikoError("failed to inspect partial file for " + relative + ": " + ec.message());
+  }
+  if (!std::filesystem::exists(status)) return;
+  if (std::filesystem::is_symlink(status) || !std::filesystem::is_regular_file(status)) {
+    throw KikoError("refusing unsafe partial file for " + relative + ": " + part_path.string());
+  }
 }
 
 }  // namespace kiko::detail

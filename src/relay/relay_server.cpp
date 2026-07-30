@@ -12,6 +12,7 @@
 #include <array>
 #include <chrono>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -26,6 +27,7 @@ constexpr auto kControlReadTimeout = std::chrono::seconds(5);
 constexpr auto kRouteChoiceTimeout = std::chrono::seconds(15);
 constexpr auto kRoutePollSlice = std::chrono::milliseconds(25);
 constexpr auto kRouteFrameReadTimeout = std::chrono::milliseconds(250);
+constexpr std::size_t kMaxRelayControlFrameBytes = 64 * 1024;
 
 struct RouteChoiceRead {
   enum class Kind { None, Message, Closed };
@@ -34,12 +36,12 @@ struct RouteChoiceRead {
 };
 
 RouteChoiceRead recv_route_choice_if_ready(TcpSocket& socket) {
-  const int fd = socket.fd();
-  if (fd < 0) return {RouteChoiceRead::Kind::Closed, {}};
+  const auto fd = socket.native_handle();
+  if (!net_socket_valid(fd)) return {RouteChoiceRead::Kind::Closed, {}};
   const int poll = net_poll(fd, /*want_read=*/true, /*want_write=*/false, 0);
   if (poll == 0) return {};
   if (poll < 0) return {RouteChoiceRead::Kind::Closed, {}};
-  auto message = recv_message_timeout(socket, kRouteFrameReadTimeout);
+  auto message = recv_message_timeout(socket, kRouteFrameReadTimeout, nullptr, kMaxRelayControlFrameBytes);
   if (!message) return {RouteChoiceRead::Kind::Closed, {}};
   return {RouteChoiceRead::Kind::Message, std::move(*message)};
 }
@@ -82,7 +84,26 @@ class RelayStateImpl {
   std::atomic<bool> cleanup_stop_{false};
   std::thread cleanup_thread_;
 
+  void log_client_error(const std::string& error) {
+    std::lock_guard<std::mutex> lock(log_mutex_);
+    const auto now = std::chrono::steady_clock::now();
+    if (now - log_window_started_ >= std::chrono::minutes(1)) {
+      log_window_started_ = now;
+      logged_client_errors_ = 0;
+    }
+    if (logged_client_errors_ < 10) {
+      std::cerr << "relay client error: " << error << "\n";
+    } else if (logged_client_errors_ == 10) {
+      std::cerr << "relay client errors suppressed for the remainder of this minute\n";
+    }
+    ++logged_client_errors_;
+  }
+
  private:
+  std::mutex log_mutex_;
+  std::chrono::steady_clock::time_point log_window_started_{std::chrono::steady_clock::now()};
+  std::size_t logged_client_errors_ = 0;
+
   void start_cleanup() {
     cleanup_thread_ = std::thread([this]() {
       while (!cleanup_stop_.load()) {
@@ -136,16 +157,16 @@ void handle_punch_probe(TcpSocket& socket, const Message& probe, const std::shar
                                {{"public_host", peer_addr.host}, {"public_port", std::to_string(peer_addr.port)}}});
 }
 
-void native_shutdown_both(int fd) {
-  if (fd < 0) return;
+void native_shutdown_both(NativeSocketHandle fd) {
+  if (!net_socket_valid(fd)) return;
 #ifdef _WIN32
-  shutdown(static_cast<SOCKET>(fd), SD_BOTH);
+  shutdown(fd, SD_BOTH);
 #else
   ::shutdown(fd, SHUT_RDWR);
 #endif
 }
 
-void disable_native_sigpipe(int fd) {
+void disable_native_sigpipe(NativeSocketHandle fd) {
 #if !defined(_WIN32) && defined(SO_NOSIGPIPE)
   int enabled = 1;
   (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));
@@ -154,11 +175,12 @@ void disable_native_sigpipe(int fd) {
 #endif
 }
 
-bool native_send_all(int fd, const char* data, std::size_t size) {
+bool native_send_all(NativeSocketHandle fd, const char* data, std::size_t size) {
   std::size_t sent = 0;
   while (sent < size) {
 #ifdef _WIN32
-    const int rc = send(static_cast<SOCKET>(fd), data + sent, static_cast<int>(size - sent), 0);
+    const auto chunk = std::min(size - sent, static_cast<std::size_t>(std::numeric_limits<int>::max()));
+    const int rc = send(fd, data + sent, static_cast<int>(chunk), 0);
 #else
     int flags = 0;
 #ifdef MSG_NOSIGNAL
@@ -182,10 +204,11 @@ bool native_send_all(int fd, const char* data, std::size_t size) {
   return true;
 }
 
-std::optional<std::size_t> native_recv_some(int fd, char* data, std::size_t size) {
+std::optional<std::size_t> native_recv_some(NativeSocketHandle fd, char* data, std::size_t size) {
   while (true) {
 #ifdef _WIN32
-    const int rc = recv(static_cast<SOCKET>(fd), data, static_cast<int>(size), 0);
+    const auto chunk = std::min(size, static_cast<std::size_t>(std::numeric_limits<int>::max()));
+    const int rc = recv(fd, data, static_cast<int>(chunk), 0);
 #else
     const ssize_t rc = recv(fd, data, size, 0);
 #endif
@@ -203,7 +226,7 @@ std::optional<std::size_t> native_recv_some(int fd, char* data, std::size_t size
   }
 }
 
-void pipe_bytes_native(int from_fd, int to_fd, std::atomic<bool>& done) {
+void pipe_bytes_native(NativeSocketHandle from_fd, NativeSocketHandle to_fd, std::atomic<bool>& done) {
   disable_native_sigpipe(to_fd);
   std::array<char, 16 * 1024> buffer{};
   while (!done.load()) {
@@ -217,8 +240,8 @@ void pipe_bytes_native(int from_fd, int to_fd, std::atomic<bool>& done) {
 }
 
 void relay_stream_sync(TcpSocket first, TcpSocket second) {
-  const int first_fd = first.fd();
-  const int second_fd = second.fd();
+  const auto first_fd = first.native_handle();
+  const auto second_fd = second.native_handle();
   std::atomic<bool> done{false};
   // Use native full-duplex I/O here; sharing one Asio socket object across two
   // pipe threads for recv/send/close is not a safe ownership model.
@@ -244,10 +267,10 @@ void send_message_best_effort(TcpSocket& socket, const Message& message) {
 void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& state) {
   std::string active_room;
   try {
-    auto first = recv_message_timeout(socket, kControlReadTimeout);
+    auto first = recv_message_timeout(socket, kControlReadTimeout, nullptr, kMaxRelayControlFrameBytes);
     if (first && first->type == "ping") {
       send_message(socket, Message{"pong", {{"version", kVersion}}});
-      first = recv_message_timeout(socket, kControlReadTimeout);
+      first = recv_message_timeout(socket, kControlReadTimeout, nullptr, kMaxRelayControlFrameBytes);
       if (!first) return;
     }
     if (first && first->type == "punch_probe") {
@@ -300,6 +323,10 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
       reject_client(pairing.self->socket, "room_full");
       return;
     }
+    if (pairing.kind == RelayRoomPairing::Kind::CapacityFull) {
+      reject_client(pairing.self->socket, "server_busy");
+      return;
+    }
 
     auto other = std::move(pairing.peer);
     self = std::move(*pairing.self);
@@ -338,19 +365,72 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
     send_message_best_effort(other->socket, done);
     send_message_best_effort(self.socket, done);
   } catch (const std::exception& error) {
-    std::cerr << "relay client error: " << error.what() << "\n";
+    state->log_client_error(error.what());
   }
 }
 
+struct RelayClientWorker {
+  std::thread thread;
+  std::shared_ptr<std::atomic_bool> done;
+  SocketInterruptHandle interrupt;
+};
+
+void reap_finished_workers(std::mutex& mutex, std::vector<RelayClientWorker>& workers) {
+  std::vector<std::thread> finished;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (auto it = workers.begin(); it != workers.end();) {
+      if (!it->done->load(std::memory_order_acquire)) {
+        ++it;
+        continue;
+      }
+      finished.push_back(std::move(it->thread));
+      it = workers.erase(it);
+    }
+  }
+  for (auto& thread : finished) {
+    if (thread.joinable()) thread.join();
+  }
+}
+
+bool start_client_worker(TcpSocket& socket, const std::shared_ptr<RelayStateImpl>& state,
+                         std::mutex& mutex, std::vector<RelayClientWorker>& workers) {
+  reap_finished_workers(mutex, workers);
+
+  std::lock_guard<std::mutex> lock(mutex);
+  const auto limit = state->config_.max_client_workers == 0 ? std::size_t{1}
+                                                            : state->config_.max_client_workers;
+  if (workers.size() >= limit) return false;
+
+  auto done = std::make_shared<std::atomic_bool>(false);
+  auto interrupt = socket.interrupt_handle();
+  workers.emplace_back();
+  auto& worker = workers.back();
+  worker.done = done;
+  worker.interrupt = std::move(interrupt);
+  try {
+    worker.thread = std::thread([socket = std::move(socket), state, done]() mutable {
+      handle_client(std::move(socket), state);
+      done->store(true, std::memory_order_release);
+    });
+  } catch (...) {
+    workers.pop_back();
+    throw;
+  }
+  return true;
+}
+
 void accept_loop(TcpListener& listener, const std::shared_ptr<RelayStateImpl>& state, std::atomic<bool>& stop,
-                 std::mutex& client_mutex, std::vector<std::thread>& client_threads) {
+                 std::mutex& client_mutex, std::vector<RelayClientWorker>& client_workers) {
   while (!stop.load()) {
+    reap_finished_workers(client_mutex, client_workers);
     auto socket = listener.accept(std::chrono::milliseconds(200));
     if (!socket.valid()) continue;
-    std::thread client([socket = std::move(socket), state]() mutable { handle_client(std::move(socket), state); });
-    std::lock_guard<std::mutex> lock(client_mutex);
-    client_threads.push_back(std::move(client));
+    if (!start_client_worker(socket, state, client_mutex, client_workers)) {
+      send_message_best_effort(socket, Message{"error", {{"code", "server_busy"}}});
+    }
   }
+  reap_finished_workers(client_mutex, client_workers);
 }
 
 }  // namespace
@@ -360,8 +440,20 @@ struct BackgroundRelay::Impl {
   std::unique_ptr<TcpListener> listener;
   std::thread accept_thread;
   std::mutex client_mutex;
-  std::vector<std::thread> client_threads;
+  std::vector<RelayClientWorker> client_workers;
   std::atomic<bool> stop{false};
+  mutable std::mutex failure_mutex;
+  std::optional<std::string> failure;
+
+  void set_failure(std::string error) {
+    std::lock_guard<std::mutex> lock(failure_mutex);
+    failure = std::move(error);
+  }
+
+  [[nodiscard]] std::optional<std::string> last_error() const {
+    std::lock_guard<std::mutex> lock(failure_mutex);
+    return failure;
+  }
 };
 
 BackgroundRelay::BackgroundRelay() = default;
@@ -370,37 +462,61 @@ BackgroundRelay::~BackgroundRelay() { stop(); }
 
 void BackgroundRelay::start(const Endpoint& bind_addr, const RelayServerConfig& config) {
   if (running_.load()) return;
+  if (impl_) stop();
   auto listener = TcpListener::bind(bind_addr);
   bound_ = listener.local_endpoint();
   impl_ = std::make_unique<Impl>();
   impl_->state = std::make_shared<RelayStateImpl>(config);
   impl_->listener = std::make_unique<TcpListener>(std::move(listener));
   impl_->stop.store(false);
-  impl_->accept_thread = std::thread([this]() {
-    accept_loop(*impl_->listener, impl_->state, impl_->stop, impl_->client_mutex, impl_->client_threads);
-  });
   running_.store(true);
+  auto* relay_impl = impl_.get();
+  try {
+    impl_->accept_thread = std::thread([this, relay_impl]() {
+      try {
+        accept_loop(*relay_impl->listener, relay_impl->state, relay_impl->stop,
+                    relay_impl->client_mutex, relay_impl->client_workers);
+      } catch (const std::exception& error) {
+        relay_impl->set_failure(error.what());
+        relay_impl->stop.store(true);
+        running_.store(false);
+      } catch (...) {
+        relay_impl->set_failure("unknown accept loop error");
+        relay_impl->stop.store(true);
+        running_.store(false);
+      }
+    });
+  } catch (...) {
+    running_.store(false);
+    impl_.reset();
+    throw;
+  }
 }
 
 void BackgroundRelay::stop() {
-  if (!running_.exchange(false)) return;
+  running_.store(false);
   if (impl_) {
     impl_->stop.store(true);
     if (impl_->accept_thread.joinable()) impl_->accept_thread.join();
     if (impl_->state) impl_->state->rooms_.close_waiting();
-    std::vector<std::thread> client_threads;
+    std::vector<RelayClientWorker> client_workers;
     {
       std::lock_guard<std::mutex> lock(impl_->client_mutex);
-      client_threads.swap(impl_->client_threads);
+      client_workers.swap(impl_->client_workers);
     }
-    for (auto& thread : client_threads) {
-      if (thread.joinable()) thread.join();
+    for (const auto& worker : client_workers) worker.interrupt.interrupt();
+    for (auto& worker : client_workers) {
+      if (worker.thread.joinable()) worker.thread.join();
     }
   }
   impl_.reset();
 }
 
 Endpoint BackgroundRelay::local_endpoint() const { return bound_; }
+
+std::optional<std::string> BackgroundRelay::last_error() const {
+  return impl_ ? impl_->last_error() : std::nullopt;
+}
 
 bool relay_password_ok(const RelayServerConfig& config, const Message& hello) {
   if (config.password.empty()) return true;

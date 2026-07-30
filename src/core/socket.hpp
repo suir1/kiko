@@ -2,6 +2,7 @@
 
 #include "core/common.hpp"
 #include "core/proxy.hpp"
+#include "platform/platform.hpp"
 
 #include <asio/ip/tcp.hpp>
 
@@ -47,7 +48,7 @@ class TcpSocket {
   ~TcpSocket();
 
   [[nodiscard]] bool valid() const;
-  [[nodiscard]] int fd() const;
+  [[nodiscard]] NativeSocketHandle native_handle() const;
   [[nodiscard]] asio::ip::tcp::socket& asio_socket();
   [[nodiscard]] SocketInterruptHandle interrupt_handle() const;
 
@@ -56,6 +57,9 @@ class TcpSocket {
   void set_blocking(bool blocking);
   void send_all(const void* data, std::size_t size);
   [[nodiscard]] bool recv_exact(void* data, std::size_t size);
+  [[nodiscard]] std::optional<std::size_t> recv_some_timeout(
+      void* data, std::size_t size, std::chrono::milliseconds timeout,
+      const std::atomic_bool* cancel = nullptr);
   [[nodiscard]] bool recv_exact_timeout(void* data, std::size_t size, std::chrono::milliseconds timeout,
                                         const std::atomic_bool* cancel = nullptr);
 

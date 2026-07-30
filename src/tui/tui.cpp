@@ -123,12 +123,13 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
   std::thread worker;
   bool worker_started = false;
   std::string action_notice;
+  std::string deferred_warning;
   bool quit_confirm_pending = false;
   std::shared_ptr<TransferCancellation> transfer_cancellation;
   Endpoint last_transfer_relay = default_relay;
   std::optional<std::string> last_transfer_relay_pass;
 
-  auto save_prefs_from_menu = [&]() { save_tui_menu_state(menu); };
+  auto save_prefs_from_menu = [&]() { return save_tui_menu_state(menu); };
 
   auto join_worker_if_needed = [&]() {
     if (worker_started && worker.joinable()) {
@@ -207,7 +208,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
     worker = start_tui_transfer(std::move(prepared.config), transfer_state, wake, transfer_cancellation);
     worker_started = true;
     screen_tab = 1;
-    save_prefs_from_menu();
+    if (auto error = save_prefs_from_menu()) action_notice = "warning: " + *error;
     return true;
   };
 
@@ -222,7 +223,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
 
   auto return_to_menu = [&]() {
     join_worker_if_needed();
-    save_prefs_from_menu();
+    if (auto error = save_prefs_from_menu()) menu_error = *error;
     screen_tab = 0;
     action_notice.clear();
     quit_confirm_pending = false;
@@ -246,7 +247,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
       wake();
       return;
     }
-    save_prefs_from_menu();
+    if (auto error = save_prefs_from_menu()) deferred_warning = "warning: " + *error;
     note_request = std::move(prepared.config);
     screen.Exit();
   };
@@ -312,7 +313,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
       }
       if (!done && quit_key) {
         if (quit_confirm_pending) {
-          save_prefs_from_menu();
+          if (auto error = save_prefs_from_menu()) action_notice = "warning: " + *error;
           request_transfer_cancel();
         } else {
           quit_confirm_pending = true;
@@ -327,7 +328,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
     }
 
     if (quit_key || event == Event::Escape) {
-      save_prefs_from_menu();
+      if (auto error = save_prefs_from_menu()) deferred_warning = "warning: " + *error;
       screen.Exit();
       return true;
     }
@@ -337,6 +338,7 @@ int run_tui_menu_screen(const Endpoint& default_relay, std::optional<PeerSession
   screen.Loop(with_events);
 
   join_worker_if_needed();
+  if (!deferred_warning.empty()) std::cerr << deferred_warning << "\n";
   if (note_request) return 0;
 
   std::lock_guard<std::mutex> lock(transfer_state.mutex);

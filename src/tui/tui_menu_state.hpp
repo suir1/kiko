@@ -34,7 +34,7 @@ struct TuiPreparedNote {
 };
 
 [[nodiscard]] TuiMenuState load_tui_menu_state(const Endpoint& default_relay);
-void save_tui_menu_state(const TuiMenuState& state);
+[[nodiscard]] std::optional<std::string> save_tui_menu_state(const TuiMenuState& state);
 [[nodiscard]] std::optional<std::string> apply_connections_text(TuiMenuState& state);
 [[nodiscard]] TuiPreparedTransfer prepare_tui_transfer(TuiMenuState& state);
 [[nodiscard]] TuiPreparedNote prepare_tui_note(TuiMenuState& state);

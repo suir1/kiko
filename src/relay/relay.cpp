@@ -24,11 +24,14 @@ int run_relay(const Endpoint& listen, const RelayServerConfig& config, bool anno
   }
 
   while (relay.running()) {
-    std::this_thread::sleep_for(std::chrono::seconds(3600));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }
 
+  const auto failure = relay.last_error();
+  relay.stop();
   stop_lan.store(true);
   if (lan_thread.joinable()) lan_thread.join();
+  if (failure) throw KikoError("relay stopped: " + *failure);
   return 0;
 }
 

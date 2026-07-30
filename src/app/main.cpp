@@ -109,7 +109,9 @@ int main(int argc, char** argv) {
   app.set_version_flag("--version", std::string("kiko ") + kiko::kVersion);
   app.require_subcommand(1);
 
-  const kiko::UserConfig user_config = kiko::load_user_config();
+  const auto loaded_user_config = kiko::load_user_config_with_status();
+  if (loaded_user_config.warning) std::cerr << "warning: " << *loaded_user_config.warning << "\n";
+  const kiko::UserConfig& user_config = loaded_user_config.config;
   const std::string relay_default = kiko::resolve_relay_default(user_config);
 
   std::string tui_relay = relay_default;
@@ -309,7 +311,9 @@ int main(int argc, char** argv) {
         rc = kiko::run_send(config, reporter);
       }
       if (rc == 0 && send_remember) {
-        kiko::remember_send_settings(config.relay.to_string(), config.relay_pass, send_path);
+        if (auto error = kiko::remember_send_settings(config.relay.to_string(), config.relay_pass, send_path)) {
+          std::cerr << "warning: " << *error << "\n";
+        }
       }
       return rc;
     }
@@ -333,7 +337,9 @@ int main(int argc, char** argv) {
         rc = kiko::run_recv(config, reporter);
       }
       if (rc == 0 && recv_remember) {
-        kiko::remember_recv_settings(config.relay.to_string(), config.relay_pass, recv_out);
+        if (auto error = kiko::remember_recv_settings(config.relay.to_string(), config.relay_pass, recv_out)) {
+          std::cerr << "warning: " << *error << "\n";
+        }
       }
       return rc;
     }

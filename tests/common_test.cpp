@@ -22,6 +22,13 @@ bool throws_kiko_error(void (*fn)()) {
   return false;
 }
 
+void send_frame_prefix(kiko::TcpSocket& socket, std::uint32_t payload_size) {
+  static constexpr char magic[4] = {'k', 'i', 'k', 'o'};
+  const auto network_size = htonl(payload_size);
+  socket.send_all(magic, sizeof(magic));
+  socket.send_all(&network_size, sizeof(network_size));
+}
+
 #ifndef _WIN32
 bool fd_is_nonblocking(int fd) {
   const int flags = fcntl(fd, F_GETFL, 0);
@@ -70,6 +77,14 @@ int main() {
     assert(ipv4_wildcard.is_unspecified());
     assert(ipv6_wildcard.is_unspecified());
     assert(bracketed_ipv6_wildcard.is_unspecified());
+  }
+
+  {
+    auto socket = connect_tcp(Endpoint{"", 9000}, std::chrono::milliseconds(10));
+    if (socket.valid()) {
+      std::cerr << "FAIL: connect_tcp accepted an empty destination host\n";
+      return 1;
+    }
   }
 
   {
@@ -189,6 +204,64 @@ int main() {
     const auto endpoint = listener.local_endpoint();
     bool writer_failed = false;
     std::thread writer([&] {
+      try {
+        auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+        send_frame_prefix(socket, 1024);
+      } catch (...) {
+        writer_failed = true;
+      }
+    });
+
+    auto accepted = listener.accept(std::chrono::seconds(2));
+    bool rejected = false;
+    try {
+      (void)recv_frame_timeout(accepted, std::chrono::seconds(1), nullptr, 64);
+    } catch (const KikoError& error) {
+      rejected = std::string(error.what()).find("frame too large") != std::string::npos;
+    }
+    writer.join();
+    if (writer_failed || !rejected) {
+      std::cerr << "FAIL: bounded frame receiver accepted an oversized declaration\n";
+      return 1;
+    }
+  }
+
+  {
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    const auto endpoint = listener.local_endpoint();
+    bool writer_failed = false;
+    std::thread writer([&] {
+      try {
+        auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+        static constexpr char magic[4] = {'k', 'i', 'k', 'o'};
+        socket.send_all(magic, sizeof(magic));
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        const auto network_size = htonl(std::uint32_t{1});
+        socket.send_all(&network_size, sizeof(network_size));
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        const std::uint8_t payload = 0x42;
+        socket.send_all(&payload, sizeof(payload));
+      } catch (...) {
+        writer_failed = true;
+      }
+    });
+
+    auto accepted = listener.accept(std::chrono::seconds(2));
+    const auto start = std::chrono::steady_clock::now();
+    const auto frame = recv_frame_timeout(accepted, std::chrono::milliseconds(200));
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    writer.join();
+    if (writer_failed || frame || elapsed >= std::chrono::milliseconds(275)) {
+      std::cerr << "FAIL: frame timeout was reset between header and payload reads\n";
+      return 1;
+    }
+  }
+
+  {
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    const auto endpoint = listener.local_endpoint();
+    bool writer_failed = false;
+    std::thread writer([&] {
       auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
       if (!socket.valid()) {
         writer_failed = true;
@@ -240,7 +313,7 @@ int main() {
       return 1;
     }
 #ifndef _WIN32
-    if (fd_is_nonblocking(socket.fd())) {
+    if (fd_is_nonblocking(socket.native_handle())) {
       accepter.join();
       std::cerr << "FAIL: connect_tcp returned a non-blocking socket\n";
       return 1;

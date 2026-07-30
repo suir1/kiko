@@ -49,19 +49,21 @@ TuiMenuState load_tui_menu_state(const Endpoint& default_relay) {
   return state;
 }
 
-void save_tui_menu_state(const TuiMenuState& state) {
+std::optional<std::string> save_tui_menu_state(const TuiMenuState& state) {
   TuiMenuState copy = state;
   sanitize_single_line_fields(copy);
   (void)apply_connections_text(copy);
 
-  UserConfig prefs = load_user_config();
+  auto loaded = load_user_config_with_status();
+  UserConfig prefs = std::move(loaded.config);
   prefs.relay = copy.relay;
   prefs.relay_pass = copy.relay_pass;
   prefs.last_send_path = copy.path;
   prefs.last_recv_out_dir = copy.output_dir;
   if (copy.mode == 0 || copy.mode == 1) prefs.last_mode = copy.mode;
   prefs.network = copy.network;
-  save_user_config(prefs);
+  if (auto error = save_user_config(prefs)) return error;
+  return loaded.warning;
 }
 
 std::optional<std::string> apply_connections_text(TuiMenuState& state) {

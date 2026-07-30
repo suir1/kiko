@@ -98,6 +98,7 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
       continue;
     }
     if (frame->tag == StreamTag::Done) {
+      validate_receive_plan_complete(receive_plan ? &*receive_plan : nullptr);
       send_tagged_timed(channels[0], ciphers[0], StreamTag::Ack, std::span<const std::uint8_t>(), timing);
       reporter.transfer_timing(timing);
       reporter.transfer_complete(file_count, grand_total);
@@ -107,6 +108,9 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     saw_file_header = true;
 
     auto header = decode_message(std::string(frame->payload.begin(), frame->payload.end()));
+    const auto relative = header.get("path");
+    if (relative.empty()) throw KikoError("file header missing path");
+    record_receive_plan_header(receive_plan ? &*receive_plan : nullptr, relative);
     ReceiveFileSession file(std::move(header), output_dir, conflict_policy,
                             receive_plan ? &*receive_plan : nullptr, channels[0], ciphers[0], reporter, file_buffer);
     const auto action = file.action();
@@ -146,7 +150,9 @@ void receive_files_mux(std::vector<TcpSocket>& channels, const SessionKey& key, 
     auto trailer = decode_message(std::string(endframe->payload.begin(), endframe->payload.end()));
     const auto expected = trailer.get("sha256");
     out.flush();
+    if (!out) throw KikoError("failed to flush received file: " + file.relative());
     out.close();
+    if (out.fail()) throw KikoError("failed to close received file: " + file.relative());
     if (written > file.declared_size()) throw KikoError("received more data than declared for " + file.relative());
     ++file_count;
     grand_total += file.complete_received(expected, written, {}, file_buffer);

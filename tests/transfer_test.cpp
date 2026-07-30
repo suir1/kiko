@@ -2,7 +2,11 @@
 #include "core/common.hpp"
 #include "core/protocol.hpp"
 #include "relay/relay_server.hpp"
+#include "transfer/receive_plan.hpp"
 #include "transfer/transfer.hpp"
+#include "transfer/transfer_manifest.hpp"
+#include "transfer/transfer_receive_paths.hpp"
+#include "transfer/transfer_stream.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -10,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <random>
 #include <span>
@@ -211,6 +216,126 @@ int main() {
   auto dst = root / "out";
   fs::remove_all(root);
 
+  {
+    const auto short_part = root / "short.kikopart";
+    write_file(short_part, "abc");
+    bool rejected = false;
+    try {
+      kiko::detail::verify_received_digest(short_part, "short.bin", 4, 4, "same-hash", "same-hash");
+    } catch (const KikoError& error) {
+      rejected = std::string(error.what()).find("received file size mismatch") != std::string::npos;
+    }
+    if (!rejected) {
+      std::cerr << "FAIL: final verification trusted logical bytes over stored file size\n";
+      return 1;
+    }
+    if (fs::exists(short_part)) {
+      std::cerr << "FAIL: invalid partial file remained after stored-size mismatch\n";
+      return 1;
+    }
+  }
+
+  {
+    const auto missing_part = root / "missing.kikopart";
+    const auto existing_target = root / "existing-target.txt";
+    write_file(existing_target, "keep original");
+    bool rejected = false;
+    try {
+      detail::finalize_part_file(missing_part, existing_target);
+    } catch (const KikoError&) {
+      rejected = true;
+    }
+    if (!rejected || read_file(existing_target) != "keep original") {
+      std::cerr << "FAIL: failed file finalization removed the existing target\n";
+      return 1;
+    }
+  }
+
+  {
+    const auto existing_target = root / "existing-symlink-target.txt";
+    write_file(existing_target, "keep original");
+    bool rejected = false;
+    try {
+      detail::create_safe_symlink(existing_target, "existing-symlink-target.txt", std::string(16 * 1024, 'a'));
+    } catch (const KikoError&) {
+      rejected = true;
+    }
+    if (!rejected || read_file(existing_target) != "keep original") {
+      std::cerr << "FAIL: failed symlink creation removed the existing target\n";
+      return 1;
+    }
+    for (const auto& entry : fs::directory_iterator(root)) {
+      if (entry.path().filename().string().find(".linktmp-") != std::string::npos) {
+        std::cerr << "FAIL: failed symlink creation left a temporary path\n";
+        return 1;
+      }
+    }
+  }
+
+  {
+    std::error_code space_error;
+    const auto available = fs::space(root, space_error).available;
+    if (space_error || available > std::numeric_limits<std::uint64_t>::max() - 128ull * 1024ull * 1024ull) {
+      std::cerr << "FAIL: could not prepare receive free-space preflight test\n";
+      return 1;
+    }
+
+    detail::TransferManifest oversized;
+    oversized.entries.push_back(
+        detail::TransferManifestEntry{"too-large.bin", static_cast<std::uint64_t>(available) + 128ull * 1024ull * 1024ull,
+                                      "file"});
+    oversized.total_size = oversized.entries.front().size;
+    ProgressReporter plan_reporter;
+    bool rejected = false;
+    try {
+      (void)detail::preflight_transfer_manifest(oversized, root, ConflictPolicy::Overwrite, plan_reporter);
+    } catch (const KikoError& error) {
+      rejected = std::string(error.what()).find("not enough free space") != std::string::npos;
+    }
+    if (!rejected) {
+      std::cerr << "FAIL: receive plan accepted a transfer larger than available storage\n";
+      return 1;
+    }
+
+    write_file(root / "skip-large.bin", "existing");
+    detail::TransferManifest skipped = oversized;
+    skipped.entries.front().path = "skip-large.bin";
+    try {
+      (void)detail::preflight_transfer_manifest(skipped, root, ConflictPolicy::Skip, plan_reporter);
+    } catch (const std::exception& error) {
+      std::cerr << "FAIL: skipped receive entry reserved disk space: " << error.what() << "\n";
+      return 1;
+    }
+  }
+
+  {
+    detail::TransferManifest manifest;
+    manifest.entries.push_back(detail::TransferManifestEntry{"first.txt", 1, "file"});
+    manifest.entries.push_back(detail::TransferManifestEntry{"second.txt", 1, "file"});
+    manifest.total_size = 2;
+    ProgressReporter plan_reporter;
+    auto plan = detail::preflight_transfer_manifest(manifest, root / "manifest-tracking-out",
+                                                    ConflictPolicy::Overwrite, plan_reporter);
+    detail::record_receive_plan_header(&plan, "first.txt");
+
+    bool rejected_duplicate = false;
+    try {
+      detail::record_receive_plan_header(&plan, "first.txt");
+    } catch (const KikoError& error) {
+      rejected_duplicate = std::string(error.what()).find("duplicate file header") != std::string::npos;
+    }
+    bool rejected_incomplete = false;
+    try {
+      detail::validate_receive_plan_complete(&plan);
+    } catch (const KikoError& error) {
+      rejected_incomplete = std::string(error.what()).find("second.txt") != std::string::npos;
+    }
+    if (!rejected_duplicate || !rejected_incomplete) {
+      std::cerr << "FAIL: receive plan did not enforce unique, complete manifest consumption\n";
+      return 1;
+    }
+  }
+
   // A directory with nested files of varying sizes, including a binary blob.
   write_file(src / "a.txt", "hello world\n");
   write_file(src / "nested" / "b.txt", "second file contents\n");
@@ -403,6 +528,42 @@ int main() {
     }
     if (!saw_status_containing(sender_skip_reporter, "skipped already-complete payload/nested/blob.bin")) {
       std::cerr << "FAIL: sender did not fast-skip completed duplicate file\n";
+      return 1;
+    }
+  }
+
+  {
+    const auto stale_src = root / "stale-skip-src" / "stale.txt";
+    const auto stale_dst = root / "stale-skip-out";
+    const std::string original = "old payload\n";
+    const std::string changed = "new payload\n";
+    write_file(stale_src, original);
+    auto stale_files = collect_files(stale_src);
+    write_file(stale_dst / "stale.txt", original);
+    write_file(stale_src, changed);
+
+    bool sender_rejected_change = false;
+    std::thread stale_sender([&] {
+      try {
+        auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+        if (!socket.valid()) throw std::runtime_error("connect failed");
+        send_files(socket, key, stale_files, null_reporter);
+      } catch (const std::exception& e) {
+        sender_rejected_change = std::string(e.what()).find("source file changed since manifest") != std::string::npos;
+      }
+    });
+
+    bool receiver_failed = false;
+    try {
+      auto accepted = listener.accept(std::chrono::seconds(2));
+      if (!accepted.valid()) throw std::runtime_error("accept failed");
+      receive_files(accepted, key, stale_dst, null_reporter);
+    } catch (const std::exception&) {
+      receiver_failed = true;
+    }
+    stale_sender.join();
+    if (!sender_rejected_change || !receiver_failed || read_file(stale_dst / "stale.txt") != original) {
+      std::cerr << "FAIL: changed source was silently accepted by duplicate fast-skip\n";
       return 1;
     }
   }
@@ -643,6 +804,149 @@ int main() {
     if (fs::exists(root / "evil.bin") || fs::exists(attack_dst / "evil.bin")) {
       std::cerr << "FAIL: unsafe manifest path created a file\n";
       return 1;
+    }
+  }
+
+  // Once a manifest is present, an early Done frame must not acknowledge an
+  // incomplete transfer.
+  {
+    auto incomplete_dst = root / "manifest-incomplete-out";
+    bool attacker_failed = false;
+    std::thread attacker([&] {
+      try {
+        auto socket = connect_tcp(endpoint, std::chrono::seconds(2));
+        if (!socket.valid()) throw std::runtime_error("connect failed");
+        StreamCipher cipher(key, /*sender_originates=*/true);
+        FileEntry missing;
+        missing.relative = "missing.txt";
+        missing.size = 1;
+        detail::send_transfer_manifest(socket, cipher, {missing});
+        detail::send_tagged(socket, cipher, detail::StreamTag::Done, {});
+      } catch (const std::exception& e) {
+        std::cerr << "incomplete manifest sender error: " << e.what() << "\n";
+        attacker_failed = true;
+      }
+    });
+
+    bool rejected_incomplete = false;
+    try {
+      auto accepted = listener.accept(std::chrono::seconds(2));
+      if (!accepted.valid()) throw std::runtime_error("accept failed");
+      receive_files(accepted, key, incomplete_dst, null_reporter);
+    } catch (const std::exception& e) {
+      rejected_incomplete = std::string(e.what()).find("missing.txt") != std::string::npos;
+      if (!rejected_incomplete) std::cerr << "incomplete manifest receiver error: " << e.what() << "\n";
+    }
+    attacker.join();
+    if (attacker_failed || !rejected_incomplete) {
+      std::cerr << "FAIL: stream receiver acknowledged an incomplete manifest\n";
+      return 1;
+    }
+  }
+
+  // Existing links inside the selected output directory must not redirect
+  // received files or resumable partial files elsewhere.
+  {
+    auto attack_dst = root / "existing-link-attack-out";
+    auto outside = root / "existing-link-outside";
+    fs::create_directories(attack_dst / "payload");
+    fs::create_directories(outside);
+    const bool parent_link_supported = try_create_symlink(outside, attack_dst / "payload/link");
+    if (parent_link_supported) {
+      detail::TransferManifest manifest;
+      manifest.entries.push_back(detail::TransferManifestEntry{"payload/link/proof.txt", 1, "file"});
+      manifest.total_size = 1;
+      bool rejected_parent_link = false;
+      try {
+        (void)detail::preflight_transfer_manifest(manifest, attack_dst, ConflictPolicy::Overwrite, null_reporter);
+      } catch (const std::exception& e) {
+        rejected_parent_link = std::string(e.what()).find("symbolic link") != std::string::npos;
+      }
+      if (!rejected_parent_link) {
+        std::cerr << "FAIL: receive plan accepted an existing symlink parent\n";
+        return 1;
+      }
+
+      write_file(outside / "partial-target", "do not modify");
+      const auto part_path = attack_dst / "payload/file.bin.kikopart";
+      if (try_create_symlink(outside / "partial-target", part_path)) {
+        bool rejected_part_link = false;
+        try {
+          detail::validate_receive_part_path(part_path, "payload/file.bin");
+        } catch (const std::exception& e) {
+          rejected_part_link = std::string(e.what()).find("unsafe partial file") != std::string::npos;
+        }
+        if (!rejected_part_link) {
+          std::cerr << "FAIL: receiver accepted a symlink partial file\n";
+          return 1;
+        }
+      }
+    }
+  }
+
+  {
+    const std::string long_path(detail::kMaxTransferPathBytes + 1, 'a');
+    const std::string encoded =
+        "{\"version\":1,\"count\":1,\"total_size\":1,\"entries\":[{\"path\":\"" + long_path +
+        "\",\"kind\":\"file\",\"size\":1}]}";
+    bool rejected_long_path = false;
+    try {
+      (void)detail::decode_transfer_manifest(encoded);
+    } catch (const std::exception& e) {
+      rejected_long_path = std::string(e.what()).find("path is too long") != std::string::npos;
+    }
+    if (!rejected_long_path) {
+      std::cerr << "FAIL: manifest accepted an overlong path\n";
+      return 1;
+    }
+
+    detail::TransferManifest collision;
+    collision.entries.push_back(detail::TransferManifestEntry{"payload/child/", 0, "dir"});
+    collision.entries.push_back(detail::TransferManifestEntry{"payload", 1, "file"});
+    collision.total_size = 1;
+    bool rejected_parent_file = false;
+    try {
+      (void)detail::preflight_transfer_manifest(collision, root / "manifest-collision-out",
+                                                ConflictPolicy::Overwrite, null_reporter);
+    } catch (const std::exception& e) {
+      rejected_parent_file = std::string(e.what()).find("planned directory") != std::string::npos;
+    }
+    if (!rejected_parent_file) {
+      std::cerr << "FAIL: receive plan accepted a file above a planned directory\n";
+      return 1;
+    }
+
+    const auto case_output = root / "manifest-case-collision-out";
+    fs::create_directories(case_output);
+    const auto lower_probe = case_output / "case-probe-a";
+    const auto upper_probe = case_output / "case-probe-A";
+    fs::create_directory(lower_probe);
+    const bool case_insensitive = fs::exists(upper_probe);
+    fs::remove(lower_probe);
+
+    detail::TransferManifest case_collision;
+    case_collision.entries.push_back(detail::TransferManifestEntry{"Report.txt", 1, "file"});
+    case_collision.entries.push_back(detail::TransferManifestEntry{"report.txt", 1, "file"});
+    case_collision.total_size = 2;
+    bool rejected_case_collision = false;
+    try {
+      (void)detail::preflight_transfer_manifest(case_collision, case_output, ConflictPolicy::Overwrite, null_reporter);
+    } catch (const std::exception& e) {
+      rejected_case_collision = std::string(e.what()).find("case-insensitive") != std::string::npos;
+      if (!rejected_case_collision) {
+        std::cerr << "case-collision preflight error: " << e.what() << "\n";
+        return 1;
+      }
+    }
+    if (rejected_case_collision != case_insensitive) {
+      std::cerr << "FAIL: receive plan case-collision result did not match target filesystem semantics\n";
+      return 1;
+    }
+    for (const auto& entry : fs::directory_iterator(case_output)) {
+      if (entry.path().filename().string().find(".kiko-case-probe-") == 0) {
+        std::cerr << "FAIL: receive plan left a case-sensitivity probe behind\n";
+        return 1;
+      }
     }
   }
 

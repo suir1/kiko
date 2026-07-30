@@ -40,6 +40,17 @@ std::uint32_t manifest_u32_field(const nlohmann::json& object, const char* key, 
   return static_cast<std::uint32_t>(value);
 }
 
+void validate_manifest_entry_fields(const std::string& path, const std::string& kind,
+                                    const std::string& target, const std::string& imohash) {
+  if (path.empty()) throw KikoError("transfer manifest entry missing path");
+  if (path.find('\0') != std::string::npos) throw KikoError("transfer manifest path contains a null byte");
+  if (path.size() > kMaxTransferPathBytes) throw KikoError("transfer manifest path is too long");
+  if (kind.size() > 16) throw KikoError("transfer manifest kind is too long");
+  if (target.size() > kMaxTransferMetadataBytes) throw KikoError("transfer manifest symlink target is too long");
+  if (target.find('\0') != std::string::npos) throw KikoError("transfer manifest symlink target contains a null byte");
+  if (imohash.size() > 128) throw KikoError("transfer manifest imohash is too long");
+}
+
 }  // namespace
 
 void add_manifest_size(std::uint64_t& total, std::uint64_t size, const std::string& relative) {
@@ -50,12 +61,21 @@ void add_manifest_size(std::uint64_t& total, std::uint64_t size, const std::stri
 }
 
 std::string encode_transfer_manifest(const std::vector<FileEntry>& files) {
+  if (files.size() > kMaxTransferManifestEntries) throw KikoError("transfer manifest has too many entries");
   nlohmann::json root = nlohmann::json::object();
   root["version"] = 1;
   root["entries"] = nlohmann::json::array();
 
   std::uint64_t total_size = 0;
+  std::size_t estimated_size = 128;
   for (const auto& entry : files) {
+    validate_manifest_entry_fields(entry.relative, transfer_entry_kind_name(transfer_entry_kind(entry)),
+                                   entry.link_target, entry.imohash);
+    const auto entry_size = entry.relative.size() + entry.link_target.size() + entry.imohash.size() + 256;
+    if (entry_size > kMaxTransferManifestBytes - estimated_size) {
+      throw KikoError("transfer manifest is too large");
+    }
+    estimated_size += entry_size;
     nlohmann::json item = nlohmann::json::object();
     item["path"] = entry.relative;
     item["kind"] = transfer_entry_kind_name(transfer_entry_kind(entry));
@@ -72,10 +92,13 @@ std::string encode_transfer_manifest(const std::vector<FileEntry>& files) {
 
   root["count"] = files.size();
   root["total_size"] = total_size;
-  return root.dump();
+  auto encoded = root.dump();
+  if (encoded.size() > kMaxTransferManifestBytes) throw KikoError("transfer manifest is too large");
+  return encoded;
 }
 
 TransferManifest decode_transfer_manifest(std::string_view text) {
+  if (text.size() > kMaxTransferManifestBytes) throw KikoError("transfer manifest is too large");
   nlohmann::json root;
   try {
     root = nlohmann::json::parse(std::string(text));
@@ -87,6 +110,9 @@ TransferManifest decode_transfer_manifest(std::string_view text) {
   if (version != 1) throw KikoError("unsupported transfer manifest version: " + std::to_string(version));
   if (!root.contains("entries") || !root["entries"].is_array()) {
     throw KikoError("transfer manifest missing entries");
+  }
+  if (root["entries"].size() > kMaxTransferManifestEntries) {
+    throw KikoError("transfer manifest has too many entries");
   }
 
   TransferManifest manifest;
@@ -101,6 +127,7 @@ TransferManifest decode_transfer_manifest(std::string_view text) {
     entry.imohash = manifest_string_field(item, "imohash");
     entry.mtime_ms = manifest_u64_field(item, "mtime_ms", 0);
     entry.mode = manifest_u32_field(item, "mode", 0);
+    validate_manifest_entry_fields(entry.path, entry.kind, entry.target, entry.imohash);
     if (entry.kind == "file") add_manifest_size(computed_total, entry.size, entry.path);
     manifest.entries.push_back(std::move(entry));
   }

@@ -415,9 +415,11 @@ EstablishedPeerRoute PeerRouteSession::establish(RoutePlan route_plan, int conne
 void PeerRouteSession::record_success(const EstablishedPeerRoute& established) {
   if (!impl_->config.use_profile) return;
   const auto path = established.path == RoutePath::Direct ? "direct" : "relay";
-  save_profile_success(
-      impl_->fingerprint,
-      ProfileSuccess{path, established.punch_stats, outbound_history_from_selection(impl_->outbound)});
+  if (auto error = save_profile_success(
+          impl_->fingerprint,
+          ProfileSuccess{path, established.punch_stats, outbound_history_from_selection(impl_->outbound)})) {
+    impl_->reporter.status("warning: " + *error);
+  }
 }
 
 }  // namespace kiko

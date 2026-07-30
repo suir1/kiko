@@ -86,6 +86,7 @@ class ReceiveFileSession {
   TcpSocket& control_;
   StreamCipher& cipher_;
   ProgressReporter& reporter_;
+  std::filesystem::path output_dir_;
   std::filesystem::path current_path_;
   std::filesystem::path part_path_;
   std::string relative_;

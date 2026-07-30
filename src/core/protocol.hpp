@@ -5,11 +5,14 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <map>
 #include <optional>
 #include <string>
 
 namespace kiko {
+
+inline constexpr std::size_t kMaxFramePayloadBytes = 64ull * 1024ull * 1024ull;
 
 struct Message {
   std::string type;
@@ -27,12 +30,14 @@ struct Message {
 void send_frame(TcpSocket& socket, const Bytes& payload);
 [[nodiscard]] std::optional<Bytes> recv_frame(TcpSocket& socket);
 [[nodiscard]] std::optional<Bytes> recv_frame_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
-                                                      const std::atomic_bool* cancel = nullptr);
+                                                      const std::atomic_bool* cancel = nullptr,
+                                                      std::size_t max_payload_bytes = kMaxFramePayloadBytes);
 
 [[nodiscard]] std::string encode_message(const Message& message);
 [[nodiscard]] Message decode_message(const std::string& text);
 void send_message(TcpSocket& socket, const Message& message);
 [[nodiscard]] std::optional<Message> recv_message_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
-                                                          const std::atomic_bool* cancel = nullptr);
+                                                          const std::atomic_bool* cancel = nullptr,
+                                                          std::size_t max_payload_bytes = kMaxFramePayloadBytes);
 
 }  // namespace kiko

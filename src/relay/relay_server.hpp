@@ -4,8 +4,10 @@
 #include "core/protocol.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -15,6 +17,8 @@ struct RelayServerConfig {
   std::string password;
   std::chrono::seconds room_ttl{std::chrono::hours(3)};
   std::chrono::seconds cleanup_interval{std::chrono::minutes(10)};
+  std::size_t max_client_workers{128};
+  std::size_t max_waiting_peers{512};
 };
 
 class BackgroundRelay {
@@ -31,6 +35,7 @@ class BackgroundRelay {
 
   [[nodiscard]] bool running() const { return running_.load(); }
   [[nodiscard]] Endpoint local_endpoint() const;
+  [[nodiscard]] std::optional<std::string> last_error() const;
 
  private:
   struct Impl;

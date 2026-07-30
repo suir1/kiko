@@ -68,6 +68,42 @@ int main() {
   assert(!store.start_note(note, error));
   assert(error == "note code is required");
 
+  {
+    PeerSessionConfig holding_note;
+    holding_note.role = Role::Sender;
+    holding_note.show_qrcode = false;
+    holding_note.only_local = true;
+    holding_note.no_direct = true;
+    error.clear();
+    assert(store.start_note(holding_note, error));
+
+    const auto ownership_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto retry_root = std::filesystem::temp_directory_path() /
+                            ("kiko-web-job-retry-staged-" + std::to_string(ownership_suffix));
+    const auto retry_file = retry_root / "picked.txt";
+    std::filesystem::create_directories(retry_root);
+    std::ofstream(retry_file) << "retry me\n";
+
+    SendConfig blocked_send;
+    blocked_send.file = retry_file;
+    error.clear();
+    assert(!store.start_send(blocked_send, error, retry_file));
+    assert(error == "another kiko web task is already running");
+    if (!std::filesystem::is_regular_file(retry_file)) {
+      std::cerr << "FAIL: rejected web task deleted its staged upload\n";
+      return 1;
+    }
+
+    store.cancel();
+    const auto cancel_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (store.snapshot().running && std::chrono::steady_clock::now() < cancel_deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    assert(!store.snapshot().running);
+    store.join_finished_worker();
+    std::filesystem::remove_all(retry_root);
+  }
+
   SendConfig missing_send;
   const auto missing_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
   missing_send.file = std::filesystem::temp_directory_path() /

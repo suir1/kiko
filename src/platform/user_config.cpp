@@ -1,12 +1,14 @@
 #include "platform/user_config.hpp"
 
 #include "core/config.hpp"
+#include "platform/atomic_file.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <utility>
 
 namespace kiko {
 namespace {
@@ -69,23 +71,37 @@ nlohmann::json user_config_to_json(const UserConfig& config) {
   return root;
 }
 
-std::optional<UserConfig> read_config_file(const std::filesystem::path& path) {
+enum class ConfigReadStatus { Missing, Loaded, Invalid, Unreadable };
+
+struct ConfigReadResult {
+  ConfigReadStatus status = ConfigReadStatus::Missing;
+  UserConfig config;
+  std::string error;
+};
+
+ConfigReadResult read_config_file(const std::filesystem::path& path) {
+  std::error_code status_error;
+  const auto status = std::filesystem::symlink_status(path, status_error);
+  if (status_error == std::errc::no_such_file_or_directory) return {};
+  if (!status_error && !std::filesystem::exists(status)) return {};
+  if (status_error) return {ConfigReadStatus::Unreadable, {}, status_error.message()};
+  if (!std::filesystem::is_regular_file(status)) {
+    return {ConfigReadStatus::Unreadable, {}, "path is not a regular file"};
+  }
+
   std::ifstream in(path);
-  if (!in) return std::nullopt;
+  if (!in) return {ConfigReadStatus::Unreadable, {}, "could not open file"};
   nlohmann::json root;
   try {
     in >> root;
-  } catch (...) {
-    return std::nullopt;
+    return {ConfigReadStatus::Loaded, user_config_from_json(root), {}};
+  } catch (const std::exception& error) {
+    return {ConfigReadStatus::Invalid, {}, error.what()};
   }
-  return user_config_from_json(root);
 }
 
-void write_config_file(const std::filesystem::path& path, const UserConfig& config) {
-  std::error_code ec;
-  std::filesystem::create_directories(path.parent_path(), ec);
-  std::ofstream out(path);
-  if (out) out << user_config_to_json(config).dump(2) << '\n';
+std::optional<std::string> write_config_file(const std::filesystem::path& path, const UserConfig& config) {
+  return atomic_write_text_file(path, user_config_to_json(config).dump(2) + '\n');
 }
 
 }  // namespace
@@ -100,23 +116,61 @@ std::filesystem::path user_config_path() {
   return std::filesystem::path(".kiko_config.json");
 }
 
-UserConfig load_user_config() {
+UserConfigLoadResult load_user_config_with_status() {
   const auto path = user_config_path();
-  if (auto loaded = read_config_file(path)) return *loaded;
+  const auto current = read_config_file(path);
+  if (current.status == ConfigReadStatus::Loaded) return {current.config, std::nullopt};
+
+  UserConfigLoadResult result;
+  bool can_migrate = current.status != ConfigReadStatus::Invalid && current.status != ConfigReadStatus::Unreadable;
+  if (current.status == ConfigReadStatus::Invalid) {
+    std::filesystem::path backup;
+    if (auto error = move_file_to_recovery_backup(path, "corrupt", backup)) {
+      result.warning = "user config is malformed and could not be preserved: " + *error;
+    } else {
+      result.warning = "malformed user config preserved at " + backup.string();
+      can_migrate = true;
+    }
+  } else if (current.status == ConfigReadStatus::Unreadable) {
+    result.warning = "could not read user config " + path.string() + ": " + current.error;
+  }
 
   const auto legacy = legacy_tui_prefs_path();
   if (legacy != path) {
-    if (auto migrated = read_config_file(legacy)) {
-      write_config_file(path, *migrated);
-      return *migrated;
+    const auto migrated = read_config_file(legacy);
+    if (migrated.status == ConfigReadStatus::Loaded) {
+      result.config = migrated.config;
+      if (can_migrate) {
+        if (auto error = write_config_file(path, migrated.config)) {
+          result.warning = "loaded legacy config but failed to migrate it: " + *error;
+        }
+      } else if (!result.warning) {
+        result.warning = "loaded legacy config but did not overwrite unreadable user config";
+      }
+      return result;
     }
   }
 
-  return {};
+  return result;
 }
 
-void save_user_config(const UserConfig& config) {
-  write_config_file(user_config_path(), config);
+UserConfig load_user_config() { return load_user_config_with_status().config; }
+
+std::optional<std::string> save_user_config(const UserConfig& config) {
+  const auto path = user_config_path();
+  const auto existing = read_config_file(path);
+  if (existing.status == ConfigReadStatus::Invalid) {
+    std::filesystem::path backup;
+    if (auto error = move_file_to_recovery_backup(path, "corrupt", backup)) {
+      return "refusing to overwrite malformed user config: " + *error;
+    }
+  } else if (existing.status == ConfigReadStatus::Unreadable) {
+    return "refusing to overwrite unreadable user config " + path.string() + ": " + existing.error;
+  }
+  if (auto error = write_config_file(path, config)) {
+    return "failed to save user config: " + *error;
+  }
+  return std::nullopt;
 }
 
 std::string resolve_relay_default(const UserConfig& config) {
@@ -135,24 +189,30 @@ std::optional<std::string> resolve_relay_pass_default(const UserConfig& config) 
   return std::nullopt;
 }
 
-void remember_send_settings(const std::string& relay, const std::optional<std::string>& relay_pass,
-                            const std::string& send_path) {
-  UserConfig update = load_user_config();
+std::optional<std::string> remember_send_settings(const std::string& relay,
+                                                  const std::optional<std::string>& relay_pass,
+                                                  const std::string& send_path) {
+  auto loaded = load_user_config_with_status();
+  UserConfig update = std::move(loaded.config);
   update.relay = relay;
   if (relay_pass && !relay_pass->empty()) update.relay_pass = *relay_pass;
   update.last_send_path = send_path;
   update.last_mode = 0;
-  save_user_config(update);
+  if (auto error = save_user_config(update)) return error;
+  return loaded.warning;
 }
 
-void remember_recv_settings(const std::string& relay, const std::optional<std::string>& relay_pass,
-                            const std::string& output_dir) {
-  UserConfig update = load_user_config();
+std::optional<std::string> remember_recv_settings(const std::string& relay,
+                                                  const std::optional<std::string>& relay_pass,
+                                                  const std::string& output_dir) {
+  auto loaded = load_user_config_with_status();
+  UserConfig update = std::move(loaded.config);
   update.relay = relay;
   if (relay_pass && !relay_pass->empty()) update.relay_pass = *relay_pass;
   update.last_recv_out_dir = output_dir;
   update.last_mode = 1;
-  save_user_config(update);
+  if (auto error = save_user_config(update)) return error;
+  return loaded.warning;
 }
 
 }  // namespace kiko

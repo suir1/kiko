@@ -155,6 +155,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
     const auto write_start = TransferClock::now();
     out.write(reinterpret_cast<const char*>(payload.data()), static_cast<std::streamsize>(payload.size()));
     add_transfer_elapsed(timing.disk_write_ms, write_start);
+    if (!out) throw KikoError("failed to write received file: " + current_file->relative());
     const auto hash_start = TransferClock::now();
     current_file->hasher().update(payload);
     add_transfer_elapsed(timing.hash_ms, hash_start);
@@ -180,6 +181,9 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
         if (current_file) throw KikoError("file header before previous file end");
         saw_file_header = true;
         auto header = decode_message(std::string(frame->payload.begin(), frame->payload.end()));
+        const auto relative = header.get("path");
+        if (relative.empty()) throw KikoError("file header missing path");
+        record_receive_plan_header(receive_plan ? &*receive_plan : nullptr, relative);
         auto file = std::make_unique<ReceiveFileSession>(
             std::move(header), output_dir, conflict_policy, receive_plan ? &*receive_plan : nullptr, channel, cipher,
             reporter, buffer);
@@ -228,7 +232,9 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
           grand_total += current_file->complete_skipped();
         } else {
           out.flush();
+          if (!out) throw KikoError("failed to flush received file: " + current_file->relative());
           out.close();
+          if (out.fail()) throw KikoError("failed to close received file: " + current_file->relative());
           auto trailer = decode_message(std::string(frame->payload.begin(), frame->payload.end()));
           const auto expected = trailer.get("sha256");
           const auto actual = hex_encode(current_file->hasher().finish());
@@ -242,6 +248,7 @@ void receive_files(TcpSocket& channel, const SessionKey& key, const std::filesys
       }
       case StreamTag::Done: {
         if (current_file) throw KikoError("transfer done before file end");
+        validate_receive_plan_complete(receive_plan ? &*receive_plan : nullptr);
         send_tagged_timed(channel, cipher, StreamTag::Ack, std::span<const std::uint8_t>(), timing);
         reporter.transfer_timing(timing);
         reporter.transfer_complete(file_count, grand_total);

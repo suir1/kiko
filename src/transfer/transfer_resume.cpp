@@ -82,7 +82,8 @@ bool try_skip_existing_duplicate(TcpSocket& socket, StreamCipher& cipher, const 
   if (declared_imohash.empty()) return false;
 
   std::error_code exists_ec;
-  if (!std::filesystem::exists(current_path, exists_ec) || exists_ec) return false;
+  const auto status = std::filesystem::symlink_status(current_path, exists_ec);
+  if (exists_ec || !std::filesystem::is_regular_file(status)) return false;
 
   try {
     if (imohash_hex(current_path) != declared_imohash) return false;
@@ -108,7 +109,11 @@ std::filesystem::path part_path_for(const std::filesystem::path& current_path) {
 
 std::uint64_t resumable_part_size(const std::filesystem::path& part_path, std::uint64_t declared_size) {
   std::error_code ec;
-  if (!std::filesystem::exists(part_path, ec) || ec) return 0;
+  const auto status = std::filesystem::symlink_status(part_path, ec);
+  if (ec || !std::filesystem::exists(status)) return 0;
+  if (!std::filesystem::is_regular_file(status)) {
+    throw KikoError("refusing unsafe partial file: " + part_path.string());
+  }
   auto have = static_cast<std::uint64_t>(std::filesystem::file_size(part_path, ec));
   if (ec || have > declared_size) return 0;
   return have;
@@ -116,6 +121,9 @@ std::uint64_t resumable_part_size(const std::filesystem::path& part_path, std::u
 
 bool hash_existing_part_prefix(const std::filesystem::path& part_path, std::uint64_t have, Bytes& buffer,
                                Sha256Hasher& hasher, std::string* prefix_sha256) {
+  std::error_code ec;
+  const auto status = std::filesystem::symlink_status(part_path, ec);
+  if (ec || !std::filesystem::is_regular_file(status)) return false;
   std::ifstream partial(part_path, std::ios::binary);
   if (!partial) return false;
   return hash_prefix_bytes(partial, have, buffer, hasher, prefix_sha256) == have;

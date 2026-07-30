@@ -4,6 +4,7 @@
 #include "platform/platform.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <thread>
 
 namespace kiko {
@@ -25,6 +26,8 @@ void wait_until_punch_time(std::uint64_t punch_at_ms, const std::atomic_bool* ca
 }
 
 bool send_udp_packet(const Endpoint& target, const void* data, std::size_t size) {
+  if (size > static_cast<std::size_t>(std::numeric_limits<int>::max())) return false;
+
   net_startup();
   addrinfo hints{};
   hints.ai_family = AF_UNSPEC;
@@ -34,21 +37,27 @@ bool send_udp_packet(const Endpoint& target, const void* data, std::size_t size)
     return false;
   }
 
-  int fd = -1;
+  NativeSocketHandle fd = kInvalidNativeSocket;
+  const addrinfo* selected = nullptr;
   for (auto* ai = res; ai != nullptr; ai = ai->ai_next) {
-    fd = static_cast<int>(socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol));
-    if (fd >= 0) break;
+    fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+    if (net_socket_valid(fd)) {
+      selected = ai;
+      break;
+    }
   }
-  if (fd < 0) {
+  if (!net_socket_valid(fd) || !selected) {
     freeaddrinfo(res);
     return false;
   }
 
   const auto* send_buf = reinterpret_cast<const char*>(data);
-  const auto sent = sendto(fd, send_buf, size, 0, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen));
+  const auto send_size = static_cast<int>(size);
+  const auto sent = sendto(fd, send_buf, send_size, 0, selected->ai_addr,
+                           static_cast<socklen_t>(selected->ai_addrlen));
   net_close(fd);
   freeaddrinfo(res);
-  return sent >= 0 && static_cast<std::size_t>(sent) == size;
+  return sent == send_size;
 }
 
 }  // namespace

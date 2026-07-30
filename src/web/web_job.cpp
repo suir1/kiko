@@ -138,7 +138,8 @@ struct WebJobStore::Access {
     return start_task(
         store, kind, std::move(cancellation), [] {},
         [&store, config = std::move(config), activity = std::string(activity), run,
-         cleanup = StagedFileCleanup{std::move(cleanup_path)}]() mutable {
+         cleanup_path = std::move(cleanup_path)]() mutable {
+          StagedFileCleanup cleanup{std::move(cleanup_path)};
           WebReporter reporter(store);
           const int rc = run(config, reporter);
           if (rc != 0) throw KikoError(activity + " exited with code " + std::to_string(rc));

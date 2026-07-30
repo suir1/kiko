@@ -329,6 +329,30 @@ int main() {
     }
   }
 
+  {
+    std::vector<TcpSocket> sender_channels;
+    std::vector<TcpSocket> receiver_channels;
+    make_channels(listener, endpoint, 1, sender_channels, receiver_channels);
+    StreamCipher sender_cipher(key, /*sender_originates=*/true, 0);
+    FileEntry missing;
+    missing.relative = "mux-missing.txt";
+    missing.size = 1;
+    detail::send_transfer_manifest(sender_channels[0], sender_cipher, {missing});
+    detail::send_tagged(sender_channels[0], sender_cipher, detail::StreamTag::Done, {});
+
+    bool rejected_incomplete = false;
+    try {
+      ProgressReporter reporter;
+      receive_files_mux(receiver_channels, key, root / "mux-incomplete-out", reporter);
+    } catch (const KikoError& error) {
+      rejected_incomplete = std::string(error.what()).find("mux-missing.txt") != std::string::npos;
+    }
+    if (!rejected_incomplete) {
+      std::cerr << "FAIL: mux receiver acknowledged an incomplete manifest\n";
+      return 1;
+    }
+  }
+
   fs::remove_all(root);
   std::cout << "PASS: multiplexed multi-connection transfer + resume\n";
   return 0;

@@ -10,6 +10,17 @@
 #include <iostream>
 #include <thread>
 
+namespace {
+
+void send_frame_prefix(kiko::TcpSocket& socket, std::uint32_t payload_size) {
+  static constexpr char magic[4] = {'k', 'i', 'k', 'o'};
+  const auto network_size = htonl(payload_size);
+  socket.send_all(magic, sizeof(magic));
+  socket.send_all(&network_size, sizeof(network_size));
+}
+
+}  // namespace
+
 int main() {
   using namespace kiko;
 
@@ -37,6 +48,71 @@ int main() {
   if (!relay_password_ok(open, no_pass)) {
     std::cerr << "FAIL: open relay should accept hello without pass\n";
     return 1;
+  }
+
+  {
+    RelayServerConfig limited;
+    limited.max_client_workers = 2;
+    BackgroundRelay relay;
+    relay.start(Endpoint{"127.0.0.1", 0}, limited);
+    const auto endpoint = relay.local_endpoint();
+
+    auto idle_first = connect_tcp(endpoint, std::chrono::seconds(2));
+    auto idle_second = connect_tcp(endpoint, std::chrono::seconds(2));
+    if (!idle_first.valid() || !idle_second.valid()) {
+      std::cerr << "FAIL: worker-limit clients could not connect\n";
+      return 1;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+    auto rejected = connect_tcp(endpoint, std::chrono::seconds(2));
+    auto busy = recv_message_timeout(rejected, std::chrono::seconds(1));
+    if (!busy || busy->type != "error" || busy->get("code") != "server_busy") {
+      std::cerr << "FAIL: relay did not reject a client above the worker limit\n";
+      return 1;
+    }
+    rejected.close();
+    idle_first.close();
+    idle_second.close();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    auto recovered = connect_tcp(endpoint, std::chrono::seconds(2));
+    send_message(recovered, Message{"ping", {}});
+    auto pong = recv_message_timeout(recovered, std::chrono::seconds(1));
+    if (!pong || pong->type != "pong") {
+      std::cerr << "FAIL: relay worker capacity did not recover after clients closed\n";
+      return 1;
+    }
+    const auto stop_started = std::chrono::steady_clock::now();
+    relay.stop();
+    if (std::chrono::steady_clock::now() - stop_started > std::chrono::seconds(1)) {
+      std::cerr << "FAIL: relay stop did not interrupt an active client worker\n";
+      return 1;
+    }
+    recovered.close();
+  }
+
+  {
+    BackgroundRelay relay;
+    relay.start(Endpoint{"127.0.0.1", 0});
+    const auto endpoint = relay.local_endpoint();
+
+    auto oversized = connect_tcp(endpoint, std::chrono::seconds(2));
+    send_frame_prefix(oversized, 128 * 1024);
+    std::uint8_t response = 0;
+    if (oversized.recv_exact_timeout(&response, sizeof(response), std::chrono::seconds(1))) {
+      std::cerr << "FAIL: relay did not close an oversized control-frame client\n";
+      return 1;
+    }
+
+    auto recovered = connect_tcp(endpoint, std::chrono::seconds(2));
+    send_message(recovered, Message{"ping", {}});
+    auto pong = recv_message_timeout(recovered, std::chrono::seconds(1));
+    if (!pong || pong->type != "pong") {
+      std::cerr << "FAIL: relay did not recover after rejecting an oversized control frame\n";
+      return 1;
+    }
+    relay.stop();
   }
 
   {

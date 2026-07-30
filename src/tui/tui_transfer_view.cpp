@@ -292,7 +292,8 @@ ftxui::Element render_transfer_view(const TuiState& state, const std::string& ac
   }
   if (!action_notice.empty()) {
     left.push_back(separator());
-    left.push_back(text(action_notice) | color(Color::GreenLight));
+    const auto notice_color = action_notice.rfind("warning:", 0) == 0 ? Color::Yellow : Color::GreenLight;
+    left.push_back(text(action_notice) | color(notice_color));
   }
   left.push_back(separator());
   if (state.finished || state.failed) {

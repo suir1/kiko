@@ -37,10 +37,14 @@
 namespace kiko {
 
 #ifdef _WIN32
+using NativeSocketHandle = SOCKET;
+inline constexpr NativeSocketHandle kInvalidNativeSocket = INVALID_SOCKET;
 inline constexpr int kErrWouldBlock = WSAEWOULDBLOCK;
 inline constexpr int kErrInProgress = WSAEWOULDBLOCK;  // non-blocking connect reports this on Windows
 inline constexpr int kErrIntr = WSAEINTR;
 #else
+using NativeSocketHandle = int;
+inline constexpr NativeSocketHandle kInvalidNativeSocket = -1;
 inline constexpr int kErrWouldBlock = EWOULDBLOCK;
 inline constexpr int kErrInProgress = EINPROGRESS;
 inline constexpr int kErrIntr = EINTR;
@@ -79,19 +83,27 @@ inline std::string net_error_string(int err) {
 #endif
 }
 
-inline void net_close(int fd) {
+inline bool net_socket_valid(NativeSocketHandle socket) {
 #ifdef _WIN32
-  closesocket(static_cast<SOCKET>(fd));
+  return socket != INVALID_SOCKET;
+#else
+  return socket >= 0;
+#endif
+}
+
+inline void net_close(NativeSocketHandle fd) {
+#ifdef _WIN32
+  closesocket(fd);
 #else
   ::close(fd);
 #endif
 }
 
 // Returns 0 on success, -1 on failure (with net_last_error set).
-inline int net_set_nonblocking(int fd, bool nonblocking) {
+inline int net_set_nonblocking(NativeSocketHandle fd, bool nonblocking) {
 #ifdef _WIN32
   u_long mode = nonblocking ? 1 : 0;
-  return ioctlsocket(static_cast<SOCKET>(fd), FIONBIO, &mode) == 0 ? 0 : -1;
+  return ioctlsocket(fd, FIONBIO, &mode) == 0 ? 0 : -1;
 #else
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0) return -1;
@@ -105,10 +117,10 @@ inline int net_set_nonblocking(int fd, bool nonblocking) {
 }
 
 // Waits up to timeout_ms for the socket to be readable/writable.
-inline int net_poll(int fd, bool want_read, bool want_write, int timeout_ms) {
+inline int net_poll(NativeSocketHandle fd, bool want_read, bool want_write, int timeout_ms) {
 #ifdef _WIN32
   WSAPOLLFD pfd{};
-  pfd.fd = static_cast<SOCKET>(fd);
+  pfd.fd = fd;
 #else
   pollfd pfd{};
   pfd.fd = fd;

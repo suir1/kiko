@@ -81,6 +81,49 @@ int main() {
     }
   }
 
+  {
+    RelayServerConfig config;
+    config.max_waiting_peers = 1;
+    RelayRoomState rooms{config};
+    auto waiting = rooms.pair_or_wait("limited-a#0", "limited-a", peer(Role::Sender), /*auxiliary=*/false);
+    auto full = rooms.pair_or_wait("limited-b#0", "limited-b", peer(Role::Sender), /*auxiliary=*/false);
+    if (waiting.kind != RelayRoomPairing::Kind::Waiting ||
+        full.kind != RelayRoomPairing::Kind::CapacityFull || !full.self) {
+      std::cerr << "FAIL: waiting peer capacity was not enforced\n";
+      return 1;
+    }
+    auto matched = rooms.pair_or_wait("limited-a#0", "limited-a", peer(Role::Receiver), /*auxiliary=*/false);
+    if (matched.kind != RelayRoomPairing::Kind::Matched) {
+      std::cerr << "FAIL: capacity limit blocked a peer matching an existing waiter\n";
+      return 1;
+    }
+  }
+
+  {
+    auto listener = TcpListener::bind(Endpoint{"127.0.0.1", 0});
+    auto client = connect_tcp(listener.local_endpoint(), std::chrono::seconds(2));
+    auto server = listener.accept(std::chrono::seconds(2));
+    const char marker = 'x';
+    client.send_all(&marker, sizeof(marker));
+
+    RelayRoomState rooms{RelayServerConfig{}};
+    auto waiting_peer = peer(Role::Sender);
+    waiting_peer.socket = std::move(server);
+    auto waiting = rooms.pair_or_wait("room-live#0", "room-live", std::move(waiting_peer),
+                                      /*auxiliary=*/false);
+    rooms.purge_stale_waiting();
+
+    auto matched = rooms.pair_or_wait("room-live#0", "room-live", peer(Role::Receiver),
+                                      /*auxiliary=*/false);
+    char received = 0;
+    if (waiting.kind != RelayRoomPairing::Kind::Waiting ||
+        matched.kind != RelayRoomPairing::Kind::Matched || !matched.peer ||
+        !matched.peer->socket.recv_exact(&received, sizeof(received)) || received != marker) {
+      std::cerr << "FAIL: purge removed a live waiting peer with readable data\n";
+      return 1;
+    }
+  }
+
   if (relay_room_base("room-d#2") != "room-d" || relay_room_base("room-e") != "room-e") {
     std::cerr << "FAIL: relay room base parsing\n";
     return 1;

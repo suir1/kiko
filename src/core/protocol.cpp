@@ -18,7 +18,7 @@ void verify_magic(const std::uint8_t* header) {
 }
 
 template <typename Receive>
-std::optional<Bytes> receive_frame(Receive receive) {
+std::optional<Bytes> receive_frame(Receive receive, std::size_t max_payload_bytes) {
   std::uint8_t magic[4]{};
   if (!receive(magic, sizeof(magic))) return std::nullopt;
   verify_magic(magic);
@@ -26,7 +26,7 @@ std::optional<Bytes> receive_frame(Receive receive) {
   std::uint32_t be_len = 0;
   if (!receive(&be_len, sizeof(be_len))) return std::nullopt;
   const auto len = ntohl(be_len);
-  if (len > 64ull * 1024ull * 1024ull) throw KikoError("received frame too large");
+  if (len > max_payload_bytes) throw KikoError("received frame too large");
   Bytes payload(len);
   if (len > 0 && !receive(payload.data(), payload.size())) return std::nullopt;
   return payload;
@@ -61,7 +61,7 @@ std::uint16_t message_port_or(const Message& message, const std::string& key, st
 }
 
 void send_frame(TcpSocket& socket, const Bytes& payload) {
-  if (payload.size() > 64ull * 1024ull * 1024ull) throw KikoError("frame too large");
+  if (payload.size() > kMaxFramePayloadBytes) throw KikoError("frame too large");
   socket.send_all(kMagic, sizeof(kMagic));
   std::uint32_t len = htonl(static_cast<std::uint32_t>(payload.size()));
   socket.send_all(&len, sizeof(len));
@@ -69,13 +69,20 @@ void send_frame(TcpSocket& socket, const Bytes& payload) {
 }
 
 std::optional<Bytes> recv_frame(TcpSocket& socket) {
-  return receive_frame([&](void* data, std::size_t size) { return socket.recv_exact(data, size); });
+  return receive_frame([&](void* data, std::size_t size) { return socket.recv_exact(data, size); },
+                       kMaxFramePayloadBytes);
 }
 
 std::optional<Bytes> recv_frame_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
-                                        const std::atomic_bool* cancel) {
+                                        const std::atomic_bool* cancel, std::size_t max_payload_bytes) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
   return receive_frame(
-      [&](void* data, std::size_t size) { return socket.recv_exact_timeout(data, size, timeout, cancel); });
+      [&](void* data, std::size_t size) {
+        const auto remaining =
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        return remaining.count() > 0 && socket.recv_exact_timeout(data, size, remaining, cancel);
+      },
+      max_payload_bytes);
 }
 
 std::string encode_message(const Message& message) {
@@ -113,8 +120,8 @@ void send_message(TcpSocket& socket, const Message& message) {
 }
 
 std::optional<Message> recv_message_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
-                                            const std::atomic_bool* cancel) {
-  auto payload = recv_frame_timeout(socket, timeout, cancel);
+                                            const std::atomic_bool* cancel, std::size_t max_payload_bytes) {
+  auto payload = recv_frame_timeout(socket, timeout, cancel, max_payload_bytes);
   if (!payload) return std::nullopt;
   return decode_message(std::string(payload->begin(), payload->end()));
 }

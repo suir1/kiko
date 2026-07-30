@@ -31,5 +31,9 @@ void validate_safe_symlink_target(const std::string& relative, const std::string
 void create_safe_symlink(const std::filesystem::path& current_path, const std::string& relative,
                          const std::string& target);
 [[nodiscard]] std::filesystem::path safe_join(const std::filesystem::path& base, const std::string& relative);
+void validate_receive_target_parent(const std::filesystem::path& output_dir,
+                                    const std::filesystem::path& target_path,
+                                    const std::string& relative);
+void validate_receive_part_path(const std::filesystem::path& part_path, const std::string& relative);
 
 }  // namespace kiko::detail

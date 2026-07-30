@@ -60,8 +60,8 @@ TcpSocket resolve_relay_channel(Role role, TcpSocket relay, TcpListener& listene
       relay.close();
       return accepted;
     }
-    const int fd = relay.fd();
-    if (fd >= 0 && net_poll(fd, true, false, 80) > 0) {
+    const auto fd = relay.native_handle();
+    if (net_socket_valid(fd) && net_poll(fd, true, false, 80) > 0) {
       if (auto msg = recv_message_timeout(relay, std::chrono::milliseconds(80))) {
         if (msg->type == "ips_request") {
           send_message(relay, Message{"ips_response",

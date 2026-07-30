@@ -2,12 +2,18 @@
 
 #include "transfer.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace kiko::detail {
+
+inline constexpr std::size_t kMaxTransferManifestBytes = 16 * 1024 * 1024;
+inline constexpr std::size_t kMaxTransferManifestEntries = 65536;
+inline constexpr std::size_t kMaxTransferPathBytes = 4096;
+inline constexpr std::size_t kMaxTransferMetadataBytes = 4096;
 
 struct TransferManifestEntry {
   std::string path;

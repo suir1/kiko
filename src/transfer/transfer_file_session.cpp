@@ -1,6 +1,7 @@
 #include "transfer_file_session.hpp"
 
 #include "file_metadata.hpp"
+#include "core/imohash.hpp"
 #include "transfer_heuristics.hpp"
 #include "transfer_receive_paths.hpp"
 #include "transfer_resume.hpp"
@@ -14,6 +15,24 @@ namespace {
 void append_metadata_fields(Message& header, const FileEntry& entry) {
   if (entry.mtime_ms > 0) header.fields["mtime_ms"] = std::to_string(entry.mtime_ms);
   if (entry.mode > 0) header.fields["mode"] = std::to_string(entry.mode);
+}
+
+void validate_complete_skip_source(const FileEntry& entry) {
+  std::error_code size_error;
+  const auto current_size = std::filesystem::file_size(entry.absolute, size_error);
+  if (size_error || current_size != entry.size) {
+    throw KikoError("source file changed since manifest: " + entry.relative);
+  }
+
+  std::string current_imohash;
+  try {
+    current_imohash = imohash_hex(entry.absolute);
+  } catch (const std::exception&) {
+    throw KikoError("source file changed since manifest: " + entry.relative);
+  }
+  if (entry.imohash.empty() || current_imohash != entry.imohash) {
+    throw KikoError("source file changed since manifest: " + entry.relative);
+  }
 }
 
 }  // namespace
@@ -72,6 +91,7 @@ SendFileSession::SendFileSession(const FileEntry& entry, TcpSocket& control, Str
   }
 
   if (resume.complete_skip && resume.offset == entry_.size) {
+    validate_complete_skip_source(entry_);
     send_resume_ack(control_, cipher_, entry_.size);
     reporter_.status("skipped already-complete " + entry_.relative);
     reporter_.file_resume(entry_.relative, entry_.size, entry_.size);
@@ -143,7 +163,8 @@ ReceiveFileSession::ReceiveFileSession(Message header, std::filesystem::path out
     : header_(std::move(header)),
       control_(control),
       cipher_(cipher),
-      reporter_(reporter) {
+      reporter_(reporter),
+      output_dir_(std::move(output_dir)) {
   relative_ = header_.get("path");
   if (relative_.empty()) throw KikoError("file header missing path");
   declared_size_ = header_.get_u64("size", 0);
@@ -154,7 +175,8 @@ ReceiveFileSession::ReceiveFileSession(Message header, std::filesystem::path out
     throw KikoError("file header was not listed in manifest: " + relative_);
   }
   if (planned != nullptr) validate_receive_plan_header(*planned, header_, relative_, declared_size_);
-  current_path_ = planned != nullptr ? planned->target_path : safe_join(output_dir, relative_);
+  current_path_ = planned != nullptr ? planned->target_path : safe_join(output_dir_, relative_);
+  validate_receive_target_parent(output_dir_, current_path_, relative_);
 
   if (is_symlink_header(header_)) {
     symlink_target_ = header_.get("target");
@@ -173,6 +195,7 @@ ReceiveFileSession::ReceiveFileSession(Message header, std::filesystem::path out
       current_path_ = unique_conflict_path(current_path_);
       report_renamed_conflict(relative_, current_path_, reporter_);
     }
+    validate_receive_target_parent(output_dir_, current_path_, relative_);
     send_resume(control_, cipher_, 0);
     (void)recv_resume_ack(control_, cipher_, 0, 0, relative_);
     reporter_.file_start(relative_, 0);
@@ -182,6 +205,7 @@ ReceiveFileSession::ReceiveFileSession(Message header, std::filesystem::path out
   }
 
   if (is_dir_header(relative_, declared_size_)) {
+    validate_receive_target_parent(output_dir_, current_path_, relative_);
     std::filesystem::create_directories(current_path_);
     apply_file_metadata(current_path_, header_);
     send_resume(control_, cipher_, 0);
@@ -216,8 +240,10 @@ ReceiveFileSession::ReceiveFileSession(Message header, std::filesystem::path out
     report_renamed_conflict(relative_, current_path_, reporter_);
   }
 
+  validate_receive_target_parent(output_dir_, current_path_, relative_);
   if (current_path_.has_parent_path()) std::filesystem::create_directories(current_path_.parent_path());
   part_path_ = part_path_for(current_path_);
+  validate_receive_part_path(part_path_, relative_);
 
   auto have = resumable_part_size(part_path_, declared_size_);
   hasher_.emplace();
@@ -253,6 +279,7 @@ ReceiveFileSession::ReceiveFileSession(Message header, std::filesystem::path out
 
 void ReceiveFileSession::complete_marker() {
   if (symlink_marker_ && !skip_symlink_) {
+    validate_receive_target_parent(output_dir_, current_path_, relative_);
     create_safe_symlink(current_path_, relative_, symlink_target_);
   }
   reporter_.file_complete(relative_, 0, false);
@@ -267,6 +294,8 @@ std::uint64_t ReceiveFileSession::complete_received(const std::string& expected_
                                                     std::uint64_t received_size,
                                                     const std::string& actual_sha256,
                                                     Bytes& verify_buffer) {
+  validate_receive_target_parent(output_dir_, current_path_, relative_);
+  validate_receive_part_path(part_path_, relative_);
   if (actual_sha256.empty()) {
     verify_part_file_digest(part_path_, relative_, declared_size_, expected_sha256, verify_buffer);
   } else {

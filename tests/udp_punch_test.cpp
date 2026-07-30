@@ -10,7 +10,7 @@
 
 namespace {
 
-bool wait_for_udp(int fd, int timeout_ms) {
+bool wait_for_udp(kiko::NativeSocketHandle fd, int timeout_ms) {
   return kiko::net_poll(fd, true, false, timeout_ms) > 0;
 }
 
@@ -30,8 +30,8 @@ int main() {
     std::atomic<bool> got{false};
     std::thread receiver([&]() {
       net_startup();
-      const int fd = static_cast<int>(socket(AF_INET, SOCK_DGRAM, 0));
-      if (fd < 0) return;
+      const NativeSocketHandle fd = socket(AF_INET, SOCK_DGRAM, 0);
+      if (!net_socket_valid(fd)) return;
       sockaddr_in addr{};
       addr.sin_family = AF_INET;
       addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -54,7 +54,7 @@ int main() {
       const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
       while (std::chrono::steady_clock::now() < deadline) {
         if (!wait_for_udp(fd, 50)) continue;
-        const auto n = recvfrom(fd, buf, sizeof(buf), 0, nullptr, nullptr);
+        const auto n = recvfrom(fd, buf, static_cast<int>(sizeof(buf)), 0, nullptr, nullptr);
         if (n > 0) {
           got.store(true);
           break;

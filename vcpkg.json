@@ -4,6 +4,7 @@
   "dependencies": [
     "asio",
     "cli11",
+    "curl",
     "nlohmann-json",
     "zstd",
     "libsodium",

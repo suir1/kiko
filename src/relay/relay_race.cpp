@@ -110,8 +110,8 @@ static std::optional<TcpSocket> try_connect_relay_and_register(const Endpoint& r
   }
   bool pong_ok = false;
   while (!cancellation_requested(cancel) && std::chrono::steady_clock::now() < deadline) {
-    const int fd = socket.fd();
-    if (fd < 0) break;
+    const auto fd = socket.native_handle();
+    if (!net_socket_valid(fd)) break;
     auto remaining = remaining_until_deadline();
     if (remaining.count() <= 0) break;
     if (net_poll(fd, true, false, static_cast<int>(std::min<std::int64_t>(remaining.count(), 50))) <= 0) continue;
@@ -164,8 +164,8 @@ std::optional<RelayPeerResult> wait_for_peer_candidates(std::vector<ActiveRelayC
     for (std::size_t i = 0; i < relays.size(); ++i) {
       auto& relay = relays[i];
       if (relay.peer || !relay.socket.valid()) continue;
-      const int fd = relay.socket.fd();
-      if (fd < 0) continue;
+      const auto fd = relay.socket.native_handle();
+      if (!net_socket_valid(fd)) continue;
       auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
       if (remaining.count() <= 0) break;
       const int poll_ms = static_cast<int>(std::min<std::int64_t>(remaining.count(), 50));
