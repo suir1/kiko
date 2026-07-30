@@ -168,7 +168,13 @@ int run_tui_note(const PeerSessionConfig& config) {
     }
     if (event == NoteSessionEvent::RemoteApplied) {
       std::lock_guard<std::mutex> lock(state.mutex);
-      state.pending_remote.push_back(frame);
+      const auto pending = std::find_if(state.pending_remote.begin(), state.pending_remote.end(),
+                                        [&](const NoteFrame& queued) { return queued.pad_id == frame.pad_id; });
+      if (pending == state.pending_remote.end()) {
+        state.pending_remote.push_back(frame);
+      } else {
+        *pending = frame;
+      }
       state.status = "remote update";
     } else if (event == NoteSessionEvent::LocalSent) {
       set_status(state, active_session.snapshot().synced ? "synced" : "sent");

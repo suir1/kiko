@@ -17,6 +17,9 @@
 
 namespace kiko {
 
+inline constexpr std::size_t kNoteOutboxMaxFrames = 128;
+inline constexpr std::size_t kNoteOutboxMaxBytes = 8 * 1024 * 1024;
+
 class NoteSession;
 
 struct NoteSessionInfo {
@@ -59,6 +62,8 @@ class NoteSession {
     return workspace_.document(pad_id);
   }
   [[nodiscard]] NoteWorkspaceSnapshot snapshot() const { return workspace_.snapshot(); }
+  [[nodiscard]] std::size_t pending_frame_count() const;
+  [[nodiscard]] std::size_t pending_frame_bytes() const;
 
   void request_stop();
 
@@ -84,6 +89,7 @@ class NoteSession {
   std::unique_ptr<TcpSocket> channel_;
   std::unique_ptr<StreamCipher> cipher_;
   std::deque<NoteFrame> outgoing_;
+  std::size_t outgoing_bytes_ = 0;
   std::exception_ptr sender_error_;
   std::thread sender_;
   std::atomic_bool stop_{false};

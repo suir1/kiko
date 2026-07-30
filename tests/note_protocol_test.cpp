@@ -6,6 +6,45 @@
 using namespace kiko;
 
 int main() {
+  const auto hello = make_note_hello();
+  assert(hello.protocol_version == kNoteProtocolVersion);
+  const auto hello_round_trip = decode_note_frame(encode_note_frame(hello));
+  assert(hello_round_trip.protocol_version == kNoteProtocolVersion);
+  validate_note_hello(hello_round_trip);
+
+  auto legacy_hello = hello;
+  legacy_hello.protocol_version = 0;
+  bool rejected_legacy_hello = false;
+  try {
+    validate_note_hello(legacy_hello);
+  } catch (const KikoError&) {
+    rejected_legacy_hello = true;
+  }
+  assert(rejected_legacy_hello);
+
+  auto future_hello = hello;
+  future_hello.protocol_version = kNoteProtocolVersion + 1;
+  bool rejected_future_hello = false;
+  try {
+    validate_note_hello(future_hello);
+  } catch (const KikoError&) {
+    rejected_future_hello = true;
+  }
+  assert(rejected_future_hello);
+
+  const std::string escaped_text(kNoteMaxBytes, '\1');
+  const auto escaped_round_trip = decode_note_frame(
+      encode_note_frame(make_note_update("main", 1, escaped_text, "Escaped", "writer-a")));
+  assert(escaped_round_trip.text == escaped_text);
+
+  bool oversized_pad_id = false;
+  try {
+    (void)encode_note_frame(make_note_update(std::string(kNoteMaxPadIdBytes + 1, 'p'), 1, "text"));
+  } catch (const KikoError&) {
+    oversized_pad_id = true;
+  }
+  assert(oversized_pad_id);
+
   NoteDocument document;
   auto first = make_note_update("main", 1, "hello");
   assert(apply_note_update(document, first));

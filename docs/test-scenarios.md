@@ -110,6 +110,9 @@ send a server URL as QR content.
 - Stop the Relay while both peers are waiting: both clients must fail promptly.
 - Enter a previously used code after the peer has closed: fail and require a
   fresh Host session.
+- Pair the current client with a pre-note-protocol-v2 client such as
+  `v0.2.11-alpha`: the current side must report an incompatible Notepad
+  protocol instead of reaching `synced`.
 
 ## Release Gate
 

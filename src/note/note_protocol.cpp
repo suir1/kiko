@@ -14,6 +14,8 @@ constexpr std::pair<NoteFrameType, const char*> kNoteFrameTypes[] = {
     {NoteFrameType::Clear, "clear"},   {NoteFrameType::Ack, "ack"},
     {NoteFrameType::Ping, "ping"},     {NoteFrameType::Bye, "bye"},
 };
+constexpr std::size_t kNoteCipherOverhead = crypto_aead_xchacha20poly1305_ietf_NPUBBYTES +
+                                             crypto_aead_xchacha20poly1305_ietf_ABYTES;
 
 std::string note_frame_type_name(NoteFrameType type) {
   for (const auto& [candidate, name] : kNoteFrameTypes) {
@@ -29,27 +31,38 @@ NoteFrameType parse_note_frame_type(const std::string& value) {
   throw KikoError("unknown note frame kind: " + value);
 }
 
+void validate_note_frame_fields(const NoteFrame& frame) {
+  if (frame.text.size() > kNoteMaxBytes) throw KikoError("note text exceeds 1 MiB limit");
+  if (frame.pad_id.size() > kNoteMaxPadIdBytes) throw KikoError("note pad id exceeds 128 byte limit");
+  if (frame.title.size() > kNoteMaxTitleBytes) throw KikoError("note title exceeds 256 byte limit");
+  if (frame.writer_id.size() > kNoteMaxWriterIdBytes) throw KikoError("note writer id exceeds 128 byte limit");
+}
+
 }  // namespace
 
 std::string encode_note_frame(const NoteFrame& frame) {
-  if (frame.text.size() > kNoteMaxBytes) throw KikoError("note text exceeds 1 MiB limit");
+  validate_note_frame_fields(frame);
   Message msg{"note",
               {{"kind", note_frame_type_name(frame.type)},
+               {"protocol_version", std::to_string(frame.protocol_version)},
                {"revision", std::to_string(frame.revision)},
                {"timestamp_ms", std::to_string(frame.timestamp_ms)},
                {"writer_id", frame.writer_id},
                {"pad_id", frame.pad_id.empty() ? "main" : frame.pad_id},
                {"title", frame.title},
                {"text", frame.text}}};
-  return encode_message(msg);
+  auto payload = encode_message(msg);
+  if (payload.size() > kNoteMaxWireBytes) throw KikoError("note frame exceeds wire size limit");
+  return payload;
 }
 
 NoteFrame decode_note_frame(const std::string& payload) {
-  if (payload.size() > kNoteMaxBytes + 256) throw KikoError("note frame exceeds size limit");
+  if (payload.size() > kNoteMaxWireBytes) throw KikoError("note frame exceeds wire size limit");
   auto msg = decode_message(payload);
   if (msg.type != "note") throw KikoError("unexpected note frame: " + msg.type);
   NoteFrame frame;
   frame.type = parse_note_frame_type(msg.get("kind"));
+  frame.protocol_version = msg.get_u64("protocol_version", 0);
   frame.revision = msg.get_u64("revision", 0);
   frame.timestamp_ms = msg.get_u64("timestamp_ms", 0);
   frame.writer_id = msg.get("writer_id");
@@ -57,7 +70,7 @@ NoteFrame decode_note_frame(const std::string& payload) {
   if (frame.pad_id.empty()) frame.pad_id = "main";
   frame.title = msg.get("title");
   frame.text = msg.get("text");
-  if (frame.text.size() > kNoteMaxBytes) throw KikoError("note text exceeds 1 MiB limit");
+  validate_note_frame_fields(frame);
   return frame;
 }
 
@@ -66,6 +79,15 @@ NoteFrame make_note_hello() {
   frame.type = NoteFrameType::Hello;
   frame.timestamp_ms = now_ms();
   return frame;
+}
+
+void validate_note_hello(const NoteFrame& frame) {
+  if (frame.type != NoteFrameType::Hello) throw KikoError("note peer did not send hello");
+  if (frame.protocol_version == kNoteProtocolVersion) return;
+  const auto peer_version = frame.protocol_version == 0 ? std::string("legacy")
+                                                        : std::to_string(frame.protocol_version);
+  throw KikoError("incompatible notepad protocol (peer=" + peer_version +
+                  ", local=" + std::to_string(kNoteProtocolVersion) + "); update kiko on both devices");
 }
 
 NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::string text, std::string title,
@@ -125,7 +147,7 @@ void send_note_frame(TcpSocket& socket, StreamCipher& cipher, const NoteFrame& f
 std::optional<NoteFrame> recv_note_frame_timeout(TcpSocket& socket, StreamCipher& cipher,
                                                  std::chrono::milliseconds timeout,
                                                  const std::atomic_bool* cancel) {
-  auto encrypted = recv_frame_timeout(socket, timeout, cancel);
+  auto encrypted = recv_frame_timeout(socket, timeout, cancel, kNoteMaxWireBytes + kNoteCipherOverhead);
   if (!encrypted) return std::nullopt;
   auto plain = cipher.decrypt(*encrypted);
   return decode_note_frame(std::string(plain.begin(), plain.end()));

@@ -1,6 +1,8 @@
 #include "note/note_session.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <limits>
 #include <optional>
 #include <utility>
 
@@ -9,6 +11,28 @@ namespace {
 
 constexpr auto kNoteReadPoll = std::chrono::milliseconds(100);
 constexpr auto kNoteHelloTimeout = std::chrono::seconds(20);
+
+bool is_note_edit(const NoteFrame& frame) {
+  return frame.type == NoteFrameType::Update || frame.type == NoteFrameType::Clear;
+}
+
+bool frames_coalesce(const NoteFrame& queued, const NoteFrame& incoming) {
+  if (queued.pad_id != incoming.pad_id) return false;
+  if (is_note_edit(queued) && is_note_edit(incoming)) return true;
+  return queued.type == NoteFrameType::Ack && incoming.type == NoteFrameType::Ack;
+}
+
+std::size_t queued_frame_bytes(const NoteFrame& frame) {
+  std::size_t total = sizeof(NoteFrame);
+  for (const auto capacity : {frame.writer_id.capacity(), frame.pad_id.capacity(), frame.title.capacity(),
+                              frame.text.capacity()}) {
+    if (capacity > std::numeric_limits<std::size_t>::max() - total) {
+      return std::numeric_limits<std::size_t>::max();
+    }
+    total += capacity;
+  }
+  return total;
+}
 
 }  // namespace
 
@@ -35,7 +59,12 @@ NoteSessionEnd NoteSession::run() {
     changed_.notify_all();
     stop_sender();
     close_channel();
-    if (sender_error_) std::rethrow_exception(sender_error_);
+    std::exception_ptr error;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      error = sender_error_;
+    }
+    if (error) std::rethrow_exception(error);
   };
   try {
     auto peer = open_peer_session(config_, reporter_);
@@ -45,7 +74,8 @@ NoteSessionEnd NoteSession::run() {
     send_note_frame(*channel, *cipher, make_note_hello());
     reporter_.status("notepad hello sent");
     auto hello = recv_note_frame_timeout(*channel, *cipher, kNoteHelloTimeout, cancellation_->flag());
-    if (!hello || hello->type != NoteFrameType::Hello) throw KikoError("note peer did not send hello");
+    if (!hello) throw KikoError("note peer did not send hello");
+    validate_note_hello(*hello);
     reporter_.status("notepad peer hello received");
 
     {
@@ -96,11 +126,58 @@ NoteSessionEnd NoteSession::run() {
 }
 
 bool NoteSession::queue_frame(NoteFrame frame) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (stop_.load()) return false;
-  outgoing_.push_back(std::move(frame));
+  bool overflow = false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stop_.load()) return false;
+
+    const auto frame_bytes = queued_frame_bytes(frame);
+    const auto queued = std::find_if(outgoing_.begin(), outgoing_.end(),
+                                     [&](const NoteFrame& candidate) { return frames_coalesce(candidate, frame); });
+    if (queued != outgoing_.end()) {
+      if (frame.revision < queued->revision) return true;
+      const auto queued_bytes = queued_frame_bytes(*queued);
+      const auto remaining_bytes = outgoing_bytes_ >= queued_bytes ? outgoing_bytes_ - queued_bytes : 0;
+      if (frame_bytes > kNoteOutboxMaxBytes || remaining_bytes > kNoteOutboxMaxBytes - frame_bytes) {
+        overflow = true;
+      } else {
+        *queued = std::move(frame);
+        outgoing_bytes_ = remaining_bytes + frame_bytes;
+      }
+    } else if (outgoing_.size() >= kNoteOutboxMaxFrames || frame_bytes > kNoteOutboxMaxBytes ||
+               outgoing_bytes_ > kNoteOutboxMaxBytes - frame_bytes) {
+      overflow = true;
+    } else {
+      outgoing_.push_back(std::move(frame));
+      outgoing_bytes_ += frame_bytes;
+    }
+
+    if (overflow) {
+      if (!sender_error_) {
+        sender_error_ = std::make_exception_ptr(KikoError("notepad send queue limit exceeded"));
+      }
+      stop_.store(true);
+    }
+  }
+
+  if (overflow) {
+    if (cancellation_) cancellation_->request();
+    interrupt_channel();
+    changed_.notify_all();
+    return false;
+  }
   changed_.notify_one();
   return true;
+}
+
+std::size_t NoteSession::pending_frame_count() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return outgoing_.size();
+}
+
+std::size_t NoteSession::pending_frame_bytes() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return outgoing_bytes_;
 }
 
 void NoteSession::request_stop() {
@@ -137,8 +214,10 @@ void NoteSession::sender_loop() {
         });
         if (stop_.load()) break;
         if (!channel_ || !cipher_ || outgoing_.empty()) continue;
+        const auto frame_bytes = queued_frame_bytes(outgoing_.front());
         frame = std::move(outgoing_.front());
         outgoing_.pop_front();
+        outgoing_bytes_ = outgoing_bytes_ >= frame_bytes ? outgoing_bytes_ - frame_bytes : 0;
         channel = channel_.get();
         cipher = cipher_.get();
       }

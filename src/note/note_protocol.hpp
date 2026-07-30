@@ -12,6 +12,11 @@
 namespace kiko {
 
 inline constexpr std::size_t kNoteMaxBytes = 1024 * 1024;
+inline constexpr std::size_t kNoteMaxPadIdBytes = 128;
+inline constexpr std::size_t kNoteMaxTitleBytes = 256;
+inline constexpr std::size_t kNoteMaxWriterIdBytes = 128;
+inline constexpr std::size_t kNoteMaxWireBytes = 6 * kNoteMaxBytes + 4096;
+inline constexpr std::uint64_t kNoteProtocolVersion = 2;
 
 enum class NoteFrameType {
   Hello,
@@ -24,6 +29,7 @@ enum class NoteFrameType {
 
 struct NoteFrame {
   NoteFrameType type = NoteFrameType::Update;
+  std::uint64_t protocol_version = kNoteProtocolVersion;
   std::uint64_t revision = 0;
   std::uint64_t timestamp_ms = 0;
   std::string writer_id;
@@ -44,6 +50,7 @@ struct NoteDocument {
 [[nodiscard]] std::string encode_note_frame(const NoteFrame& frame);
 [[nodiscard]] NoteFrame decode_note_frame(const std::string& payload);
 [[nodiscard]] NoteFrame make_note_hello();
+void validate_note_hello(const NoteFrame& frame);
 [[nodiscard]] NoteFrame make_note_update(std::string pad_id, std::uint64_t revision, std::string text,
                                          std::string title = {}, std::string writer_id = {});
 [[nodiscard]] NoteFrame make_note_clear(std::string pad_id, std::uint64_t revision, std::string title = {},

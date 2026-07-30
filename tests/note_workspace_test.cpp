@@ -64,16 +64,53 @@ int main() {
 
   ProgressReporter reporter;
   NoteSession session(PeerSessionConfig{}, reporter);
-  assert(session.update_active("session-owned"));
-  assert(session.active_document().text == "session-owned");
+  for (int i = 0; i < 1000; ++i) {
+    assert(session.update_active("session-owned-" + std::to_string(i)));
+  }
+  assert(session.active_document().text == "session-owned-999");
+  assert(session.pending_frame_count() == 1);
   assert(session.create_pad());
+  assert(session.pending_frame_count() == 2);
   assert(session.active_document().pad_id == "pad-2");
   assert(session.active_document().title == "Note 2");
+  assert(session.update_active("second-pad"));
+  assert(session.pending_frame_count() == 2);
   assert(session.select_pad("main"));
   assert(session.clear_active());
+  assert(session.pending_frame_count() == 2);
+  assert(session.pending_frame_bytes() <= kNoteOutboxMaxBytes);
   assert(session.active_document().text.empty());
   assert(session.snapshot().documents.size() == 2);
   session.request_stop();
+
+  NoteSession bounded_session(PeerSessionConfig{}, reporter);
+  const std::string full_note(kNoteMaxBytes, 'x');
+  bool queue_limit_reached = false;
+  for (int i = 0; i < 32; ++i) {
+    if (i > 0 && !bounded_session.create_pad()) {
+      queue_limit_reached = true;
+      break;
+    }
+    if (!bounded_session.update_active(full_note)) {
+      queue_limit_reached = true;
+      break;
+    }
+  }
+  assert(queue_limit_reached);
+  assert(bounded_session.pending_frame_bytes() <= kNoteOutboxMaxBytes);
+  bounded_session.request_stop();
+
+  NoteSession frame_bounded_session(PeerSessionConfig{}, reporter);
+  bool frame_limit_reached = false;
+  for (std::size_t i = 0; i <= kNoteOutboxMaxFrames; ++i) {
+    if (!frame_bounded_session.create_pad()) {
+      frame_limit_reached = true;
+      break;
+    }
+  }
+  assert(frame_limit_reached);
+  assert(frame_bounded_session.pending_frame_count() <= kNoteOutboxMaxFrames);
+  frame_bounded_session.request_stop();
 
   std::cout << "note workspace ok\n";
   return 0;
