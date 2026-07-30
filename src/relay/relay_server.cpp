@@ -11,6 +11,7 @@
 #include "core/socket.hpp"
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <iostream>
 #include <limits>
 #include <mutex>
@@ -103,16 +104,18 @@ class RelayStateImpl {
   std::mutex log_mutex_;
   std::chrono::steady_clock::time_point log_window_started_{std::chrono::steady_clock::now()};
   std::size_t logged_client_errors_ = 0;
+  std::mutex cleanup_mutex_;
+  std::condition_variable cleanup_wakeup_;
 
   void start_cleanup() {
     cleanup_thread_ = std::thread([this]() {
       while (!cleanup_stop_.load()) {
         const auto interval = config_.cleanup_interval.count() > 0 ? config_.cleanup_interval
                                                                    : std::chrono::seconds(60);
-        for (int i = 0; i < interval.count() && !cleanup_stop_.load(); ++i) {
-          std::this_thread::sleep_for(std::chrono::seconds(1));
+        {
+          std::unique_lock<std::mutex> lock(cleanup_mutex_);
+          if (cleanup_wakeup_.wait_for(lock, interval, [this] { return cleanup_stop_.load(); })) break;
         }
-        if (cleanup_stop_.load()) break;
         rooms_.purge_stale_waiting();
       }
     });
@@ -120,6 +123,7 @@ class RelayStateImpl {
 
   void stop_cleanup() {
     cleanup_stop_.store(true);
+    cleanup_wakeup_.notify_all();
     if (cleanup_thread_.joinable()) cleanup_thread_.join();
   }
 
