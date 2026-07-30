@@ -8,6 +8,7 @@
 #include "transfer/transfer_receive_paths.hpp"
 #include "transfer/transfer_stream.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -42,6 +43,13 @@ bool try_create_symlink(const fs::path& target, const fs::path& link_path) {
   std::error_code ec;
   fs::create_directories(link_path.parent_path());
   fs::create_symlink(target, link_path, ec);
+  return !ec;
+}
+
+bool try_create_directory_symlink(const fs::path& target, const fs::path& link_path) {
+  std::error_code ec;
+  fs::create_directories(link_path.parent_path());
+  fs::create_directory_symlink(target, link_path, ec);
   return !ec;
 }
 
@@ -664,7 +672,10 @@ int main() {
     auto link_src = root / "symlink-src" / "payload";
     auto link_dst = root / "symlink-out";
     write_file(link_src / "target.txt", "linked target\n");
+    write_file(link_src / "dir-target" / "nested.txt", "linked directory target\n");
     const bool symlink_supported = try_create_symlink("target.txt", link_src / "link.txt");
+    const bool directory_symlink_supported =
+        try_create_directory_symlink("dir-target", link_src / "dir-link");
 
     if (symlink_supported) {
       auto follow_files = collect_files(link_src);
@@ -675,6 +686,17 @@ int main() {
       if (!followed_as_file) {
         std::cerr << "FAIL: default symlink mode did not follow link contents\n";
         return 1;
+      }
+
+      if (directory_symlink_supported) {
+        const auto followed_directory = std::find_if(follow_files.begin(), follow_files.end(), [](const FileEntry& entry) {
+          return entry.relative == "payload/dir-link/nested.txt" && !entry.symlink;
+        });
+        if (followed_directory == follow_files.end() ||
+            read_file(followed_directory->absolute) != "linked directory target\n") {
+          std::cerr << "FAIL: default symlink mode did not follow directory link contents\n";
+          return 1;
+        }
       }
 
       CollectOptions preserve_opts;
@@ -689,6 +711,16 @@ int main() {
       if (!saw_symlink) {
         std::cerr << "FAIL: preserve mode did not collect symlink metadata\n";
         return 1;
+      }
+      if (directory_symlink_supported) {
+        const auto preserved_directory =
+            std::find_if(preserve_files.begin(), preserve_files.end(), [](const FileEntry& entry) {
+              return entry.relative == "payload/dir-link" && entry.symlink && entry.link_target == "dir-target";
+            });
+        if (preserved_directory == preserve_files.end()) {
+          std::cerr << "FAIL: preserve mode did not collect directory symlink metadata\n";
+          return 1;
+        }
       }
 
       bool s_failed = false;
@@ -719,6 +751,22 @@ int main() {
       const auto received_link = link_dst / "payload/link.txt";
       if (!is_symlink_path(received_link) || fs::read_symlink(received_link).generic_string() != "target.txt") {
         std::cerr << "FAIL: symlink target was not preserved\n";
+        return 1;
+      }
+    }
+
+    auto cycle_src = root / "symlink-cycle" / "payload";
+    write_file(cycle_src / "data.txt", "cycle-safe\n");
+    if (try_create_directory_symlink(".", cycle_src / "loop")) {
+      const auto cycle_files = collect_files(cycle_src);
+      const auto data_count = std::count_if(cycle_files.begin(), cycle_files.end(), [](const FileEntry& entry) {
+        return entry.relative == "payload/data.txt";
+      });
+      const auto followed_cycle = std::find_if(cycle_files.begin(), cycle_files.end(), [](const FileEntry& entry) {
+        return entry.relative.find("payload/loop/") == 0;
+      });
+      if (data_count != 1 || followed_cycle != cycle_files.end()) {
+        std::cerr << "FAIL: followed directory symlink cycle was not pruned\n";
         return 1;
       }
     }

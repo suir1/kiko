@@ -5,6 +5,8 @@
 #include "core/imohash.hpp"
 #include "transfer_receive_paths.hpp"
 
+#include <algorithm>
+
 namespace kiko {
 namespace {
 
@@ -48,17 +50,43 @@ std::vector<FileEntry> collect_files(const std::filesystem::path& path, const Co
     if (base.empty()) base = ".";
     GitIgnore gitignore;
     if (options.use_gitignore) gitignore = load_gitignore_stack(path);
-    for (auto it = std::filesystem::recursive_directory_iterator(path);
+    const bool follow_directory_symlinks = options.symlink_mode == SymlinkMode::Follow;
+    const auto directory_options = follow_directory_symlinks
+                                       ? std::filesystem::directory_options::follow_directory_symlink
+                                       : std::filesystem::directory_options::none;
+    std::vector<std::filesystem::path> canonical_ancestors;
+    if (follow_directory_symlinks) {
+      const auto canonical_root = std::filesystem::weakly_canonical(path, ec);
+      if (ec) throw KikoError("failed to resolve source directory: " + path.string() + ": " + ec.message());
+      canonical_ancestors.push_back(canonical_root);
+    }
+    for (auto it = std::filesystem::recursive_directory_iterator(path, directory_options);
          it != std::filesystem::recursive_directory_iterator(); ++it) {
+      if (follow_directory_symlinks) {
+        canonical_ancestors.resize(std::min(canonical_ancestors.size(),
+                                            static_cast<std::size_t>(it.depth()) + 1));
+      }
       const bool is_symlink = it->is_symlink(ec);
       if (ec) {
         ec.clear();
         continue;
       }
-      const bool is_directory = !is_symlink && it->is_directory(ec);
+      const bool is_directory = (!is_symlink || follow_directory_symlinks) && it->is_directory(ec);
       if (ec) {
         ec.clear();
         continue;
+      }
+      if (follow_directory_symlinks && is_directory) {
+        const auto canonical_directory = std::filesystem::weakly_canonical(it->path(), ec);
+        if (ec) {
+          throw KikoError("failed to resolve source directory: " + it->path().string() + ": " + ec.message());
+        }
+        if (std::find(canonical_ancestors.begin(), canonical_ancestors.end(), canonical_directory) !=
+            canonical_ancestors.end()) {
+          it.disable_recursion_pending();
+          continue;
+        }
+        canonical_ancestors.push_back(canonical_directory);
       }
       if (options.use_gitignore && gitignore.ignored(it->path(), is_directory)) {
         if (is_directory) it.disable_recursion_pending();
