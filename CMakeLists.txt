@@ -195,7 +195,7 @@ endif()
 
 if(WIN32)
   target_link_libraries(kiko_core PUBLIC ws2_32 iphlpapi)
-  target_compile_definitions(kiko_core PUBLIC _WIN32_WINNT=0x0601)
+  target_compile_definitions(kiko_core PUBLIC _WIN32_WINNT=0x0601 NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
 find_package(Threads REQUIRED)
