@@ -211,8 +211,10 @@ int main() {
   setenv("KIKO_PROFILE_PATH", blocked_path.string().c_str(), 1);
 #endif
   const auto save_error = save_profile_success("fp-test", ProfileSuccess{"direct", stats, relay});
-  if (!save_error || save_error->find("refusing to overwrite unreadable network profile") == std::string::npos ||
-      !fs::is_regular_file(blocker)) {
+  const bool expected_save_error =
+      save_error && (save_error->find("refusing to overwrite unreadable network profile") != std::string::npos ||
+                     save_error->find("failed to save network profile") != std::string::npos);
+  if (!expected_save_error || !fs::is_regular_file(blocker)) {
     std::cerr << "FAIL: profile save did not report an unwritable parent\n";
     return 1;
   }

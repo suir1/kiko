@@ -51,6 +51,26 @@ def raw_request(host: str, port: int, request: bytes) -> bytes:
         return client.recv(4096)
 
 
+def read_busy_response(host: str, port: int) -> bytes:
+    pending: list[socket.socket] = []
+    try:
+        for _ in range(4):
+            client = socket.create_connection((host, port), timeout=2)
+            client.settimeout(0.5)
+            try:
+                response = client.recv(4096)
+            except socket.timeout:
+                pending.append(client)
+                continue
+            client.close()
+            if b"503 Service Unavailable" in response:
+                return response
+        return b""
+    finally:
+        for client in pending:
+            client.close()
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         fail("usage: web_smoke.py /path/to/kiko")
@@ -119,7 +139,7 @@ def main() -> None:
                 client.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\nX-Stall: ")
                 blockers.append(client)
             time.sleep(0.3)
-            response = raw_request(host, port, b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            response = read_busy_response(host, port)
             if b"503 Service Unavailable" not in response:
                 fail("HTTP worker limit did not reject excess slow clients")
         finally:

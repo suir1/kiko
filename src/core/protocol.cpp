@@ -8,6 +8,7 @@ namespace kiko {
 namespace {
 
 constexpr char kMagic[4] = {'k', 'i', 'k', 'o'};
+constexpr auto kFrameCompletionTimeout = std::chrono::milliseconds(5000);
 
 void verify_magic(const std::uint8_t* header) {
   for (int i = 0; i < 4; ++i) {
@@ -75,14 +76,33 @@ std::optional<Bytes> recv_frame(TcpSocket& socket) {
 
 std::optional<Bytes> recv_frame_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
                                         const std::atomic_bool* cancel, std::size_t max_payload_bytes) {
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  return receive_frame(
-      [&](void* data, std::size_t size) {
-        const auto remaining =
-            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
-        return remaining.count() > 0 && socket.recv_exact_timeout(data, size, remaining, cancel);
-      },
-      max_payload_bytes);
+  std::uint8_t magic[4]{};
+  const auto first = socket.recv_some_timeout(magic, 1, timeout, cancel);
+  if (!first) return std::nullopt;
+
+  const auto completion_window = std::max(timeout, kFrameCompletionTimeout);
+  const auto deadline = std::chrono::steady_clock::now() + completion_window;
+  auto receive_remaining = [&](void* data, std::size_t size) {
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+    if (remaining.count() > 0 && socket.recv_exact_timeout(data, size, remaining, cancel)) return true;
+    // A timed-out partial frame cannot be resumed by the stateless caller without
+    // losing framing. Close it instead of parsing the next poll mid-frame.
+    socket.close();
+    return false;
+  };
+
+  if (!receive_remaining(magic + 1, sizeof(magic) - 1)) return std::nullopt;
+  verify_magic(magic);
+
+  std::uint32_t be_len = 0;
+  if (!receive_remaining(&be_len, sizeof(be_len))) return std::nullopt;
+  const auto len = ntohl(be_len);
+  if (len > max_payload_bytes) throw KikoError("received frame too large");
+
+  Bytes payload(len);
+  if (len > 0 && !receive_remaining(payload.data(), payload.size())) return std::nullopt;
+  return payload;
 }
 
 std::string encode_message(const Message& message) {

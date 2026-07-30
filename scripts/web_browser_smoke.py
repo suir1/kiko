@@ -105,6 +105,40 @@ def wait_for_idle(page, timeout: float = 8) -> None:
     )
 
 
+def browser_failure_diagnostics(page, url: str, children, web, relay) -> str:
+    details: list[str] = []
+    try:
+        job_url = url.replace("/?token=", "/api/job?token=", 1)
+        response = page.request.get(job_url, timeout=3000)
+        details.append("job=" + json.dumps(response.json(), sort_keys=True))
+    except Exception as exc:
+        details.append(f"job=<unavailable: {exc}>")
+    try:
+        dom = page.evaluate(
+            """() => ({
+              meta: document.getElementById('note-meta').textContent,
+              hint: document.getElementById('error-hint').textContent,
+              activity: document.getElementById('m-activity').textContent,
+              log: document.getElementById('log').textContent,
+              disabled: document.getElementById('note-text').disabled
+            })"""
+        )
+        details.append("dom=" + json.dumps(dom, sort_keys=True))
+    except Exception as exc:
+        details.append(f"dom=<unavailable: {exc}>")
+    process_states = [f"web={web.poll() if web else 'not-started'}", f"relay={relay.poll()}"]
+    process_states.extend(f"peer[{index}]={child.poll()}" for index, child in enumerate(children))
+    details.append("processes=" + ",".join(process_states))
+    for index, child in enumerate(children):
+        if child.poll() is None or child.stdout is None:
+            continue
+        try:
+            details.append(f"peer[{index}] output={child.stdout.read()}")
+        except Exception as exc:
+            details.append(f"peer[{index}] output=<unavailable: {exc}>")
+    return " | ".join(details)
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         fail("usage: web_browser_smoke.py /path/to/kiko /path/to/kiko-relayd")
@@ -126,6 +160,7 @@ def main() -> None:
     web: subprocess.Popen[str] | None = None
     children: list[subprocess.Popen[str]] = []
     stage = "startup"
+    timeout_diagnostics = ""
 
     try:
         time.sleep(0.2)
@@ -328,7 +363,7 @@ def main() -> None:
                     page.click("#note-new-pad")
                     page.get_by_role("button", name="Note 2", exact=True).wait_for(timeout=5000)
                     pad_text = "browser pad two"
-                    page.fill("#note-text", pad_text)
+                    page.fill("#note-text", pad_text, timeout=5000)
                     page.wait_for_function(
                         "text => document.getElementById('note-text').value === text",
                         arg=pad_text,
@@ -409,10 +444,13 @@ def main() -> None:
 
                     if page_errors:
                         fail("page error: " + page_errors[0])
+                except PlaywrightTimeoutError:
+                    timeout_diagnostics = browser_failure_diagnostics(page, url, children, web, relay)
+                    raise
                 finally:
                     context.close()
     except PlaywrightTimeoutError as exc:
-        fail(f"browser smoke timed out during {stage}: {exc}")
+        fail(f"browser smoke timed out during {stage}: {exc} | {timeout_diagnostics}")
     finally:
         for child in reversed(children):
             stop_interactive(child)

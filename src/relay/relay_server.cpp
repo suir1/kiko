@@ -36,30 +36,31 @@ struct RouteChoiceRead {
   Message message;
 };
 
-RouteChoiceRead recv_route_choice_if_ready(TcpSocket& socket) {
+RouteChoiceRead recv_route_choice_if_ready(TcpSocket& socket, const std::atomic_bool* cancel) {
   const auto fd = socket.native_handle();
   if (!net_socket_valid(fd)) return {RouteChoiceRead::Kind::Closed, {}};
   const int poll = net_poll(fd, /*want_read=*/true, /*want_write=*/false, 0);
   if (poll == 0) return {};
   if (poll < 0) return {RouteChoiceRead::Kind::Closed, {}};
-  auto message = recv_message_timeout(socket, kRouteFrameReadTimeout, nullptr, kMaxRelayControlFrameBytes);
+  auto message = recv_message_timeout(socket, kRouteFrameReadTimeout, cancel, kMaxRelayControlFrameBytes);
   if (!message) return {RouteChoiceRead::Kind::Closed, {}};
   return {RouteChoiceRead::Kind::Message, std::move(*message)};
 }
 
-RelayRouteDecision wait_route_decision(TcpSocket& first, TcpSocket& second) {
+RelayRouteDecision wait_route_decision(TcpSocket& first, TcpSocket& second, const std::atomic_bool* cancel) {
   RelayRouteChoice first_choice = RelayRouteChoice::Waiting;
   RelayRouteChoice second_choice = RelayRouteChoice::Waiting;
   const auto deadline = std::chrono::steady_clock::now() + kRouteChoiceTimeout;
 
   while (std::chrono::steady_clock::now() < deadline) {
-    const auto first_read = recv_route_choice_if_ready(first);
+    if (cancel && cancel->load()) return {RelayRouteDecision::Kind::Invalid, {}};
+    const auto first_read = recv_route_choice_if_ready(first, cancel);
     if (first_read.kind == RouteChoiceRead::Kind::Message) {
       merge_relay_route_choice(first_choice, relay_route_choice_from(first_read.message));
     } else if (first_read.kind == RouteChoiceRead::Kind::Closed) {
       merge_relay_route_choice(first_choice, RelayRouteChoice::Invalid);
     }
-    const auto second_read = recv_route_choice_if_ready(second);
+    const auto second_read = recv_route_choice_if_ready(second, cancel);
     if (second_read.kind == RouteChoiceRead::Kind::Message) {
       merge_relay_route_choice(second_choice, relay_route_choice_from(second_read.message));
     } else if (second_read.kind == RouteChoiceRead::Kind::Closed) {
@@ -268,13 +269,16 @@ void send_message_best_effort(TcpSocket& socket, const Message& message) {
   }
 }
 
-void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& state) {
+void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& state,
+                   const std::atomic_bool* cancel) {
   std::string active_room;
   try {
-    auto first = recv_message_timeout(socket, kControlReadTimeout, nullptr, kMaxRelayControlFrameBytes);
+    auto first = recv_message_timeout(socket, kControlReadTimeout, cancel, kMaxRelayControlFrameBytes);
+    if (cancel && cancel->load()) return;
     if (first && first->type == "ping") {
       send_message(socket, Message{"pong", {{"version", kVersion}}});
-      first = recv_message_timeout(socket, kControlReadTimeout, nullptr, kMaxRelayControlFrameBytes);
+      first = recv_message_timeout(socket, kControlReadTimeout, cancel, kMaxRelayControlFrameBytes);
+      if (cancel && cancel->load()) return;
       if (!first) return;
     }
     if (first && first->type == "punch_probe") {
@@ -350,7 +354,7 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
 
     send_peer_messages(*other, self);
 
-    const auto decision = wait_route_decision(other->socket, self.socket);
+    const auto decision = wait_route_decision(other->socket, self.socket, cancel);
     if (decision.kind == RelayRouteDecision::Kind::Direct) {
       send_message(other->socket, Message{"direct_start", {}});
       send_message(self.socket, Message{"direct_start", {}});
@@ -376,6 +380,7 @@ void handle_client(TcpSocket socket, const std::shared_ptr<RelayStateImpl>& stat
 struct RelayClientWorker {
   std::thread thread;
   std::shared_ptr<std::atomic_bool> done;
+  std::shared_ptr<std::atomic_bool> cancel;
   SocketInterruptHandle interrupt;
 };
 
@@ -407,14 +412,16 @@ bool start_client_worker(TcpSocket& socket, const std::shared_ptr<RelayStateImpl
   if (workers.size() >= limit) return false;
 
   auto done = std::make_shared<std::atomic_bool>(false);
+  auto cancel = std::make_shared<std::atomic_bool>(false);
   auto interrupt = socket.interrupt_handle();
   workers.emplace_back();
   auto& worker = workers.back();
   worker.done = done;
+  worker.cancel = cancel;
   worker.interrupt = std::move(interrupt);
   try {
-    worker.thread = std::thread([socket = std::move(socket), state, done]() mutable {
-      handle_client(std::move(socket), state);
+    worker.thread = std::thread([socket = std::move(socket), state, done, cancel]() mutable {
+      handle_client(std::move(socket), state, cancel.get());
       done->store(true, std::memory_order_release);
     });
   } catch (...) {
@@ -508,7 +515,10 @@ void BackgroundRelay::stop() {
       std::lock_guard<std::mutex> lock(impl_->client_mutex);
       client_workers.swap(impl_->client_workers);
     }
-    for (const auto& worker : client_workers) worker.interrupt.interrupt();
+    for (const auto& worker : client_workers) {
+      worker.cancel->store(true, std::memory_order_release);
+      worker.interrupt.interrupt();
+    }
     for (auto& worker : client_workers) {
       if (worker.thread.joinable()) worker.thread.join();
     }

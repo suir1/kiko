@@ -248,11 +248,12 @@ int main() {
 
     auto accepted = listener.accept(std::chrono::seconds(2));
     const auto start = std::chrono::steady_clock::now();
-    const auto frame = recv_frame_timeout(accepted, std::chrono::milliseconds(200));
+    const auto frame = recv_frame_timeout(accepted, std::chrono::milliseconds(100));
     const auto elapsed = std::chrono::steady_clock::now() - start;
     writer.join();
-    if (writer_failed || frame || elapsed >= std::chrono::milliseconds(275)) {
-      std::cerr << "FAIL: frame timeout was reset between header and payload reads\n";
+    if (writer_failed || !frame || frame->size() != 1 || frame->front() != 0x42 ||
+        elapsed >= std::chrono::seconds(1)) {
+      std::cerr << "FAIL: a started frame did not retain framing through a short read gap\n";
       return 1;
     }
   }

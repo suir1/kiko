@@ -29,6 +29,9 @@ struct Message {
 
 void send_frame(TcpSocket& socket, const Bytes& payload);
 [[nodiscard]] std::optional<Bytes> recv_frame(TcpSocket& socket);
+// timeout limits the idle wait for a frame to start. Once bytes arrive, the
+// receiver uses a bounded completion window so a partial frame cannot desync
+// the next polling read.
 [[nodiscard]] std::optional<Bytes> recv_frame_timeout(TcpSocket& socket, std::chrono::milliseconds timeout,
                                                       const std::atomic_bool* cancel = nullptr,
                                                       std::size_t max_payload_bytes = kMaxFramePayloadBytes);

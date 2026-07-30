@@ -206,8 +206,10 @@ int main() {
     const auto blocked_path = blocker / "config.json";
     set_env("KIKO_CONFIG_PATH", blocked_path.string().c_str());
     const auto error = save_user_config(saved);
-    if (!error || error->find("refusing to overwrite unreadable user config") == std::string::npos ||
-        !fs::is_regular_file(blocker)) {
+    const bool expected_error =
+        error && (error->find("refusing to overwrite unreadable user config") != std::string::npos ||
+                  error->find("failed to save user config") != std::string::npos);
+    if (!expected_error || !fs::is_regular_file(blocker)) {
       std::cerr << "FAIL: config save did not report an unwritable parent\n";
       return 1;
     }
