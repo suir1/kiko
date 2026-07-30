@@ -127,8 +127,13 @@ def main() -> None:
         host = endpoint.hostname or "127.0.0.1"
         port = endpoint.port or 80
         oversized = b"GET / HTTP/1.1\r\nHost: localhost\r\nX-Large: " + b"a" * (33 * 1024)
-        response = raw_request(host, port, oversized)
-        if b"400 Bad Request" not in response:
+        try:
+            response = raw_request(host, port, oversized)
+        except (ConnectionResetError, ConnectionAbortedError):
+            # Windows may reset a rejected connection that still has unread
+            # request bytes, discarding the best-effort 400 response.
+            response = b""
+        if response and b"400 Bad Request" not in response:
             fail("oversized HTTP headers were not rejected")
 
         time.sleep(0.2)
