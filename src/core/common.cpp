@@ -7,7 +7,6 @@
 #include <cstring>
 #include <iomanip>
 #include <limits>
-#include <random>
 #include <sstream>
 
 namespace kiko {
@@ -174,20 +173,6 @@ std::size_t count_global_ipv6_addresses(const std::vector<std::string>& hosts) {
     ++count;
   }
   return count;
-}
-
-std::string random_code(std::size_t bytes) {
-  static constexpr char alphabet[] = "23456789abcdefghijkmnpqrstuvwxyz";
-  std::random_device rd;
-  std::mt19937_64 rng(rd());
-  std::uniform_int_distribution<std::size_t> dist(0, sizeof(alphabet) - 2);
-
-  std::string out;
-  out.reserve(bytes * 2);
-  for (std::size_t i = 0; i < bytes * 2; ++i) {
-    out.push_back(alphabet[dist(rng)]);
-  }
-  return out;
 }
 
 namespace {

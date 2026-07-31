@@ -1,5 +1,6 @@
 #include "transfer_receive_paths.hpp"
 
+#include "core/random.hpp"
 #include "platform/atomic_file.hpp"
 
 #include <fstream>

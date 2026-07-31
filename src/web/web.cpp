@@ -1,6 +1,7 @@
 #include "web.hpp"
 
 #include "core/qrcode_print.hpp"
+#include "core/random.hpp"
 #include "diagnostics/doctor.hpp"
 #include "note/notepad.hpp"
 #include "platform/native_picker.hpp"
@@ -24,7 +25,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <random>
 #include <sstream>
 #include <thread>
 
@@ -763,11 +763,7 @@ class WebServer : public std::enable_shared_from_this<WebServer> {
 }  // namespace
 
 std::string generate_web_token() {
-  std::random_device rd;
-  std::uniform_int_distribution<int> dist(0, 255);
-  Bytes bytes(24);
-  for (auto& b : bytes) b = static_cast<std::uint8_t>(dist(rd));
-  return hex_encode(bytes);
+  return secure_random_hex(24);
 }
 
 int run_web_console(const WebOptions& options) {

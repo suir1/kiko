@@ -30,6 +30,7 @@ set(KIKO_CORE_LAYER_SOURCES
   src/core/protocol.cpp
   src/core/proxy.cpp
   src/core/qrcode_print.cpp
+  src/core/random.cpp
   src/core/socket.cpp
 )
 
@@ -272,6 +273,7 @@ function(kiko_add_core_test name source)
 endfunction()
 
 kiko_add_core_test(common tests/common_test.cpp)
+kiko_add_core_test(random tests/random_test.cpp)
 kiko_add_core_test(doctor tests/doctor_test.cpp)
 kiko_add_core_test(handshake tests/handshake_test.cpp)
 kiko_add_core_test(gitignore tests/gitignore_test.cpp)

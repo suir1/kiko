@@ -1,6 +1,7 @@
 #include "platform/atomic_file.hpp"
 
 #include "core/common.hpp"
+#include "core/random.hpp"
 
 #include <algorithm>
 #include <cerrno>

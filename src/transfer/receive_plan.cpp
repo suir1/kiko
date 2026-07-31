@@ -1,5 +1,6 @@
 #include "receive_plan.hpp"
 
+#include "core/random.hpp"
 #include "transfer_receive_paths.hpp"
 #include "transfer_resume.hpp"
 

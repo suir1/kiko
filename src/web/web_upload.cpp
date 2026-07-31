@@ -1,11 +1,11 @@
 #include "web/web_upload.hpp"
 
-#include <array>
+#include "core/random.hpp"
+
 #include <fstream>
 #include <limits>
 #include <map>
 #include <mutex>
-#include <random>
 #include <utility>
 
 namespace kiko {
@@ -14,16 +14,7 @@ namespace {
 constexpr std::size_t kMaxUploadChunkBytes = 768 * 1024;
 
 std::string random_id() {
-  static constexpr char hex[] = "0123456789abcdef";
-  std::random_device random;
-  std::uniform_int_distribution<int> distribution(0, 255);
-  std::string out(32, '0');
-  for (std::size_t i = 0; i < out.size(); i += 2) {
-    const auto value = static_cast<unsigned int>(distribution(random));
-    out[i] = hex[(value >> 4) & 0x0f];
-    out[i + 1] = hex[value & 0x0f];
-  }
-  return out;
+  return secure_random_hex(16);
 }
 
 std::optional<std::filesystem::path>

@@ -14,17 +14,6 @@ namespace {
 using Point = std::array<std::uint8_t, crypto_core_ristretto255_BYTES>;
 using Scalar = std::array<std::uint8_t, crypto_core_ristretto255_SCALARBYTES>;
 
-struct SodiumInit {
-  SodiumInit() {
-    if (sodium_init() < 0) throw KikoError("libsodium init failed");
-  }
-};
-
-const SodiumInit& sodium_ready() {
-  static const SodiumInit init;
-  return init;
-}
-
 Point hash_to_point(const char* label) {
   std::array<std::uint8_t, 64> hash{};
   crypto_generichash(hash.data(), hash.size(), reinterpret_cast<const unsigned char*>(label), std::strlen(label), nullptr, 0);
@@ -92,7 +81,7 @@ std::string room_token(const std::string& code) {
 }
 
 SessionKey perform_handshake(TcpSocket& channel, Role role, const std::string& code) {
-  sodium_ready();
+  ensure_sodium_ready();
 
   // CPace-style compact PAKE over Ristretto255 (HashToElement + two-sided SPAKE2 masks).
   const auto point_m = hash_to_point("kiko-cpace-M");

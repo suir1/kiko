@@ -11,6 +11,8 @@ namespace kiko {
 
 using SessionKey = std::array<std::uint8_t, 32>;
 
+void ensure_sodium_ready();
+
 // XChaCha20-Poly1305 session cipher. Each message carries a random 24-byte nonce.
 // Per-direction and per-stream subkeys prevent nonce reuse across peers and mux channels.
 class StreamCipher {

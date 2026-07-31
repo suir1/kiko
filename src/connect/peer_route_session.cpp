@@ -9,6 +9,7 @@
 #include "core/cancellation.hpp"
 #include "core/network_interfaces.hpp"
 #include "core/pake.hpp"
+#include "core/random.hpp"
 #include "diagnostics/network_probe.hpp"
 #include "diagnostics/outbound_policy.hpp"
 #include "relay/relay_race.hpp"

@@ -1,5 +1,6 @@
 #include "transfer.hpp"
 
+#include "core/random.hpp"
 #include "connect/peer_route_session.hpp"
 #include "connect/rendezvous_session.hpp"
 #include "connect/route_planner.hpp"

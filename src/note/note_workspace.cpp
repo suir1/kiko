@@ -1,6 +1,6 @@
 #include "note/note_workspace.hpp"
 
-#include "core/common.hpp"
+#include "core/random.hpp"
 
 #include <algorithm>
 #include <utility>

@@ -1,5 +1,6 @@
 #include "web/web_upload.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <filesystem>
@@ -16,6 +17,10 @@ int main() {
   const std::string content(700 * 1024, 'k');
   const auto id = uploads.start("../picked.txt", content.size(), error);
   assert(id);
+  assert(id->size() == 32);
+  assert(std::all_of(id->begin(), id->end(), [](const char value) {
+    return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f');
+  }));
 
   assert(uploads.append(*id, 0, std::string_view(content).substr(0, 512 * 1024),
                         error));

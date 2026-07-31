@@ -30,6 +30,10 @@ SessionKey derive_subkey(const SessionKey& key, const std::string& info) {
 
 }  // namespace
 
+void ensure_sodium_ready() {
+  (void)sodium_ready();
+}
+
 Bytes sha256(std::span<const std::uint8_t> input) {
   sodium_ready();
   Bytes digest(crypto_hash_sha256_BYTES);

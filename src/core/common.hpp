@@ -57,9 +57,6 @@ enum class IpAddressScope { Unknown, Loopback, LinkLocal, Private, UniqueLocal, 
 [[nodiscard]] bool is_global_ipv6_address(std::string_view host);
 [[nodiscard]] std::size_t count_global_ipv6_addresses(const std::vector<std::string>& hosts);
 
-// Short pairing code: `bytes * 2` chars from an unambiguous alphabet (default 6).
-std::string random_code(std::size_t bytes = 3);
-
 // Normalizes user-entered pairing codes for copy/paste and case-insensitive entry.
 [[nodiscard]] std::string normalize_pairing_code(const std::string& code);
 // Returns an error message when the pairing code format is invalid.
